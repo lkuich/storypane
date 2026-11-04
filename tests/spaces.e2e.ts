@@ -120,7 +120,7 @@ test('space locales appear on stories and rename without replacing their content
     await page.getByRole('navigation',{ name:'Main navigation' }).getByRole('button',{ name:'Content',exact:true }).click()
     await page.getByRole('button',{ name:'Home',exact:true }).click()
     await page.getByRole('tab',{ name:'French fr',exact:true }).click()
-    await expect(page.getByRole('complementary',{ name:'Block outline' }).locator('.tree-item')).toHaveCount(1)
+    await expect(page.getByRole('region',{ name:'Block editor' }).locator('.block-list-item')).toHaveCount(0)
     await page.getByRole('textbox',{ name:/^Page title/ }).fill('Bonjour')
     await expect(page.getByText('All changes saved',{ exact:true })).toBeVisible()
     const [story] = await (await page.request.get('/api/cms/stories',{ headers })).json() as Story[]

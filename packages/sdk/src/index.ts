@@ -31,7 +31,7 @@ export function createBlokClient(options: BlokClientOptions) {
       return request<{ stories:BlokStory<T>[]; nextOffset:number | null }>('stories', { locale:query.locale ?? '', limit:String(query.limit ?? 50), offset:String(query.offset ?? 0) }, init);
     },
     /** Server-side only: this client must hold a preview token, never a published token. */
-    createPreviewSession(reference:StoryReference) {
+    createPreviewSession(reference:StoryReference & { previewId?:string }) {
       return request<PreviewSession>('preview', {}, { method:'POST', body:JSON.stringify(reference), cache:'no-store' });
     },
   };

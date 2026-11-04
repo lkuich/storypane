@@ -22,22 +22,23 @@ import { api, ApiError, errorMessage, jsonRequest } from "./api";
 
 export function useStoryEditor({
   storyId,
-  localeId,
+  initialSnapshot,
   userId,
   sessionId,
   spaceId,
 }: {
   storyId: string;
-  localeId: string;
+  initialSnapshot: LocaleSnapshot;
   userId: string;
   sessionId: string;
   spaceId: string;
 }) {
+  const localeId = initialSnapshot.locale.id;
   const base = `/stories/${storyId}/locales/${localeId}`;
   const storageKey = `blok:drafts:${userId}:${spaceId}:${storyId}:${localeId}`;
-  const [snapshot, setSnapshot] = useState<LocaleSnapshot | null>(null);
-  const snapshotRef = useRef<LocaleSnapshot | null>(null);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [snapshot, setSnapshot] = useState<LocaleSnapshot>(initialSnapshot);
+  const snapshotRef = useRef<LocaleSnapshot | null>(initialSnapshot);
+  const [selectedId, setSelectedId] = useState<string | null>(initialSnapshot.locale.rootBlockId);
   const selectedRef = useRef<string | null>(null);
   const [buffers, setBuffers] = useState<DraftBuffers>({});
   const buffersRef = useRef<DraftBuffers>({});
@@ -175,6 +176,10 @@ export function useStoryEditor({
         jsonRequest("POST", { blockId }),
       )
         .then((lease) => {
+          if (!active.current) {
+            void api(`${base}/leases`, jsonRequest("DELETE", { blockId, token: lease.token })).catch(() => undefined);
+            return lease;
+          }
           leases.current[blockId] = lease;
           if (active.current) setLeaseRevision((value) => value + 1);
           return lease;
@@ -557,52 +562,49 @@ export function useStoryEditor({
     } catch {
       /* Browser storage may be unavailable; new edits remain in memory. */
     }
+    acceptSnapshot(initialSnapshot);
     let socket: WebSocket | null = null;
     let reconnect: ReturnType<typeof setTimeout> | undefined;
     let stopped = false;
     async function connect() {
-      if (stopped || !navigator.onLine) return;
-      setConnection("connecting");
-      try {
-        await sync();
-      } catch (error) {
-        if (!stopped) {
-          setError(errorMessage(error));
-          setConnection("disconnected");
-          reconnect = setTimeout(connect, 3000);
-        }
-        return;
-      }
       if (stopped) return;
+      if (!navigator.onLine) { setConnection("disconnected"); return; }
+      setConnection("connecting");
       const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-      socket = new WebSocket(
+      const currentSocket = new WebSocket(
         `${protocol}//${window.location.host}${spaceUrl(`/api/cms${base}/live`)}`,
       );
-      socket.onopen = async () => {
-        if (stopped) return;
+      socket = currentSocket;
+      currentSocket.onopen = async () => {
+        if (stopped || socket !== currentSocket) return;
         connected.current = true;
-        setConnection("connected");
         setError(null);
         try {
           await sync();
+          if (stopped) return;
           if (selectedRef.current) await acquire(selectedRef.current);
+          if (stopped) return;
           await retry();
         } catch (error) {
-          if (!(error instanceof ApiError && error.code === "locked"))
+          if (!stopped && !(error instanceof ApiError && error.code === "locked"))
             setError(errorMessage(error));
+        } finally {
+          if (!stopped && socket === currentSocket && currentSocket.readyState === WebSocket.OPEN) setConnection("connected");
         }
       };
-      socket.onmessage = () => {
+      currentSocket.onmessage = () => {
+        if (stopped || socket !== currentSocket) return;
         void sync().catch((error) => setError(errorMessage(error)));
       };
-      socket.onclose = () => {
+      currentSocket.onclose = () => {
+        if (stopped || socket !== currentSocket) return;
         connected.current = false;
         if (!stopped) {
           setConnection("disconnected");
           reconnect = setTimeout(connect, 1500);
         }
       };
-      socket.onerror = () => socket?.close();
+      currentSocket.onerror = () => currentSocket.close();
     }
     const offline = () => {
       connected.current = false;
@@ -673,7 +675,7 @@ export function useStoryEditor({
             keepalive: true,
           }).catch(() => undefined);
     };
-  }, [base, storageKey, acquire, retry, sync, setBlockError]);
+  }, [base, storageKey, acquire, retry, sync, setBlockError, initialSnapshot, acceptSnapshot]);
 
   const selected =
     snapshot?.blocks.find((block) => block.id === selectedId) ?? null;

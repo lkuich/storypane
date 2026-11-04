@@ -16,7 +16,7 @@ function render(story) {
   }
   document.getElementById('content').replaceChildren(block(story.content));
 }
-connectPreview({ cmsUrl, spaceId, story:{ id:initial.id,locale:initial.locale },
+connectPreview({ cmsUrl, spaceId, story:{ id:initial.id,locale:new URL(location.href).searchParams.get('locale') ?? initial.locale },
   mode:{ query:{ name:'review',value:'1' }, cookie:{ name:'fixture_preview',value:'allowed' } },
   getSession: window.parent === window ? async () => { const response = await fetch('/session',{ method:'POST' }); if (!response.ok) throw new Error('Sign in to preview'); return response.json(); } : undefined,
   onChange:render, onStatus:(status,error) => { document.getElementById('status').textContent = error?.message ?? status; }

@@ -57,3 +57,19 @@ it('rejects invalid identifiers, collisions, fields, and missing nested schema r
   expect(() => generateTypes({ components:[{ name:'injected' }] })).toThrow();
   expect(generateTypes({ components:[] })).toContain('export type BlokComponent = never;');
 });
+it('generates tag-restricted unions, including never when no nestable block matches',() => {
+  const tagged = structuredClone(schema);
+  tagged.components[0].tags = ['layout'];
+  tagged.components[1].tags = ['layout'];
+  tagged.components[0].fields = [{ name:'body',type:'blocks',allowedTags:['layout','marketing'] }];
+  expect(generateTypes(tagged)).toContain('"body": Array<HeroBlok>');
+  tagged.components[1].tags = [];
+  expect(generateTypes(tagged)).toContain('"body": Array<never>');
+  tagged.components[0].fields[0].allowedTags = [];
+  expect(generateTypes(tagged)).toContain('"body": BlokNestable[]');
+  tagged.components[0].fields[0].allowedTags = [''];
+  expect(() => generateTypes(tagged)).toThrow();
+  tagged.components[0].fields[0].allowedTags = ['layout'];
+  tagged.components[1].tags = ['layout','layout'];
+  expect(() => generateTypes(tagged)).toThrow();
+});

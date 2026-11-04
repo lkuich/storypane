@@ -7,6 +7,7 @@ import { Button, EmptyState, ErrorNotice, Loading, Modal } from '@blok/ui'
 import type { CMSSession } from '../../components/cms-app'
 import { errorMessage, jsonRequest, requestJson } from '../editor/api'
 import './spaces.css'
+import { ThemePicker } from '../../components/theme-picker'
 
 export function SpacesScreen({ user }: { user: CMSSession['user'] }) {
   const [spaces, setSpaces] = useState<Space[]>([])
@@ -27,7 +28,7 @@ export function SpacesScreen({ user }: { user: CMSSession['user'] }) {
     <header className="spaces-header">
       <a className="brand-lockup" href="/" aria-label="Blok home"><span className="brand-mark"><Boxes aria-hidden="true" /></span><span className="brand-name">blok<span className="brand-period">.</span></span></a>
       <span className="spaces-header-label"><Building2 aria-hidden="true" />Spaces</span>
-      <div className="spaces-account"><span className="avatar" aria-hidden="true">{user.name.slice(0, 1).toUpperCase()}</span><div><strong>{user.name}</strong><span>{user.email}</span></div><Button variant="ghost" className="icon-button" aria-label="Sign out" onClick={async () => {
+      <div className="spaces-account"><ThemePicker /><span className="avatar" aria-hidden="true">{user.name.slice(0, 1).toUpperCase()}</span><div><strong>{user.name}</strong><span>{user.email}</span></div><Button variant="ghost" className="icon-button" aria-label="Sign out" onClick={async () => {
         try { await requestJson('/api/auth/sign-out', jsonRequest('POST', {})); window.location.reload() }
         catch (cause) { setError(errorMessage(cause)) }
       }}><LogOut aria-hidden="true" /></Button></div>

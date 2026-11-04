@@ -35,6 +35,10 @@ beforeAll(async () => {
   const legacySpace = await pool.query("INSERT INTO spaces(name) VALUES('Before upgrade') RETURNING id")
   const legacyStory = await pool.query("INSERT INTO stories(space_id,name,slug) VALUES($1,'Legacy','legacy') RETURNING id", [legacySpace.rows[0].id])
   await pool.query("INSERT INTO story_locales(id,story_id,slug,name,url_slug,root_block_id) VALUES($1,$2,'fr','French','bonjour',$3)", [legacyLocaleId,legacyStory.rows[0].id,randomUUID()])
+  await pool.query(await readFile(new URL('../migrations/003_delivery_preview.sql', import.meta.url), 'utf8'))
+  await pool.query("UPDATE spaces SET preview_url='http://localhost:3132/{slug}' WHERE id=$1", [legacySpace.rows[0].id])
+  await pool.query('CREATE TABLE blok_migrations(name text PRIMARY KEY, applied_at timestamptz NOT NULL DEFAULT now())')
+  await pool.query("INSERT INTO blok_migrations(name) VALUES('003_delivery_preview')")
   await migrate(pool)
   await migrate(pool)
   await pool.query(`INSERT INTO "session" VALUES('alice-session','alice',now()+interval '1 hour'),('bob-session','bob',now()+interval '1 hour')`)
@@ -52,6 +56,13 @@ beforeEach(async () => {
 afterAll(async () => { await pool.end(); await admin.query(`DROP SCHEMA ${schemaName} CASCADE`); await admin.end() })
 
 describe('Postgres collaboration and immutable history', () => {
+  it('reads a story by ID only within the authorized space', async () => {
+    expect(await store.getStory(alice, snapshot.story.id)).toEqual(snapshot.story)
+    await expect(store.getStory(alice, 'not-an-id')).rejects.toMatchObject({ code: 'invalid' })
+    await expect(store.getStory(alice, randomUUID())).rejects.toMatchObject({ code: 'not_found' })
+    const other = await store.createSpace(alice, { name: 'Different workspace' })
+    await expect(store.getStory({ ...alice, spaceId: other.id }, snapshot.story.id)).rejects.toMatchObject({ code: 'not_found' })
+  })
   it('backfills existing story locales without changing their IDs or page slugs', async () => {
     const { rows } = await pool.query('SELECT l.id,l.slug,l.url_slug,c.name,c.slug AS configured_slug FROM story_locales l JOIN space_locales c ON c.id=l.space_locale_id WHERE l.id=$1',[legacyLocaleId])
     expect(rows).toEqual([{ id:legacyLocaleId,slug:'fr',url_slug:'bonjour',name:'French',configured_slug:'fr' }])
@@ -126,7 +137,8 @@ describe('Postgres collaboration and immutable history', () => {
     await expect(store.publishedStories(key.token,alice.spaceId,{})).rejects.toMatchObject({ code:'unauthenticated' })
   })
   it('binds read-only preview sessions to their origin, locale, expiry, and current authorization', async () => {
-    await store.updateDeliverySettings(alice,{ previewUrl:'http://localhost:3131/{locale}/{slug}',previewParameter:'review' })
+    const previewId = randomUUID()
+    await store.updateDeliverySettings(alice,{ previewUrls:[{ id:previewId,name:'Local',url:'http://localhost:3131/{locale}/{slug}' }],defaultPreviewId:previewId,previewParameter:'review' })
     const session = await store.createEditorPreview(bob,snapshot.story.id,snapshot.locale.id)
     await expect(store.authenticatePreview(session.token,'https://evil.test')).rejects.toMatchObject({ code:'unauthenticated' })
     const connection = await store.authenticatePreview(session.token,'http://localhost:3131')
@@ -146,6 +158,32 @@ describe('Postgres collaboration and immutable history', () => {
     const renewedConnection = await store.authenticatePreview(renewed.token,'http://localhost:3131')
     await store.revokeDeliveryToken(alice,key.id)
     await expect(store.previewStory(renewedConnection.id)).rejects.toMatchObject({ code:'unauthenticated' })
+  })
+  it('preserves legacy preview URLs and scopes selected preview sessions to configured targets', async () => {
+    const legacy = (await pool.query("SELECT preview_urls,default_preview_id FROM spaces WHERE name='Before upgrade'")).rows[0]
+    expect(legacy.preview_urls).toEqual([{ id:legacy.default_preview_id,name:'Default',url:'http://localhost:3132/{slug}' }])
+    expect(await store.getDeliverySettings(alice)).toEqual({ previewUrls:[],defaultPreviewId:null,previewParameter:'blok_preview' })
+    const local = { id:randomUUID(),name:'Local',url:'http://localhost:3131/{locale}/{slug}' }
+    const staging = { id:randomUUID(),name:'Staging',url:'https://staging.example.com/{locale}/{slug}' }
+    const settings = { previewUrls:[local,staging],defaultPreviewId:staging.id,previewParameter:'review' }
+    await expect(store.updateDeliverySettings(bob,settings)).rejects.toMatchObject({ code:'forbidden' })
+    expect(await store.updateDeliverySettings(alice,settings)).toEqual(settings)
+    expect(await store.getDeliverySettings(bob)).toEqual(settings)
+    const defaultSession = await store.createEditorPreview(bob,snapshot.story.id,snapshot.locale.id)
+    await expect(store.authenticatePreview(defaultSession.token,'https://staging.example.com')).resolves.toBeDefined()
+    await expect(store.authenticatePreview(defaultSession.token,'http://localhost:3131')).rejects.toMatchObject({ code:'unauthenticated' })
+    const explicit = await store.createEditorPreview(bob,snapshot.story.id,snapshot.locale.id,{ previewId:local.id })
+    await expect(store.authenticatePreview(explicit.token,'http://localhost:3131')).resolves.toBeDefined()
+    await expect(store.createEditorPreview(bob,snapshot.story.id,snapshot.locale.id,{ previewId:randomUUID() })).rejects.toMatchObject({ code:'invalid' })
+    const token = await store.createDeliveryToken(alice,{ name:'Standalone',scope:'preview' })
+    const standalone = await store.createTokenPreview(token.token,alice.spaceId,{ slug:'home',previewId:local.id })
+    await expect(store.authenticatePreview(standalone.token,'http://localhost:3131')).resolves.toBeDefined()
+    await expect(store.createTokenPreview(token.token,alice.spaceId,{ slug:'home',previewId:randomUUID() })).rejects.toMatchObject({ code:'invalid' })
+    await store.updateDeliverySettings(alice,{ ...settings,previewUrls:[local],defaultPreviewId:local.id })
+    await expect(store.authenticatePreview(defaultSession.token,'https://staging.example.com')).rejects.toMatchObject({ code:'unauthenticated' })
+    await expect(store.authenticatePreview(explicit.token,'http://localhost:3131')).resolves.toBeDefined()
+    await store.updateDeliverySettings(alice,{ ...settings,previewUrls:[],defaultPreviewId:null })
+    await expect(store.createEditorPreview(bob,snapshot.story.id,snapshot.locale.id)).rejects.toMatchObject({ code:'invalid' })
   })
   it('upgrades existing spaces and creates isolated spaces with atomic admin ownership', async () => {
     expect((await pool.query("SELECT description FROM spaces WHERE name='Before upgrade'")).rows).toEqual([{ description:'' }])
@@ -286,6 +324,42 @@ describe('Postgres collaboration and immutable history', () => {
     const revised = await store.updateDefinition(alice, hero.id, { name: hero.name, displayName: hero.displayName, kind: hero.kind, fields: [...hero.fields, { name: 'subtitle', label: 'Subtitle', type: 'text', format: 'singleline' }] })
     expect(revised.version).toBe(2)
     expect(blockNamed(unchanged, 'hero').schemaVersionId).toBe(hero.versionId)
+  })
+  it('enforces tag restrictions for inserts, moves, and imports using each block schema version', async () => {
+    const childInput = { name:'tagged',displayName:'Tagged',kind:'nestable',tags:['layout'],fields:[] }
+    const child = await store.createDefinition(alice,childInput)
+    const other = await store.createDefinition(alice,{ ...childInput,name:'untagged',tags:[] })
+    const parent = await store.createDefinition(alice,{ name:'tag_page',displayName:'Tag page',kind:'content-type',fields:[
+      { name:'body',label:'Body',type:'blocks',allowedTags:['layout','marketing'] },
+      { name:'other',label:'Other',type:'blocks' },
+    ] })
+    let state = await store.createStory(alice,{ name:'Tags',slug:'tags',definitionId:parent.id })
+    const rootId = state.locale.rootBlockId
+    const own = await lease(alice,state,state.blocks[0])
+    const insert = (definitionId:string,parentField:string) => run(alice,state,{ ...commandBase({ block:state.blocks.find(b => b.id === rootId)!,lease:own }),type:'insertBlock',payload:{ parentId:rootId,parentField,definitionId } })
+    await expect(insert(other.id,'body')).rejects.toMatchObject({ code:'invalid' })
+    state = (await insert(child.id,'body')).snapshot
+    state = (await insert(other.id,'other')).snapshot
+    const root = state.blocks.find(b => b.id === rootId)!
+    const untagged = blockNamed(state,'untagged')
+    const untaggedLease = await lease(alice,state,untagged)
+    await expect(run(alice,state,{ ...commandBase({ block:root,lease:own },{ block:untagged,lease:untaggedLease }),type:'moveBlock',payload:{ blockId:untagged.id,parentId:root.id,parentField:'body',position:0 } })).rejects.toMatchObject({ code:'invalid' })
+    const configured = await store.createSpaceLocale(alice,{ name:'French',slug:'fr' })
+    let french = await store.createLocale(alice,state.story.id,{ spaceLocaleId:configured.id })
+    const frenchRoot = french.blocks[0]
+    const frenchLease = await lease(alice,french,frenchRoot)
+    const importBlock = (blockId:string) => run(alice,french,{ ...commandBase({ block:french.blocks.find(b => b.id === frenchRoot.id)!,lease:frenchLease }),type:'importBlocks',payload:{ sourceLocaleId:state.locale.id,blockIds:[blockId],parentId:frenchRoot.id,parentField:'body' } })
+    await expect(importBlock(untagged.id)).rejects.toMatchObject({ code:'invalid' })
+    french = (await importBlock(blockNamed(state,'tagged').id)).snapshot
+    expect(blockNamed(french,'tagged').schemaVersionId).toBe(child.versionId)
+    await store.updateDefinition(alice,child.id,{ ...childInput,tags:['other'] })
+    await expect(insert(child.id,'body')).rejects.toMatchObject({ code:'invalid' })
+    expect((await store.getSnapshot(alice,state.story.id,state.locale.id)).revision).toBe(state.revision)
+    await expect(run(alice,state,{ ...commandBase(),type:'publishCheckpoint',payload:{ checkpointId:state.checkpointId! } })).resolves.toBeDefined()
+    const token = await store.createDeliveryToken(alice,{ name:'Types',scope:'preview' })
+    const contract = await store.deliverySchema(token.token,alice.spaceId)
+    expect(contract.components.find(c => c.id === child.id)?.tags).toEqual(['other'])
+    expect(contract.components.find(c => c.id === parent.id)?.fields[0]).toMatchObject({ allowedTags:['layout','marketing'] })
   })
   it('enforces session, role, space boundaries and preserves archived asset references', async () => {
     await expect(store.createDefinition(bob, { name: 'bad', displayName: 'Bad', kind: 'nestable', fields: [] })).rejects.toMatchObject({ code: 'forbidden' })

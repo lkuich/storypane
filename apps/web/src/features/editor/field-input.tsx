@@ -547,7 +547,7 @@ export function FieldInput({
           <span
             aria-hidden="true"
             title="Required to publish"
-            style={{ color: "#a05d48", marginLeft: 3 }}
+            style={{ color: "var(--danger)", marginLeft: 3 }}
           >
             *
           </span>

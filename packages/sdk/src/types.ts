@@ -10,9 +10,10 @@ export interface BlokSchemaField {
   format?:'singleline' | 'textarea' | 'richtext' | 'markdown';
   options?:string[];
   allowedDefinitionIds?:string[];
+  allowedTags?:string[];
 }
 export interface BlokSchema {
-  components:{ id:string; name:string; kind:'nestable' | 'content-type' | 'universal'; version:number; fields:BlokSchemaField[] }[];
+  components:{ id:string; name:string; kind:'nestable' | 'content-type' | 'universal'; version:number; tags?:string[]; fields:BlokSchemaField[] }[];
 }
 export interface BlokStory<T = BlokBlock> {
   id:string; name:string; slug:string; locale:string; localeId:string;

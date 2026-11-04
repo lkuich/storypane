@@ -183,7 +183,7 @@ test('an uploaded library image can be picked for a Hero and persists as an asse
 
     await navigation.getByRole('button', { name: 'Content', exact: true }).click();
     await page.getByRole('button', { name: story.name, exact: true }).click();
-    await page.getByRole('complementary', { name: 'Block outline' }).getByRole('button', { name: 'Hero', exact: true }).click();
+    await page.getByRole('region', { name: 'Block editor' }).getByRole('button', { name: 'Hero', exact: true }).click();
     await page.getByRole('button', { name: 'Choose asset', exact: true }).click();
     const picker = page.getByRole('dialog', { name: 'Choose an asset' });
     await picker.getByRole('searchbox', { name: 'Search assets' }).fill(title);
@@ -196,7 +196,7 @@ test('an uploaded library image can be picked for a Hero and persists as an asse
     // Reopening forces the picker to resolve the stored ID through the asset API.
     await navigation.getByRole('button', { name: 'Content', exact: true }).click();
     await page.getByRole('button', { name: story.name, exact: true }).click();
-    await page.getByRole('complementary', { name: 'Block outline' }).getByRole('button', { name: 'Hero', exact: true }).click();
+    await page.getByRole('region', { name: 'Block editor' }).getByRole('button', { name: 'Hero', exact: true }).click();
     const preview = page.locator('.asset-picked').getByRole('img');
     await expect(preview).toHaveAttribute('src', `${apiPath}/${assetId}/thumbnail?width=320&space=11111111-1111-4111-8111-111111111111`);
     await expect(preview).toHaveJSProperty('naturalWidth', 320);
@@ -208,6 +208,7 @@ test('an uploaded library image can be picked for a Hero and persists as an asse
 });
 
 test('dropping multiple files starts the mini uploader and survives navigation, pause, and resume', async ({ page, playwright }) => {
+  await page.emulateMedia({ colorScheme:'dark' });
   const prefix = `Drop-${crypto.randomUUID()}`;
   const imageName = `${prefix}.png`, textName = `${prefix}.txt`, invalidName = `${prefix}.exe`;
   let releasePart!: () => void;
@@ -245,6 +246,8 @@ test('dropping multiple files starts the mini uploader and survives navigation, 
     await manager.getByRole('button', { name:`Retry ${imageName}`, exact:true }).click();
     await expect(manager.locator('.upload-mini-item--done')).toHaveCount(2, { timeout:20_000 });
     await expect(manager.locator('.upload-mini-item').filter({ hasText:invalidName })).toContainText('Unsupported file type');
+    await expect(manager).toHaveCSS('background-color','rgb(25, 31, 41)');
+    await manager.screenshot({ path:'/tmp/blok-theme-uploader-dark.png' });
     await manager.getByRole('button', { name:'Minimize uploads' }).click();
     await expect(manager.locator('.upload-mini-items')).not.toBeVisible();
     await manager.getByRole('button', { name:'Expand uploads' }).click();

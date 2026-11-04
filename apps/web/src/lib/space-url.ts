@@ -13,3 +13,14 @@ export function spaceUrl(path: string): string {
   if (!id) return path
   return `${path}${path.includes('?') ? '&' : '?'}space=${encodeURIComponent(id)}`
 }
+
+export function setStoryLocation(storyId: string | null, locale = '') {
+  const url = new URL(window.location.href)
+  if (storyId) {
+    url.searchParams.set('story', storyId)
+    url.searchParams.delete('view')
+  } else url.searchParams.delete('story')
+  if (storyId && locale) url.searchParams.set('locale', locale)
+  else url.searchParams.delete('locale')
+  window.history.replaceState(null, '', url)
+}

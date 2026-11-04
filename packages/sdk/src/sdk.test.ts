@@ -4,6 +4,15 @@ import { connectPreview } from './preview.js';
 
 afterEach(() => vi.unstubAllGlobals());
 describe('delivery and preview activation', () => {
+  it('passes a configured preview target to the server without placing credentials in the URL', async () => {
+    const fetch = vi.fn().mockResolvedValue(Response.json({ token:'session' }));
+    const client = createBlokClient({ url:'https://cms.test',spaceId:'space',token:'server-key',fetch });
+    await client.createPreviewSession({ slug:'home',locale:'fr',previewId:'22222222-2222-4222-8222-222222222222' });
+    const [url,init] = fetch.mock.calls[0];
+    expect(url.href).toBe('https://cms.test/api/delivery/preview?space=space');
+    expect(JSON.parse(init.body)).toEqual({ slug:'home',locale:'fr',previewId:'22222222-2222-4222-8222-222222222222' });
+    expect(init.headers.Authorization).toBe('Bearer server-key');
+  });
   it('activates for configured signals without confusing false flags or unrelated cookies', () => {
     const context = { url:'https://site.test/home?review=yes', cookie:'other=1; editorial=on; broken=%XX' };
     expect(isPreviewMode({}, context)).toBe(false);

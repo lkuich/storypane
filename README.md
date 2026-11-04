@@ -54,15 +54,27 @@ Stop the database with `docker compose stop`. Removing its volume erases content
 
 - Central Spaces screen with search, creation, story/member counts, and per-space
   settings. New spaces start empty and their creator becomes an administrator.
-- Space selection stays in the page URL, so separate tabs can use separate spaces.
-  API calls, live editing, uploads, and asset previews all use the selected space.
+- Space, story, and locale selection stays in the page URL, so refresh and shared
+  links reopen the same content. API calls, live editing, uploads, and asset previews
+  all use the selected space. Locale changes retain the current form while loading
+  the destination and keep application preview open.
 - Delivery SDK with Postgres-backed published reads, read-only live draft preview,
   configurable preview triggers, and React/Next.js/Astro integration recipes.
 - Working Astro example with a typed React block registry, published static pages,
   unpublished-story preview shell, and `blok:pull` / `blok:types` / `blok:generate` commands.
-- Application iframe preview and click-to-edit block selection. Configure its URL
-  and create/revoke published or server preview tokens in **Settings → API & preview**.
+- Application iframe preview and click-to-edit block selection. Configure named preview
+  URLs and a default in **Settings → API & preview**, then switch apps in the preview panel.
+  URLs support `{slug}` and `{locale}`. Existing single URLs are migrated to a default entry.
+  This settings area also manages published and server preview tokens. Server-side
+  `createPreviewSession({ slug, previewId })` can select a configured URL; omitting
+  `previewId` uses the default. Sessions are bound to the selected app's origin.
+- Story editing uses a compact navigation rail (hover, focus, or tap to expand; pin
+  to keep it open). Preview opens by default and shares two columns with the fields. Use the block breadcrumb
+  to return to a parent, its field menus to switch siblings, or **Outline** for the
+  full tree. Add and reorder blocks in their parent fields or the outline drawer.
 - Versioned JSON schemas with Nestable, Content type, and Universal blocks.
+  Edit definitions in a tall drawer with Fields / Config tabs, a searchable icon
+  picker, draggable fields, and a fixed save footer (⌘ / Ctrl S).
 - Text, textarea, richtext, markdown, number, date/time, boolean, single/multiple
   options, assets, links, and nested blocks.
 - Inline choices, managed KV datasources, other-story references, and external
@@ -105,6 +117,10 @@ of a draft. This avoids a second draft database and a cross-database publish ste
 
 Existing bloks retain their referenced schema version when a definition changes;
 new bloks use the latest version. Bulk schema migration is not implemented yet.
+Block Config supports comma-separated tags. Blocks fields can restrict nesting by
+specific blocks or by any matching tag, with searchable selectors. Empty selections
+allow all nestable/universal blocks. Tags are versioned with schemas; imports and
+existing content retain their original tags. Generated SDK types use current tags.
 
 Locale settings are shared by a space; the locale prefix (`fr-CA`) is separate
 from each story's page slug (`home`). Existing story locales are registered by
@@ -118,6 +134,10 @@ unpublished build-output-utils dependency. WebSocket upgrades enter through the
 Worker directly because framework HTTP response cloning cannot preserve them.
 
 ## Verify
+
+Appearance follows the system by default. Use the header's **Appearance** selector
+to choose System, Light, or Dark; the choice is saved in this browser and shared
+across tabs. Preview apps keep their own styling.
 
 ```sh
 pnpm db:test

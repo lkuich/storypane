@@ -1,5 +1,6 @@
 "use client";
-import { spaceUrl } from "../../lib/space-url";
+import { isBlockAllowed } from "@blok/core";
+import { setStoryLocation, spaceUrl } from "../../lib/space-url";
 
 import {
   useCallback,
@@ -24,12 +25,15 @@ import {
   Monitor,
   Plus,
   RotateCcw,
+  Settings2,
   Trash2,
   Upload,
 } from "lucide-react";
 import type {
   BlockDefinition,
   BlockDraft,
+  DeliverySettings,
+  Datasource,
   Checkpoint,
   CheckpointDetail,
   FieldDefinition,
@@ -53,15 +57,9 @@ import { FieldInput } from "./field-input";
 import type { NavigationGuard, RegisterGuard } from "./navigation";
 import { useStoryEditor } from "./use-story-editor";
 import { PreviewPanel } from "./preview-panel";
+import { BlockNavigation, blockSummary, blockTitle, definitionFor } from "./block-navigation";
+import { SchemaDrawer } from "../schema/schema-drawer";
 
-function definitionFor(snapshot: LocaleSnapshot, block: BlockDraft) {
-  return snapshot.definitions.find(
-    (definition) => definition.versionId === block.schemaVersionId,
-  );
-}
-function blockTitle(snapshot: LocaleSnapshot, block: BlockDraft) {
-  return definitionFor(snapshot, block)?.displayName ?? "Block";
-}
 function outline(
   snapshot: LocaleSnapshot,
 ): Array<{ block: BlockDraft; depth: number }> {
@@ -99,7 +97,14 @@ export function StoryWorkspace({
   const [locales, setLocales] = useState<StoryLocale[]>([]);
   const [configuredLocales, setConfiguredLocales] = useState<SpaceLocale[]>([]);
   const [definitions, setDefinitions] = useState<BlockDefinition[]>([]);
-  const [localeId, setLocaleId] = useState<string | null>(null);
+  const [initialSnapshot, setInitialSnapshot] = useState<LocaleSnapshot | null>(null);
+  const [previewOpen, setPreviewOpen] = useState(true);
+  const [previewSettings, setPreviewSettings] = useState<DeliverySettings | null>(null);
+  const [previewId, setPreviewId] = useState<string | null>(null);
+  const [loadAttempt, setLoadAttempt] = useState(0);
+  const switching = useRef(false);
+  const focusLocale = useRef<string | null>(null);
+  const localeId = initialSnapshot?.locale.id;
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -107,55 +112,62 @@ export function StoryWorkspace({
   const register = useCallback<RegisterGuard>(
     (next) => {
       guard.current = next;
-      registerGuard(next);
+      registerGuard(next ? () => !switching.current && next() : null);
     },
     [registerGuard],
   );
-  const load = useCallback(async () => {
+  useEffect(() => {
+    let stopped = false;
     setLoading(true);
     setError(null);
-    try {
+    void (async () => {
       const [available, blocks, configured] = await Promise.all([
         api<StoryLocale[]>(`/stories/${story.id}/locales`),
         api<BlockDefinition[]>("/definitions"),
         api<SpaceLocale[]>("/locales"),
       ]);
-      setLocales(available);
+      const slug = new URLSearchParams(window.location.search).get('locale') ?? '';
+      const target = configured.find(locale => locale.slug === slug);
+      if (!target) throw new Error(`Locale “${slug || 'Default'}” is not configured in this space.`);
+      const locale = available.find(locale => locale.spaceLocaleId === target.id)
+        ?? await api<StoryLocale>(`/stories/${story.id}/locales`, jsonRequest('POST', { spaceLocaleId: target.id }));
+      const snapshot = await api<LocaleSnapshot>(`/stories/${story.id}/locales/${locale.id}`);
+      if (stopped) return;
+      setLocales(available.some(item => item.id === locale.id) ? available : [...available, locale]);
       setConfiguredLocales(configured);
       setDefinitions(blocks);
-      setLocaleId(
-        (current) =>
-          current ??
-          available.find((item) => item.slug === "")?.id ??
-          available[0]?.id ??
-          null,
-      );
-    } catch (error) {
-      setError(errorMessage(error));
-    } finally {
-      setLoading(false);
-    }
-  }, [story.id]);
+      setInitialSnapshot(snapshot);
+      setStoryLocation(story.id, locale.slug);
+    })().catch(cause => { if (!stopped) setError(errorMessage(cause)); })
+      .finally(() => { if (!stopped) setLoading(false); });
+    return () => { stopped = true; };
+  }, [story.id, loadAttempt]);
   useEffect(() => {
-    void load();
-  }, [load]);
+    if (!focusLocale.current) return;
+    document.getElementById(`locale-tab-${focusLocale.current}`)?.focus();
+    focusLocale.current = null;
+  }, [localeId]);
   async function switchLocale(spaceLocaleId: string) {
     const existing = locales.find(locale => locale.spaceLocaleId === spaceLocaleId);
-    if (busy || existing?.id === localeId) return;
-    if (guard.current && !(await guard.current())) return;
+    if (switching.current || existing?.id === localeId) return;
+    switching.current = true;
     setBusy(true); setError(null);
     try {
+      if (guard.current && !(await guard.current())) return;
       const locale = existing ?? await api<StoryLocale>(`/stories/${story.id}/locales`,jsonRequest("POST",{ spaceLocaleId }));
       if (!existing) setLocales(current => [...current,locale]);
-      setLocaleId(locale.id);
+      const snapshot = await api<LocaleSnapshot>(`/stories/${story.id}/locales/${locale.id}`);
+      focusLocale.current = spaceLocaleId;
+      setInitialSnapshot(snapshot);
+      setStoryLocation(story.id, locale.slug);
     } catch (cause) { setError(errorMessage(cause)); }
-    finally { setBusy(false); }
+    finally { switching.current = false; setBusy(false); }
   }
   async function back() {
-    if (!guard.current || (await guard.current())) onBack();
+    if (!switching.current && (!guard.current || (await guard.current()))) onBack();
   }
   async function manageLocales() {
-    if (!guard.current || (await guard.current())) window.location.assign(spaceUrl('/?view=settings'));
+    if (!switching.current && (!guard.current || (await guard.current()))) window.location.assign(spaceUrl('/?view=settings'));
   }
   return (
     <>
@@ -164,48 +176,72 @@ export function StoryWorkspace({
         <ChevronRight size={12} />
         <span>{story.name}</span>
       </div>
-      <ErrorNotice message={error} retry={() => void load()} />
+      <ErrorNotice message={error} retry={initialSnapshot ? undefined : () => setLoadAttempt(value => value + 1)} />
       {loading ? (
         <Loading label="Opening story…" />
-      ) : localeId ? (
+      ) : initialSnapshot ? (
+        <div aria-busy={busy} inert={busy}>
         <LocaleEditor
           key={localeId}
           story={story}
-          localeId={localeId}
+          initialSnapshot={initialSnapshot}
+          previewOpen={previewOpen}
+          onPreview={() => setPreviewOpen(value => !value)}
+          previewSettings={previewSettings}
+          onPreviewSettings={setPreviewSettings}
+          previewId={previewId}
+          onPreviewId={setPreviewId}
           locales={locales}
           configuredLocales={configuredLocales}
           switchingLocale={busy}
           definitions={definitions}
+          onDefinitions={setDefinitions}
           session={session}
           registerGuard={register}
           onLocale={(id) => void switchLocale(id)}
           onManageLocales={() => void manageLocales()}
         />
+        </div>
       ) : (
         <EmptyState title="No locale is available" />
       )}
+      <span className="sr-only" role="status">{busy ? "Opening locale…" : ""}</span>
     </>
   );
 }
 
 function LocaleEditor({
   story,
-  localeId,
+  initialSnapshot,
+  previewOpen,
+  onPreview,
+  previewSettings,
+  onPreviewSettings,
+  previewId,
+  onPreviewId,
   locales,
   configuredLocales,
   switchingLocale,
   definitions,
+  onDefinitions,
   session,
   registerGuard,
   onLocale,
   onManageLocales,
 }: {
   story: Story;
-  localeId: string;
+  initialSnapshot: LocaleSnapshot;
+  previewOpen: boolean;
+  onPreview: () => void;
+  previewSettings: DeliverySettings | null;
+  onPreviewSettings: (settings: DeliverySettings) => void;
+  previewId: string | null;
+  onPreviewId: (id: string) => void;
   locales: StoryLocale[];
   configuredLocales: SpaceLocale[];
   switchingLocale: boolean;
   definitions: BlockDefinition[];
+  onDefinitions: (definitions: BlockDefinition[]) => void;
   session: CMSSession;
   registerGuard: RegisterGuard;
   onLocale: (id: string) => void;
@@ -213,12 +249,19 @@ function LocaleEditor({
 }) {
   const editor = useStoryEditor({
     storyId: story.id,
-    localeId,
+    initialSnapshot,
     userId: session.user.id,
     sessionId: session.sessionId,
     spaceId: session.space.id,
   });
-  const [previewOpen,setPreviewOpen] = useState(false);
+  const [outlineOpen, setOutlineOpen] = useState(false);
+  const [schema, setSchema] = useState<{
+    definition: BlockDefinition;
+    definitions: BlockDefinition[];
+    datasources: Datasource[];
+  } | null>(null);
+  const schemaGuard = useRef<NavigationGuard | null>(null);
+  const registerSchemaGuard = useCallback<RegisterGuard>(next => { schemaGuard.current = next; }, []);
   const [busy, setBusy] = useState(false);
   const [addTo, setAddTo] = useState<{
     parentId: string;
@@ -245,7 +288,10 @@ function LocaleEditor({
   const [dropTarget, setDropTarget] = useState<{ id: string; edge: "before" | "after" } | null>(null);
   const [reorderAnnouncement, setReorderAnnouncement] = useState("");
   useEffect(() => {
-    registerGuard(editor.leave);
+    registerGuard(async () => {
+      if (schemaGuard.current && !(await schemaGuard.current())) return false;
+      return editor.leave();
+    });
     return () => registerGuard(null);
   }, [registerGuard, editor.leave]);
   useEffect(() => {
@@ -270,12 +316,13 @@ function LocaleEditor({
   const fields = currentBuffer?.fields ?? block?.fields ?? {};
   const state = blockError
     ? "error"
-    : editor.connection !== "connected"
+    : editor.connection === "disconnected"
       ? "error"
+      : editor.connection === "connecting" ? "connecting"
       : pending || editor.saving
         ? "pending"
         : "saved";
-  const label = blockError
+  const label = switchingLocale ? "Opening locale…" : blockError
     ? "Changes need attention"
     : editor.connection === "connecting"
       ? "Connecting…"
@@ -314,6 +361,19 @@ function LocaleEditor({
     } finally {
       setHistoryLoading(false);
     }
+  }
+  async function openSchema() {
+    if (!definition || session.space.role !== "admin") return;
+    await action(async () => {
+      const [latest, datasources] = await Promise.all([
+        api<BlockDefinition[]>("/definitions"),
+        api<Datasource[]>("/datasources"),
+      ]);
+      const current = latest.find(item => item.id === definition.id);
+      if (!current) throw new Error("This block schema is no longer available.");
+      onDefinitions(latest);
+      setSchema({ definition: current, definitions: latest, datasources });
+    });
   }
   async function openReview(checkpointId?: string) {
     setBusy(true);
@@ -482,9 +542,7 @@ function LocaleEditor({
   );
   const availableDefinitions = definitions.filter(
     (item) =>
-      item.kind !== "content-type" &&
-      (!addTo?.field.allowedDefinitionIds?.length ||
-        addTo.field.allowedDefinitionIds.includes(item.id)),
+      addTo ? isBlockAllowed(addTo.field, item) : item.kind !== "content-type",
   );
   const structureDisabled = busy || editor.connection !== "connected" || editor.unconfirmedCommand;
   const root = snapshot.blocks.find((item) => item.id === snapshot.locale.rootBlockId)!;
@@ -548,7 +606,7 @@ function LocaleEditor({
       type="button"
       className="block-drag-handle"
       aria-label={`Reorder ${blockTitle(snapshot!, item)}`}
-      aria-describedby="block-reorder-help"
+      aria-describedby={outlineOpen ? "outline-reorder-help" : "block-reorder-help"}
       title="Drag to reorder, or use the up and down arrow keys"
       draggable={canMove(item)}
       disabled={!canMove(item)}
@@ -603,7 +661,7 @@ function LocaleEditor({
           <Button onClick={() => void openHistory()} disabled={busy}>
             <Clock3 /> History
           </Button>
-          <Button aria-pressed={previewOpen} onClick={() => setPreviewOpen(value => !value)}><Monitor />{previewOpen ? 'Hide preview' : 'Preview'}</Button>
+          <Button aria-pressed={previewOpen} onClick={onPreview}><Monitor />{previewOpen ? 'Hide preview' : 'Preview'}</Button>
           <Button
             variant="primary"
             onClick={() => void openReview()}
@@ -630,7 +688,7 @@ function LocaleEditor({
               {locale.slug !== "" && (
                 <span
                   className="mono"
-                  style={{ marginLeft: 7, color: "#98a297", fontSize: 10 }}
+                  style={{ marginLeft: 7, color: "var(--muted)", fontSize: 10 }}
                 >
                   {locale.slug}
                 </span>
@@ -677,67 +735,21 @@ function LocaleEditor({
           </span>
         </div>
       )}
-      {editor.connection !== "connected" && (
+      {editor.connection === "disconnected" && (
         <div className="notice notice--warning" role="status">
-          {editor.connection === "connecting"
-            ? "Connecting to the live editor. Your saved content is available below."
-            : "Editing is paused while the connection is unavailable. Your unsaved input is kept on this device."}
+          Editing is paused while the connection is unavailable. Your unsaved input is kept on this device.
         </div>
       )}
       <div className={previewOpen ? 'visual-workspace' : undefined}>
-      {previewOpen && <PreviewPanel snapshot={snapshot} spaceId={session.space.id} selectedId={editor.selectedId} onSelect={editor.select} />}
+      {previewOpen && <PreviewPanel settings={previewSettings} onSettings={onPreviewSettings} previewId={previewId} onPreviewId={onPreviewId} snapshot={snapshot} spaceId={session.space.id} selectedId={editor.selectedId} onSelect={editor.select} />}
       <div
         className="editor-layout"
         id="locale-editor"
         role="tabpanel"
         aria-labelledby={`locale-tab-${snapshot.locale.spaceLocaleId}`}
       >
-        <aside className="panel tree-panel" aria-label="Block outline">
-          <div className="tree-header">
-            <span>Story outline</span>
-            <span>{snapshot.blocks.length} blocks</span>
-          </div>
-          <div className="block-tree">
-            {tree.map(({ block: item, depth }) => (
-              <div className="tree-row" key={item.id} {...sortableProps(item)}>
-              <button
-                className="tree-item"
-                aria-current={item.id === editor.selectedId}
-                style={{ paddingLeft: 10 + depth * 16 }}
-                onClick={() => void editor.select(item.id)}
-              >
-                <Layers />
-                <span className="tree-name">{blockTitle(snapshot, item)}</span>
-                {snapshot.leases.some(
-                  (lease) =>
-                    lease.blockId === item.id &&
-                    lease.sessionId !== session.sessionId,
-                ) && (
-                  <LockKeyhole
-                    className="tree-lock"
-                    aria-label="Being edited"
-                  />
-                )}
-                {editor.buffers[item.id] && (
-                  <span className="status-dot" title="Unsaved changes" />
-                )}
-              </button>
-              {item.parentId && dragHandle(item)}
-              </div>
-            ))}
-          </div>
-          {rootFields.length > 0 && <div className="tree-actions">
-            {rootFields.map((field) => <Button
-              key={field.name}
-              disabled={structureDisabled || isLocked(root.id) || (field.maxItems !== undefined && snapshot.blocks.filter((item) => item.parentId === root.id && item.parentField === field.name).length >= field.maxItems)}
-              onClick={() => { setAddTo({ parentId: root.id, field }); setAddDefinition(""); }}
-            ><Plus />{rootFields.length === 1 ? "Add block" : `Add to ${field.label}`}</Button>)}
-          </div>}
-          <div className="tree-footer">
-            Revision {snapshot.revision} · {snapshot.locale.name}
-          </div>
-        </aside>
         <section className="panel editor-panel" aria-label="Block editor">
+          <BlockNavigation snapshot={snapshot} selectedId={editor.selectedId} onSelect={editor.select} onOutline={() => setOutlineOpen(true)} />
           {block && definition ? (
             <>
               <div className="editor-panel-heading">
@@ -749,8 +761,13 @@ function LocaleEditor({
                   </p>
                 </div>
                 <div className="button-group">
+                  {session.space.role === "admin" && <Button id="edit-block-schema" variant="ghost" onClick={() => void openSchema()} disabled={busy} title={`Edit ${definition.displayName} schema`}>
+                    <Settings2 aria-hidden="true" /> Edit schema
+                  </Button>}
                   {ownsLease ? (
                     <span className="pill pill--green">You’re editing</span>
+                  ) : editor.connection === "connecting" ? (
+                    <span className="pill">Connecting…</span>
                   ) : (
                     <Button
                       onClick={() =>
@@ -843,9 +860,7 @@ function LocaleEditor({
                                 {blockTitle(snapshot, child)}
                               </button>
                               <span className="small muted">
-                                {typeof child.fields.title === "string"
-                                  ? child.fields.title.slice(0, 32)
-                                  : ""}
+                                {blockSummary(child)}
                               </span>
                               <div className="button-group">
                                 <Button
@@ -998,6 +1013,72 @@ function LocaleEditor({
         </section>
       </div>
       </div>
+      {schema && <SchemaDrawer
+        initialDefinition={schema.definition}
+        definitions={schema.definitions}
+        datasources={schema.datasources}
+        canManage={session.space.role === "admin"}
+        registerGuard={registerSchemaGuard}
+        onClose={() => {
+          setSchema(null);
+          requestAnimationFrame(() => document.getElementById("edit-block-schema")?.focus());
+        }}
+        onSave={async () => {
+          const latest = await api<BlockDefinition[]>("/definitions");
+          onDefinitions(latest);
+          setSchema(current => current ? { ...current, definitions: latest } : null);
+        }}
+        description="Editing the latest schema. Changes apply to newly added blocks; existing blocks keep their schema version."
+      />}
+      <Modal open={outlineOpen} onClose={() => setOutlineOpen(false)} title="Story outline" description="Jump to a block, or drag siblings to reorder." className="outline-drawer">
+        <p id="outline-reorder-help" className="sr-only">Drag to reorder blocks in the same section, or focus a handle and press the up or down arrow key.</p>
+        <p className="sr-only" role="status">{reorderAnnouncement}</p>
+        <aside className="tree-panel" aria-label="Block outline">
+          <div className="tree-header">
+            <span>Story outline</span>
+            <span>{snapshot.blocks.length} blocks</span>
+          </div>
+          <div className="block-tree">
+            {tree.map(({ block: item, depth }) => (
+              <div className="tree-row" key={item.id} {...sortableProps(item)}>
+              <button
+                className="tree-item"
+                aria-current={item.id === editor.selectedId}
+                style={{ paddingLeft: 10 + depth * 16 }}
+                onClick={() => { setOutlineOpen(false); void editor.select(item.id); }}
+              >
+                <Layers />
+                <span className="tree-name">{blockTitle(snapshot, item)}</span>
+                {snapshot.leases.some(
+                  (lease) =>
+                    lease.blockId === item.id &&
+                    lease.sessionId !== session.sessionId,
+                ) && (
+                  <LockKeyhole
+                    className="tree-lock"
+                    aria-label="Being edited"
+                  />
+                )}
+                {editor.buffers[item.id] && (
+                  <span className="status-dot" title="Unsaved changes" />
+                )}
+              </button>
+              {item.parentId && dragHandle(item)}
+              </div>
+            ))}
+          </div>
+          {rootFields.length > 0 && <div className="tree-actions">
+            {rootFields.map((field) => <Button
+              key={field.name}
+              disabled={structureDisabled || isLocked(root.id) || (field.maxItems !== undefined && snapshot.blocks.filter((item) => item.parentId === root.id && item.parentField === field.name).length >= field.maxItems)}
+              onClick={() => { setOutlineOpen(false); setAddTo({ parentId: root.id, field }); setAddDefinition(""); }}
+            ><Plus />{rootFields.length === 1 ? "Add block" : `Add to ${field.label}`}</Button>)}
+          </div>}
+          <div className="tree-footer">
+            Revision {snapshot.revision} · {snapshot.locale.name}
+          </div>
+        </aside>
+      </Modal>
       <Modal
         open={!!addTo}
         onClose={() => !busy && setAddTo(null)}
@@ -1188,11 +1269,8 @@ function LocaleEditor({
               {outline(source)
                 .filter(({ block }) => !!block.parentId)
                 .map(({ block, depth }) => {
-                  const allowed =
-                    !importTo?.field.allowedDefinitionIds?.length ||
-                    importTo.field.allowedDefinitionIds.includes(
-                      block.definitionId,
-                    );
+                  const definition = definitionFor(source, block);
+                  const allowed = !!importTo && !!definition && isBlockAllowed(importTo.field, definition);
                   return (
                     <label
                       key={block.id}

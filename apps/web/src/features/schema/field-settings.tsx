@@ -9,18 +9,8 @@ import type {
   OptionSource,
 } from "@blok/core";
 import { Button, Field } from "@blok/ui";
-
-export const FIELD_TYPES = [
-  { type: "text", label: "Text", mark: "Aa" },
-  { type: "number", label: "Number", mark: "#" },
-  { type: "datetime", label: "Date / Time", mark: "◷" },
-  { type: "boolean", label: "Boolean", mark: "✓" },
-  { type: "option", label: "Single Option", mark: "◉" },
-  { type: "options", label: "Multi Options", mark: "☷" },
-  { type: "asset", label: "Asset", mark: "▧" },
-  { type: "link", label: "Link", mark: "↗" },
-  { type: "blocks", label: "Blocks", mark: "◇" },
-] as const;
+import { FieldTypePicker, choiceForField } from "./field-type-picker";
+import { BlockRestrictions } from "./block-restrictions";
 
 export function newField(
   type: FieldDefinition["type"],
@@ -262,40 +252,28 @@ export function FieldSettings({
           onChange={(event) => update({ description: event.target.value })}
         />
       </Field>
-      <div className="field-row">
-        <Field label="Field type" htmlFor="field-type">
-          <select
-            id="field-type"
-            value={field.type}
-            onChange={(event) =>
-              onChange({
-                ...newField(
-                  event.target.value as FieldDefinition["type"],
-                  field.name,
-                  field.label,
-                ),
-                description: field.description,
-                required: field.required,
-              })
-            }
-          >
-            {FIELD_TYPES.map((type) => (
-              <option value={type.type} key={type.type}>
-                {type.label}
-              </option>
-            ))}
-          </select>
-        </Field>
-        <div className="field" style={{ justifyContent: "center" }}>
-          <label className="checkbox-field">
-            <input
-              type="checkbox"
-              checked={field.required ?? false}
-              onChange={(event) => update({ required: event.target.checked })}
-            />{" "}
-            Required to publish
-          </label>
-        </div>
+      <Field label="Field type" htmlFor="field-type">
+        <FieldTypePicker id="field-type" value={choiceForField(field)} onChange={choice => {
+          if (choice.id === choiceForField(field).id) return;
+          if (field.type === "text" && choice.type === "text") {
+            const { defaultValue: _default, ...rest } = field;
+            onChange({ ...rest, format: choice.format! });
+            return;
+          }
+          const next = newField(choice.type, field.name, field.label);
+          if (next.type === "text") next.format = choice.format!;
+          onChange({ ...next, description: field.description, required: field.required });
+        }} />
+      </Field>
+      <div className="field">
+        <label className="checkbox-field">
+          <input
+            type="checkbox"
+            checked={field.required ?? false}
+            onChange={(event) => update({ required: event.target.checked })}
+          />{" "}
+          Required to publish
+        </label>
       </div>
       {field.type === "text" && (
         <>
@@ -498,34 +476,7 @@ export function FieldSettings({
         </div>
       )}
       {field.type === "blocks" && (
-        <Field
-          label="Allowed blocks"
-          description="Leave all unchecked to allow any nestable or universal block."
-        >
-          <div className="multi-options">
-            {definitions
-              .filter((item) => item.kind !== "content-type")
-              .map((item) => (
-                <label key={item.id}>
-                  <input
-                    type="checkbox"
-                    checked={
-                      field.allowedDefinitionIds?.includes(item.id) ?? false
-                    }
-                    onChange={(event) => {
-                      const allowed = field.allowedDefinitionIds ?? [];
-                      update({
-                        allowedDefinitionIds: event.target.checked
-                          ? [...allowed, item.id]
-                          : allowed.filter((id) => id !== item.id),
-                      });
-                    }}
-                  />
-                  {item.displayName}
-                </label>
-              ))}
-          </div>
-        </Field>
+        <BlockRestrictions field={field} definitions={definitions} onChange={onChange} />
       )}
       {field.type === "asset" && (
         <Field

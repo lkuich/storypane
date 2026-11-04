@@ -9,15 +9,20 @@ export type SpaceLocale = { id: string; name: string; slug: string; storyCount: 
 export const spaceLocaleInputSchema = z.object({ name:z.string().trim().min(1).max(80), slug:z.string().trim().regex(/^[a-zA-Z0-9][a-zA-Z0-9-]*$/).max(30) }).strict()
 export type DeliveredStory = { id: string; name: string; slug: string; locale: string; localeId: string; revision: number; content: Json; publishedAt: string | null }
 export type PreviewSession = { token: string; expiresAt: string; spaceId: string; storyId: string; localeId: string; slug: string; locale: string }
-export type DeliverySettings = { previewUrl: string; previewParameter: string }
 export type DeliveryToken = { id: string; name: string; scope: 'published' | 'preview'; createdAt: string }
+const previewUrlSchema = z.string().trim().min(1).max(2048).refine(value => {
+  try { const url = new URL(value.replaceAll('{slug}', 'home').replaceAll('{locale}', 'en')); return url.origin === new URL(value).origin && !url.username && !url.password && !url.hash && (url.protocol === 'https:' || (url.protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname))) } catch { return false }
+}, 'Use HTTPS, or HTTP on localhost, without credentials or a fragment. Placeholders belong in the path or query.')
 export const deliverySettingsSchema = z.object({
-  previewUrl: z.string().trim().max(2048).refine(value => {
-    if (!value) return true
-    try { const url = new URL(value.replaceAll('{slug}', 'home').replaceAll('{locale}', 'en')); return !url.username && !url.password && !url.hash && (url.protocol === 'https:' || (url.protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname))) } catch { return false }
-  }, 'Use an HTTPS URL, or HTTP on localhost, without credentials or a fragment'),
+  previewUrls: z.array(z.object({ id:z.uuid(), name:z.string().trim().min(1).max(80), url:previewUrlSchema }).strict()).max(20),
+  defaultPreviewId: z.uuid().nullable(),
   previewParameter: z.string().regex(/^[a-zA-Z][a-zA-Z0-9_-]{0,63}$/).default('blok_preview'),
-}).strict()
+}).strict().superRefine((value,ctx) => {
+  if (new Set(value.previewUrls.map(item => item.id)).size !== value.previewUrls.length) ctx.addIssue({ code:'custom',path:['previewUrls'],message:'Preview IDs must be unique' })
+  if (new Set(value.previewUrls.map(item => item.name.toLowerCase())).size !== value.previewUrls.length) ctx.addIssue({ code:'custom',path:['previewUrls'],message:'Preview names must be unique' })
+  if (value.previewUrls.length ? !value.previewUrls.some(item => item.id === value.defaultPreviewId) : value.defaultPreviewId !== null) ctx.addIssue({ code:'custom',path:['defaultPreviewId'],message:'Choose a default from the configured preview URLs' })
+})
+export type DeliverySettings = z.infer<typeof deliverySettingsSchema>
 export type ErrorCode = 'unauthenticated' | 'forbidden' | 'not_found' | 'locked' | 'stale_revision' | 'invalid' | 'unavailable'
 export type FieldIssue = { path: string; message: string }
 export class BlokError extends Error {
@@ -51,6 +56,7 @@ export const optionSourceSchema = z.discriminatedUnion('type', [
 ])
 export type OptionSource = z.infer<typeof optionSourceSchema>
 const base = { name: z.string().regex(/^[a-z][a-z0-9_]*$/).max(80).refine(v => !['_uid', 'component', '__proto__', 'constructor', 'prototype'].includes(v), 'Reserved field name'), label: z.string().min(1).max(120), description: z.string().max(2000).optional(), required: z.boolean().optional(), defaultValue: jsonSchema.optional() }
+const tagsSchema = z.array(z.string().trim().min(1).max(64)).max(50).refine(tags => new Set(tags).size === tags.length, 'Tags must be unique')
 export const fieldDefinitionSchema = z.discriminatedUnion('type', [
   z.object({ ...base, type: z.literal('text'), format: z.enum(['singleline', 'textarea', 'richtext', 'markdown']).default('singleline'), maxLength: z.number().int().positive().max(1_000_000).optional() }).strict(),
   z.object({ ...base, type: z.literal('number'), min: z.number().optional(), max: z.number().optional(), decimals: z.number().int().min(0).max(15).optional() }).strict(),
@@ -60,10 +66,10 @@ export const fieldDefinitionSchema = z.discriminatedUnion('type', [
   z.object({ ...base, type: z.literal('options'), source: optionSourceSchema, minItems: z.number().int().nonnegative().optional(), maxItems: z.number().int().positive().max(1000).optional() }).strict(),
   z.object({ ...base, type: z.literal('asset'), mimeTypes: z.array(z.string().max(100)).max(30).optional() }).strict(),
   z.object({ ...base, type: z.literal('link') }).strict(),
-  z.object({ ...base, type: z.literal('blocks'), allowedDefinitionIds: z.array(z.uuid()).max(500).optional(), minItems: z.number().int().nonnegative().optional(), maxItems: z.number().int().positive().max(1000).optional() }).strict(),
+  z.object({ ...base, type: z.literal('blocks'), allowedDefinitionIds: z.array(z.uuid()).max(500).optional(), allowedTags: tagsSchema.optional(), minItems: z.number().int().nonnegative().optional(), maxItems: z.number().int().positive().max(1000).optional() }).strict().refine(field => !(field.allowedTags?.length && field.allowedDefinitionIds?.length), 'Restrict by blocks or tags, not both'),
 ])
 export type FieldDefinition = z.infer<typeof fieldDefinitionSchema>
-export const definitionInputSchema = z.object({ name: z.string().regex(/^[a-z][a-z0-9_]*$/).max(80), displayName: z.string().min(1).max(120), kind: z.enum(['nestable', 'content-type', 'universal']), fields: z.array(fieldDefinitionSchema).max(200) }).strict().superRefine((schema, ctx) => {
+export const definitionInputSchema = z.object({ name: z.string().regex(/^[a-z][a-z0-9_]*$/).max(80), displayName: z.string().min(1).max(120), kind: z.enum(['nestable', 'content-type', 'universal']), tags: tagsSchema.optional(), fields: z.array(fieldDefinitionSchema).max(200) }).strict().superRefine((schema, ctx) => {
   const names = new Set<string>()
   schema.fields.forEach((field, i) => {
     if (names.has(field.name)) ctx.addIssue({ code: 'custom', path: ['fields', i, 'name'], message: 'Field names must be unique' })
@@ -74,6 +80,11 @@ export const definitionInputSchema = z.object({ name: z.string().regex(/^[a-z][a
 })
 export type DefinitionInput = z.infer<typeof definitionInputSchema>
 export type BlockDefinition = DefinitionInput & { id: string; versionId: string; version: number; createdAt: string }
+export function isBlockAllowed(field: Extract<FieldDefinition, { type: 'blocks' }>, definition: Pick<BlockDefinition, 'id' | 'kind' | 'tags'>): boolean {
+  return definition.kind !== 'content-type' &&
+    (!field.allowedDefinitionIds?.length || field.allowedDefinitionIds.includes(definition.id)) &&
+    (!field.allowedTags?.length || field.allowedTags.some(tag => definition.tags?.includes(tag)))
+}
 export type AssetReference = { assetId: string; alt?: string }
 export const assetReferenceSchema = z.object({ assetId: z.uuid(), alt: z.string().max(2000).optional() }).strict()
 export const linkValueSchema = z.discriminatedUnion('type', [

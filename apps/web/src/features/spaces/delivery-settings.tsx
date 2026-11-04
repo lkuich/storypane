@@ -6,15 +6,18 @@ import { Button, ErrorNotice, Loading } from '@blok/ui'
 import { api, errorMessage, jsonRequest } from '../editor/api'
 
 export function DeliverySettings({ canManage, onDirty, onBusy }: { canManage:boolean; onDirty:(value:boolean) => void; onBusy:(value:boolean) => void }) {
-  const [settings,setSettings] = useState<Settings | null>(null), [previewUrl,setPreviewUrl] = useState(''), [parameter,setParameter] = useState('blok_preview');
+  const [settings,setSettings] = useState<Settings | null>(null), [previewUrls,setPreviewUrls] = useState<Settings['previewUrls']>([]), [defaultPreviewId,setDefaultPreviewId] = useState<string | null>(null), [parameter,setParameter] = useState('blok_preview');
   const [tokens,setTokens] = useState<DeliveryToken[]>([]), [tokenName,setTokenName] = useState(''), [scope,setScope] = useState<'published' | 'preview'>('published');
   const [revealed,setRevealed] = useState(''), [error,setError] = useState(''), [busy,setBusy] = useState(false), [saved,setSaved] = useState(false);
-  const dirty = !!settings && (previewUrl !== settings.previewUrl || parameter !== settings.previewParameter);
+  const dirty = !!settings && (JSON.stringify(previewUrls) !== JSON.stringify(settings.previewUrls) || defaultPreviewId !== settings.defaultPreviewId || parameter !== settings.previewParameter);
+  function changeUrls(next:Settings['previewUrls']) {
+    setPreviewUrls(next); setDefaultPreviewId(current => next.some(item => item.id === current) ? current : next[0]?.id ?? null); setSaved(false);
+  }
   async function load() {
     setError('');
     try {
       const [value,keys] = await Promise.all([api<Settings>('/delivery-settings'), canManage ? api<DeliveryToken[]>('/delivery-tokens') : Promise.resolve([])]);
-      setSettings(value); setPreviewUrl(value.previewUrl); setParameter(value.previewParameter); setTokens(keys);
+      setSettings(value); setPreviewUrls(value.previewUrls); setDefaultPreviewId(value.defaultPreviewId); setParameter(value.previewParameter); setTokens(keys);
     } catch (cause) { setError(errorMessage(cause)); }
   }
   useEffect(() => { void load(); },[canManage]);
@@ -24,9 +27,16 @@ export function DeliverySettings({ canManage, onDirty, onBusy }: { canManage:boo
   return <section className="panel delivery-settings"><header className="panel-heading"><h2><Code2 aria-hidden="true" />API & preview</h2></header><div className="panel-body">
     <ErrorNotice message={error} retry={!settings ? load : undefined} />
     {!settings ? !error && <Loading /> : <>
-      <form onSubmit={event => { event.preventDefault(); void action(async () => { const value = await api<Settings>('/delivery-settings',jsonRequest('PUT',{ previewUrl, previewParameter:parameter })); setSettings(value); setPreviewUrl(value.previewUrl); setParameter(value.previewParameter); setSaved(true); }); }}>
+      <form onSubmit={event => { event.preventDefault(); void action(async () => { const value = await api<Settings>('/delivery-settings',jsonRequest('PUT',{ previewUrls, defaultPreviewId, previewParameter:parameter })); setSettings(value); setPreviewUrls(value.previewUrls); setDefaultPreviewId(value.defaultPreviewId); setParameter(value.previewParameter); setSaved(true); }); }}>
         <fieldset className="space-settings-fields" disabled={!canManage || busy}>
-          <label className="field">Application preview URL<input aria-label="Application preview URL" value={previewUrl} onChange={event => { setPreviewUrl(event.target.value); setSaved(false); }} placeholder="https://your-app.com/{locale}/{slug}" maxLength={2048} /><span className="field-hint">Use {'{slug}'} and {'{locale}'} for the current page. Localhost HTTP is supported for development. Your app must allow this CMS to embed it.</span></label>
+          <div className="preview-urls-heading"><div><h3>Preview URLs</h3><p className="field-hint">Open each story with the default, then switch apps in the preview editor.</p></div>{canManage && <Button disabled={previewUrls.length >= 20} onClick={() => changeUrls([...previewUrls,{ id:crypto.randomUUID(),name:'',url:'' }])}><Plus />Add preview URL</Button>}</div>
+          {!previewUrls.length && <p className="preview-urls-empty">No preview URLs configured yet.</p>}
+          <div className="preview-url-list">{previewUrls.map((target,index) => <div className="preview-url-card" role="group" aria-label={`Preview URL ${index+1}`} key={target.id}>
+            <div className="preview-url-heading"><label className="checkbox-field"><input type="radio" name="default-preview" aria-label={`Use preview ${index+1} as default`} checked={defaultPreviewId === target.id} onChange={() => { setDefaultPreviewId(target.id); setSaved(false); }} />{defaultPreviewId === target.id ? 'Default preview' : 'Set as default'}</label>{canManage && <Button variant="ghost" className="icon-button" aria-label={`Remove preview ${index+1}`} onClick={() => changeUrls(previewUrls.filter(item => item.id !== target.id))}><Trash2 /></Button>}</div>
+            <label className="field">Preview name<input value={target.name} onChange={event => changeUrls(previewUrls.map(item => item.id === target.id ? { ...item,name:event.target.value } : item))} placeholder="e.g. Production, Staging, Local" required maxLength={80} /></label>
+            <label className="field">Application preview URL<input value={target.url} onChange={event => changeUrls(previewUrls.map(item => item.id === target.id ? { ...item,url:event.target.value } : item))} placeholder="https://your-app.com/{locale}/{slug}" required maxLength={2048} /></label>
+          </div>)}</div>
+          <p className="field-hint">Use {'{slug}'} and {'{locale}'} for the current page. Localhost HTTP is supported for development. Each app must allow this CMS to embed it.</p>
           <label className="field">Preview URL parameter<input aria-label="Preview URL parameter" value={parameter} onChange={event => { setParameter(event.target.value); setSaved(false); }} required pattern="[a-zA-Z][a-zA-Z0-9_-]{0,63}" /><span className="field-hint">The editor adds this parameter with a value of 1. Match it in your SDK preview configuration.</span></label>
         </fieldset>
         {canManage && <div className="space-settings-actions"><span role="status">{saved ? 'Preview settings saved' : ''}</span><Button type="submit" disabled={!dirty || busy}>Save preview settings</Button></div>}

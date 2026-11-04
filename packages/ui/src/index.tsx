@@ -1,7 +1,7 @@
 "use client";
 
 import {
-  useEffect,
+  useLayoutEffect,
   useId,
   useRef,
   type ButtonHTMLAttributes,
@@ -58,6 +58,7 @@ export function Modal({
   description,
   children,
   wide = false,
+  className = "",
 }: {
   open: boolean;
   onClose: () => void;
@@ -65,19 +66,21 @@ export function Modal({
   description?: string;
   children: ReactNode;
   wide?: boolean;
+  className?: string;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
   const titleId = useId();
   const descriptionId = useId();
-  useEffect(() => {
+  useLayoutEffect(() => {
     const dialog = ref.current;
     if (open && !dialog?.open) dialog?.showModal();
     if (!open && dialog?.open) dialog.close();
+    return () => { if (dialog?.open) dialog.close(); };
   }, [open]);
   return (
     <dialog
       ref={ref}
-      className={`dialog ${wide ? "dialog--wide" : ""}`}
+      className={`dialog ${wide ? "dialog--wide" : ""} ${className}`}
       aria-labelledby={titleId}
       aria-describedby={description ? descriptionId : undefined}
       onCancel={(event) => {

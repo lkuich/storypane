@@ -4,7 +4,7 @@ import { z } from 'zod'
 import { BlokError, LEASE_SECONDS, commandSchema, datasourceInputSchema, defaultFields, definitionInputSchema, localeInputSchema, optionSourceSchema, parseInput, storyInputSchema, validateFields, type Actor, type BlockDefinition, type BlockDraft, type Checkpoint, type CheckpointDetail, type Command, type CommitResult, type Datasource, type DefinitionInput, type FieldDefinition, type Json, type Lease, type LocaleSnapshot, type OptionPage, type Publication, type Story, type StoryLocale } from '@blok/core'
 import { fetchExternalOptions } from './external-options.js'
 import { spaceInputSchema, spaceLocaleInputSchema, type Space, type SpaceDetails, type SpaceLocale } from '@blok/core'
-import { deliverySettingsSchema, type DeliveredStory, type DeliverySettings, type DeliveryToken, type PreviewSession } from '@blok/core'
+import { deliverySettingsSchema, isBlockAllowed, type DeliveredStory, type DeliverySettings, type DeliveryToken, type PreviewSession } from '@blok/core'
 
 const tokenHash = (token: string) => createHash('sha256').update(token).digest('hex')
 const secretToken = (prefix: string) => `${prefix}_${randomBytes(32).toString('base64url')}`
@@ -155,12 +155,13 @@ export class BlokStore {
     return (await this.pool.query("SELECT id,name,slug FROM space_locales WHERE space_id=$1 ORDER BY (slug='') DESC,name,id", [spaceId])).rows
   }
   async getDeliverySettings(actor: Actor): Promise<DeliverySettings> {
-    return this.tx(actor, async client => (await client.query('SELECT preview_url AS "previewUrl",preview_parameter AS "previewParameter" FROM spaces WHERE id=$1', [actor.spaceId])).rows[0])
+    return this.tx(actor, async client => (await client.query('SELECT preview_urls AS "previewUrls",default_preview_id AS "defaultPreviewId",preview_parameter AS "previewParameter" FROM spaces WHERE id=$1', [actor.spaceId])).rows[0])
   }
   async updateDeliverySettings(actor: Actor, raw: unknown): Promise<DeliverySettings> {
     const input = parseInput(deliverySettingsSchema, raw)
     return this.tx(actor, async client => {
-      await client.query('UPDATE spaces SET preview_url=$2,preview_parameter=$3 WHERE id=$1', [actor.spaceId, input.previewUrl, input.previewParameter])
+      await client.query('UPDATE spaces SET preview_urls=$2,default_preview_id=$3,preview_parameter=$4 WHERE id=$1', [actor.spaceId, JSON.stringify(input.previewUrls), input.defaultPreviewId, input.previewParameter])
+      await client.query('DELETE FROM preview_sessions WHERE space_id=$1 AND origin <> ALL($2::text[])', [actor.spaceId, input.previewUrls.map(item => new URL(item.url).origin)])
       return input
     }, true)
   }
@@ -190,11 +191,11 @@ export class BlokStore {
     await this.authenticateDelivery(token, spaceId, true)
     const { rows } = await this.pool.query('SELECT v.* FROM definitions d JOIN definition_versions v ON v.definition_id=d.id AND v.version=d.current_version WHERE d.space_id=$1 ORDER BY d.name', [spaceId])
     return { components: rows.map(definitionRow).map(definition => ({
-      id:definition.id, name:definition.name, kind:definition.kind, version:definition.version,
+      id:definition.id, name:definition.name, kind:definition.kind, version:definition.version, tags:definition.tags ?? [],
       fields:definition.fields.map(field => ({
         name:field.name, type:field.type, required:field.required ?? false,
         ...(field.type === 'text' ? { format:field.format } : {}),
-        ...(field.type === 'blocks' ? { allowedDefinitionIds:field.allowedDefinitionIds ?? [] } : {}),
+        ...(field.type === 'blocks' ? { allowedDefinitionIds:field.allowedDefinitionIds ?? [], allowedTags:field.allowedTags ?? [] } : {}),
         ...((field.type === 'option' || field.type === 'options') && field.source.type === 'inline' ? { options:field.source.items.map(item => item.value) } : {}),
       })),
     })) }
@@ -208,26 +209,28 @@ export class BlokStore {
       ORDER BY s.slug,s.id LIMIT $5 OFFSET $6`, [spaceId, input.locale, input.id ?? null, input.slug ?? null, input.limit + 1, input.offset])
     return { stories:rows.slice(0,input.limit).map(deliveredRow), nextOffset:rows.length > input.limit ? input.offset + input.limit : null }
   }
-  async createEditorPreview(actor: Actor, storyId: string, localeId: string): Promise<PreviewSession> {
+  async createEditorPreview(actor: Actor, storyId: string, localeId: string, raw: unknown = {}): Promise<PreviewSession> {
+    const input = parseInput(z.object({ previewId:z.uuid().optional() }).strict(), raw)
     return this.tx(actor, async client => {
       await this.lockLocale(client, actor, storyId, localeId)
-      return this.insertPreview(client, actor.spaceId, storyId, localeId, { userId:actor.userId, sessionId:actor.sessionId })
+      return this.insertPreview(client, actor.spaceId, storyId, localeId, { userId:actor.userId, sessionId:actor.sessionId }, input.previewId)
     })
   }
   async createTokenPreview(token: string, spaceId: string, raw: unknown): Promise<PreviewSession> {
     const credential = await this.authenticateDelivery(token, spaceId, true)
-    const input = parseInput(z.object({ id:z.uuid().optional(), slug:z.string().max(200).optional(), locale:z.string().max(80).default('') }).strict().refine(value => !!value.id !== (value.slug !== undefined), 'Specify either id or slug'), raw)
+    const input = parseInput(z.object({ id:z.uuid().optional(), slug:z.string().max(200).optional(), locale:z.string().max(80).default(''), previewId:z.uuid().optional() }).strict().refine(value => !!value.id !== (value.slug !== undefined), 'Specify either id or slug'), raw)
     const client = await this.pool.connect()
     try {
       const { rows } = await client.query('SELECT s.id AS story_id,l.id AS locale_id FROM stories s JOIN story_locales l ON l.story_id=s.id WHERE s.space_id=$1 AND l.slug=$2 AND ($3::uuid IS NULL OR s.id=$3) AND ($4::text IS NULL OR l.url_slug=$4)', [spaceId, input.locale, input.id ?? null, input.slug ?? null])
       if (!rows[0]) throw new BlokError('not_found', 'Story locale not found')
-      return await this.insertPreview(client, spaceId, rows[0].story_id, rows[0].locale_id, { tokenId:credential.id })
+      return await this.insertPreview(client, spaceId, rows[0].story_id, rows[0].locale_id, { tokenId:credential.id }, input.previewId)
     } finally { client.release() }
   }
-  private async insertPreview(client: PoolClient, spaceId: string, storyId: string, localeId: string, owner: { userId?:string; sessionId?:string; tokenId?:string }): Promise<PreviewSession> {
-    const { rows } = await client.query('SELECT s.preview_url,l.url_slug AS slug,l.slug AS locale FROM spaces s JOIN stories st ON st.space_id=s.id JOIN story_locales l ON l.story_id=st.id WHERE s.id=$1 AND st.id=$2 AND l.id=$3', [spaceId, storyId, localeId])
-    if (!rows[0]?.preview_url) throw new BlokError('invalid', 'Set the application preview URL in Space settings first')
-    const origin = new URL(rows[0].preview_url).origin
+  private async insertPreview(client: PoolClient, spaceId: string, storyId: string, localeId: string, owner: { userId?:string; sessionId?:string; tokenId?:string }, previewId?: string): Promise<PreviewSession> {
+    const { rows } = await client.query('SELECT s.preview_urls,s.default_preview_id,l.url_slug AS slug,l.slug AS locale FROM spaces s JOIN stories st ON st.space_id=s.id JOIN story_locales l ON l.story_id=st.id WHERE s.id=$1 AND st.id=$2 AND l.id=$3', [spaceId, storyId, localeId])
+    const target = (rows[0]?.preview_urls as DeliverySettings['previewUrls'] | undefined)?.find(item => item.id === (previewId ?? rows[0].default_preview_id))
+    if (!target) throw new BlokError('invalid', 'Choose a configured preview URL in Space settings')
+    const origin = new URL(target.url).origin
     const token = secretToken('bp')
     await client.query('DELETE FROM preview_sessions WHERE space_id=$1 AND expires_at<now()', [spaceId])
     const session = await client.query("INSERT INTO preview_sessions(token_hash,space_id,story_id,locale_id,origin,user_id,session_id,delivery_token_id,expires_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,now()+interval '5 minutes') RETURNING expires_at", [tokenHash(token), spaceId, storyId, localeId, origin, owner.userId ?? null, owner.sessionId ?? null, owner.tokenId ?? null])
@@ -235,10 +238,11 @@ export class BlokStore {
   }
   async authenticatePreview(token: string, origin: string): Promise<{ id:string; spaceId:string; storyId:string; localeId:string }> {
     if (!/^bp_[\w-]{43}$/.test(token)) throw new BlokError('unauthenticated', 'Invalid preview session')
-    const { rows } = await this.pool.query('SELECT id,space_id AS "spaceId",story_id AS "storyId",locale_id AS "localeId" FROM preview_sessions WHERE token_hash=$1 AND origin=$2 AND expires_at>clock_timestamp()', [tokenHash(token), origin])
-    if (!rows[0]) throw new BlokError('unauthenticated', 'Preview session expired or origin is not allowed')
+    const { rows } = await this.pool.query('SELECT p.id,p.space_id AS "spaceId",p.story_id AS "storyId",p.locale_id AS "localeId",s.preview_urls FROM preview_sessions p JOIN spaces s ON s.id=p.space_id WHERE p.token_hash=$1 AND p.origin=$2 AND p.expires_at>clock_timestamp()', [tokenHash(token), origin])
+    if (!rows[0] || !(rows[0].preview_urls as DeliverySettings['previewUrls']).some(item => new URL(item.url).origin === origin)) throw new BlokError('unauthenticated', 'Preview session expired or origin is not allowed')
     await this.previewStory(rows[0].id)
-    return rows[0]
+    const { preview_urls: _urls, ...session } = rows[0]
+    return session as { id:string; spaceId:string; storyId:string; localeId:string }
   }
   async previewStory(previewId: string): Promise<DeliveredStory> {
     const { rows } = await this.pool.query(`SELECT st.id AS story_id,st.name,l.url_slug AS slug,l.slug AS locale,l.id AS locale_id,c.revision,c.content
@@ -316,6 +320,14 @@ export class BlokStore {
     return definitionRow(result.rows[0])
   }
   async listStories(actor: Actor): Promise<Story[]> { return this.tx(actor, async client => (await client.query('SELECT * FROM stories WHERE space_id=$1 ORDER BY updated_at DESC,id', [actor.spaceId])).rows.map(storyRow)) }
+  async getStory(actor: Actor, storyId: string): Promise<Story> {
+    const id = parseInput(z.uuid(), storyId)
+    return this.tx(actor, async client => {
+      const result = await client.query('SELECT * FROM stories WHERE id=$1 AND space_id=$2', [id, actor.spaceId])
+      if (!result.rowCount) throw new BlokError('not_found', 'Story not found in this space')
+      return storyRow(result.rows[0])
+    })
+  }
   async createStory(actor: Actor, value: unknown): Promise<LocaleSnapshot> {
     const input = parseInput(storyInputSchema, value)
     return this.tx(actor, async client => {
@@ -393,7 +405,7 @@ export class BlokStore {
     const parentDefinition = snapshot.definitions.find(d => d.versionId === parent.schemaVersionId)!
     const field = parentDefinition.fields.find(f => f.name === fieldName)
     if (!field || field.type !== 'blocks') throw new BlokError('invalid', 'Select a Blocks field')
-    if (definition.kind === 'content-type' || (field.allowedDefinitionIds?.length && !field.allowedDefinitionIds.includes(definition.id))) throw new BlokError('invalid', 'This blok type is not allowed here')
+    if (!isBlockAllowed(field, definition)) throw new BlokError('invalid', 'This blok type is not allowed here')
     return field
   }
   private async validateReferences(client: PoolClient, actor: Actor, schema: DefinitionInput, fields: Record<string, Json>): Promise<void> {

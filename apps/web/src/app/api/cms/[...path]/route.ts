@@ -51,12 +51,13 @@ async function handle(request: Request, route: { params: Promise<{ path: string[
     }
     if (resource === 'stories') {
       if (method === 'GET' && !id) return jsonResponse(await store.listStories(actor))
+      if (method === 'GET' && id && !child) return jsonResponse(await store.getStory(actor, id))
       if (method === 'POST' && !id) return jsonResponse((await store.createStory(actor, await readJson(request))).story, 201)
       if (id && child === 'locales') {
         if (!localeId && method === 'GET') return jsonResponse(await store.listLocales(actor, id))
         if (!localeId && method === 'POST') return jsonResponse((await store.createLocale(actor, id, await readJson(request))).locale, 201)
         if (localeId) {
-          if (action === 'preview' && method === 'POST') return jsonResponse(await store.createEditorPreview(actor, id, localeId), 201)
+          if (action === 'preview' && method === 'POST') return jsonResponse(await store.createEditorPreview(actor, id, localeId, await readJson(request)), 201)
           if (!action && method === 'GET') return jsonResponse(await store.getSnapshot(actor, id, localeId))
           const room = env.ROOMS.getByName(`${actor.spaceId}:${id}:${localeId}`)
           const internalHeaders = new Headers({ 'x-blok-actor': JSON.stringify(actor), 'x-blok-story-id': id, 'x-blok-locale-id': localeId })

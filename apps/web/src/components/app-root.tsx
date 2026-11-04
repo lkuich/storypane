@@ -7,6 +7,7 @@ import { CMSApp, type CMSSession } from './cms-app'
 import { UploadProvider } from '../features/assets/upload'
 import { SpacesScreen } from '../features/spaces/spaces-screen'
 import { spaceUrl } from '../lib/space-url'
+import { ThemePicker } from './theme-picker'
 
 export function AppRoot() {
   const [session, setSession] = useState<(Omit<CMSSession, 'space'> & { space: CMSSession['space'] | null }) | null>(null)
@@ -26,10 +27,11 @@ export function AppRoot() {
     finally { setLoading(false) }
   }
   useEffect(() => { void loadSession() }, [])
-  if (loading) return <main className="login-shell" aria-busy="true"><div className="loading-state"><span className="spinner" />Opening your workspace…</div></main>
+  if (loading) return <main className="workspace-loading" aria-busy="true"><div className="loading-state"><span className="spinner" />Opening your workspace…</div></main>
   if (sessionError) return <main className="session-error"><h1>Unable to open this workspace</h1><p role="alert">{sessionError}</p><div className="button-group"><a href="/" className="button">All spaces</a><Button onClick={() => void loadSession()}>Try again</Button></div></main>
   if (session) return session.space ? <UploadProvider><CMSApp session={{ ...session, space:session.space }} /></UploadProvider> : <SpacesScreen user={session.user} />
   return <main className="login-shell">
+    <div className="login-appearance"><ThemePicker /></div>
     <div className="login-intro">
       <div className="brand-lockup"><span className="brand-mark"><Boxes aria-hidden="true" /></span><span className="brand-name">blok<span className="brand-period">.</span></span></div>
       <div className="login-story"><span className="eyebrow">Your content, connected</span><h1>A space for<br /> every story.</h1><p>Build with blocks. Create in any language.<br />Bring your next idea to life, together.</p><div className="login-features"><span><Layers3 />Flexible blocks</span><span><Globe2 />Every locale</span><span><History />Every version</span></div></div>

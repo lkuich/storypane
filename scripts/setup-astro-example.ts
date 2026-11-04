@@ -79,7 +79,8 @@ if (existsSync(envPath)) {
   await request(`${base}/leases`,'DELETE',{ blockId:hero.id,token:heroLease.token });
   await request(`${base}/commands`,'POST',{ type:'publishCheckpoint',mutationId:crypto.randomUUID(),expectedRevisions:{},leaseTokens:{},payload:{ checkpointId:translated.snapshot.checkpointId } });
   await createPage('Work in progress','work-in-progress');
-  await request('/api/cms/delivery-settings','PUT',{ previewUrl:'http://127.0.0.1:3132/preview?slug={slug}&locale={locale}',previewParameter:'blok_preview' });
+  const previewId = crypto.randomUUID();
+  await request('/api/cms/delivery-settings','PUT',{ previewUrls:[{ id:previewId,name:'Local Astro',url:'http://127.0.0.1:3132/preview?slug={slug}&locale={locale}' }],defaultPreviewId:previewId,previewParameter:'blok_preview' });
   const published = await request<{ token:string }>('/api/cms/delivery-tokens','POST',{ name:'Astro build',scope:'published' });
   const schema = await request<{ token:string }>('/api/cms/delivery-tokens','POST',{ name:'Astro schema tooling',scope:'preview' });
   writeFileSync(envPath,`BLOK_URL=${url}\nBLOK_SPACE_ID=${spaceId}\nBLOK_DELIVERY_TOKEN=${published.token}\nBLOK_PREVIEW_TOKEN=${schema.token}\nPUBLIC_BLOK_PREVIEW_PARAMETER=blok_preview\nPUBLIC_BLOK_PREVIEW=false\n`,{ mode:0o600,flag:'wx' });

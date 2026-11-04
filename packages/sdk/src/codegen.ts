@@ -7,6 +7,7 @@ const identifier = /^[a-z][a-z0-9_]{0,79}$/;
 const reserved = new Set(['component','_uid','__proto__','constructor','prototype']);
 const typeName = (name:string) => name.split('_').map(part => part.charAt(0).toUpperCase() + part.slice(1)).join('') + 'Blok';
 const strings = (value:unknown, max:number) => Array.isArray(value) && value.length <= max && value.every(item => typeof item === 'string' && item.length <= 500);
+const tags = (value:unknown) => strings(value,50) && (value as string[]).every(tag => tag.trim().length > 0 && tag.length <= 64) && new Set(value as string[]).size === (value as string[]).length;
 const record = (value:unknown): value is Record<string,unknown> => !!value && typeof value === 'object' && !Array.isArray(value);
 
 /** Validate downloaded/local JSON before interpolating it into source code. */
@@ -16,7 +17,8 @@ export function parseBlokSchema(value:unknown): BlokSchema {
   for (const component of value.components) {
     if (!record(component) || typeof component.name !== 'string' || !identifier.test(component.name) ||
       typeof component.id !== 'string' || !component.id || component.id.length > 100 || !kinds.includes(String(component.kind)) ||
-      !Number.isSafeInteger(component.version) || Number(component.version) < 1 || !Array.isArray(component.fields) || component.fields.length > 200) throw new Error('Invalid component schema');
+      !Number.isSafeInteger(component.version) || Number(component.version) < 1 || !Array.isArray(component.fields) || component.fields.length > 200 ||
+      (component.tags !== undefined && !tags(component.tags))) throw new Error('Invalid component schema');
     const name = typeName(component.name);
     if (names.has(name) || ids.has(component.id)) throw new Error(`Duplicate component or TypeScript name: ${component.name}`);
     names.add(name); ids.add(component.id);
@@ -26,7 +28,9 @@ export function parseBlokSchema(value:unknown): BlokSchema {
         !fieldTypes.includes(String(field.type)) || (field.required !== undefined && typeof field.required !== 'boolean') ||
         (field.format !== undefined && !formats.includes(String(field.format))) ||
         (field.options !== undefined && !strings(field.options,1000)) ||
-        (field.allowedDefinitionIds !== undefined && !strings(field.allowedDefinitionIds,500))) throw new Error(`Invalid field schema in ${component.name}`);
+        (field.allowedDefinitionIds !== undefined && !strings(field.allowedDefinitionIds,500)) ||
+        (field.allowedTags !== undefined && !tags(field.allowedTags))) throw new Error(`Invalid field schema in ${component.name}`);
+      if (Array.isArray(field.allowedTags) && field.allowedTags.length && Array.isArray(field.allowedDefinitionIds) && field.allowedDefinitionIds.length) throw new Error(`Conflicting block restrictions in ${component.name}`);
       fields.add(field.name);
     }
   }
@@ -55,8 +59,8 @@ export function generateTypes(value:unknown): string {
       case 'link': helpers.add('BlokLink'); return 'BlokLink';
       case 'option': return field.options ? union(field.options.map(value => JSON.stringify(value))) : 'string';
       case 'options': return `Array<${field.options ? union(field.options.map(value => JSON.stringify(value))) : 'string'}>`;
-      case 'blocks': return field.allowedDefinitionIds?.length
-        ? `Array<${union(sorted.filter(item => field.allowedDefinitionIds!.includes(item.id)).map(item => typeName(item.name)))}>`
+      case 'blocks': return field.allowedDefinitionIds?.length || field.allowedTags?.length
+        ? `Array<${union(sorted.filter(item => item.kind !== 'content-type' && (!field.allowedDefinitionIds?.length || field.allowedDefinitionIds.includes(item.id)) && (!field.allowedTags?.length || field.allowedTags.some(tag => item.tags?.includes(tag)))).map(item => typeName(item.name)))}>`
         : 'BlokNestable[]';
     }
   }
