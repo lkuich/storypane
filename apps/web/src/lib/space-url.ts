@@ -14,7 +14,14 @@ export function spaceUrl(path: string): string {
   return `${path}${path.includes('?') ? '&' : '?'}space=${encodeURIComponent(id)}`
 }
 
-export function setStoryLocation(storyId: string | null, locale = '') {
+export function storyUrl({spaceId,storyId,localeSlug='',blockId}:{spaceId:string;storyId:string;localeSlug?:string;blockId?:string}):string {
+  const params=new URLSearchParams({space:spaceId,story:storyId})
+  if(localeSlug)params.set('locale',localeSlug)
+  if(blockId)params.set('block',blockId)
+  return `/?${params}`
+}
+
+export function setStoryLocation(storyId: string | null, locale = '', blockId?:string|null, historyMode:'replace'|'push'='replace') {
   const url = new URL(window.location.href)
   if (storyId) {
     url.searchParams.set('story', storyId)
@@ -22,5 +29,8 @@ export function setStoryLocation(storyId: string | null, locale = '') {
   } else url.searchParams.delete('story')
   if (storyId && locale) url.searchParams.set('locale', locale)
   else url.searchParams.delete('locale')
-  window.history.replaceState(null, '', url)
+  if(storyId && blockId)url.searchParams.set('block',blockId)
+  else url.searchParams.delete('block')
+  if(historyMode==='push')window.history.pushState({...window.history.state,storypaneIndex:(window.history.state?.storypaneIndex ?? 0)+1},'',url)
+  else window.history.replaceState(window.history.state, '', url)
 }

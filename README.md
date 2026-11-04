@@ -145,9 +145,29 @@ Schema edits accumulate in one shared active migration per space. Review the dif
 in **Blocks → Schema migrations**, then deploy as an admin. Deployment migrates
 existing drafts and live publications separately without publishing unfinished
 content. Renames preserve data; removed fields and incompatible types delete/reset
-active values. Invalid resulting publications block deployment. History remains
+active values. Reviews link directly to affected story blocks. Any data loss needs
+typed confirmation. **Preview destructive deployment** also removes disallowed
+nested blocks (including descendants), keeps the earliest allowed blocks up to
+new limits, and resets invalid values to defaults or clears them. It still blocks
+on missing required content or invalid schemas; it does not unpublish pages.
+Draft and published issues are reviewed separately. Fix a published issue by
+publishing the corrected draft, adjusting the schema, or reviewing the destructive
+option. History remains
 readable; restoring it applies intervening migrations. Database upgrade `013`
 retains legacy content until an admin deploys the initial migration.
+Run `pnpm db:setup` to apply upgrade `014`, which records destructive deployments.
+
+Select a block to include its ID in the editor URL, then copy the URL to share it.
+Links use `/?space=<id>&story=<id>&locale=<slug>&block=<id>` (omit `locale` for
+Default). A deleted or published-only block shows a notice when absent from the draft.
+
+Use **Copy block** in a block's toolbar (or its list-row copy icon), then
+**Paste block** in a destination block list. Copies include nested blocks and
+visible unsaved field values; pasting creates independent block IDs, including
+across pages and locales in the same space. Asset and story references keep their
+existing targets. Pasting follows the destination's schema, limits and editing
+locks, and does not publish content. Copy again after a schema migration. If the
+browser blocks clipboard access, the editor provides manual copy/paste fields.
 
 The SDK CLI supports `migrations pull`, `migrations create "description"`,
 `migrations push`, and `migrations push --deploy --yes` for CI/CD. Generate types

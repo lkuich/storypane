@@ -107,6 +107,7 @@ function printReview(review) {
   for(const change of review.changes)console.log(`${change.kind}: ${change.definition}${change.field?'.'+change.field:''}\n${JSON.stringify({before:change.before,after:change.after},null,2)}`);
   for(const impact of review.impacts)console.log(`${impact.name} / ${impact.locale} (${impact.target}): ${impact.deletedValues} values deleted, ${impact.resetValues} reset, ${impact.deletedBlocks} blocks deleted`);
   for(const blocker of review.blockers)console.error(`${blocker.path}: ${blocker.message}`);
+  if(review.confirmation)console.log('WARNING: This migration deletes or resets content. Old values remain in history.');
 }
 export async function pushMigration(request,{deploy=false,yes=false,dir=directory}={}) {
   const local=await localMigrations(dir),file=local.active;
@@ -127,9 +128,12 @@ export async function pushMigration(request,{deploy=false,yes=false,dir=director
   if(review.blockers.length)throw new Error('Deployment blocked; resolve the listed validation errors');
   if(!yes) {
     const prompt=createInterface({input:process.stdin,output:process.stdout});
-    try {if((await prompt.question('Deploy this migration? [y/N] ')).trim().toLowerCase()!=='y'){console.log('Migration remains staged');return staged}}finally{prompt.close()}
+    try {
+      const answer=(await prompt.question(review.confirmation?`Type ${review.confirmation} to accept data loss: `:'Deploy this migration? [y/N] ')).trim();
+      if(review.confirmation?answer!==review.confirmation:answer.toLowerCase()!=='y'){console.log('Migration remains staged');return staged}
+    }finally{prompt.close()}
   }
-  const deployed=await request(`/${staged.id}/deploy`,{reviewToken:review.token});
+  const deployed=await request(`/${staged.id}/deploy`,{reviewToken:review.token,...(review.confirmation?{confirmation:review.confirmation}:{})});
   await pullMigrations(request,dir);
   console.log(`Deployed migration ${deployed.version}`);
   return deployed;

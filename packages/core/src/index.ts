@@ -63,7 +63,7 @@ export const optionSourceSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('stories'), contentTypeId: z.uuid().optional() }).strict(),
 ])
 export type OptionSource = z.infer<typeof optionSourceSchema>
-const base = { id: z.uuid().optional(), name: z.string().regex(/^[a-z][a-z0-9_]*$/).max(80).refine(v => !['_uid', 'component', '__proto__', 'constructor', 'prototype'].includes(v), 'Reserved field name'), label: z.string().min(1).max(120), description: z.string().max(2000).optional(), required: z.boolean().optional(), defaultValue: jsonSchema.optional() }
+const base = { id: z.uuid().optional(), name: z.string().regex(/^[a-z][a-z0-9_]*$/, 'Use only lowercase letters, numbers and underscores, starting with a letter (e.g. hero_image).').max(80).refine(v => !['_uid', 'component', '__proto__', 'constructor', 'prototype'].includes(v), 'Reserved field name'), label: z.string().min(1).max(120), description: z.string().max(2000).optional(), required: z.boolean().optional(), defaultValue: jsonSchema.optional() }
 const tagsSchema = z.array(z.string().trim().min(1).max(64)).max(50).refine(tags => new Set(tags).size === tags.length, 'Tags must be unique')
 export const fieldDefinitionSchema = z.discriminatedUnion('type', [
   z.object({ ...base, type: z.literal('text'), format: z.enum(['singleline', 'textarea', 'richtext', 'markdown']).default('singleline'), maxLength: z.number().int().positive().max(1_000_000).optional() }).strict(),
@@ -77,7 +77,7 @@ export const fieldDefinitionSchema = z.discriminatedUnion('type', [
   z.object({ ...base, type: z.literal('blocks'), allowedDefinitionIds: z.array(z.uuid()).max(500).optional(), allowedTags: tagsSchema.optional(), minItems: z.number().int().nonnegative().optional(), maxItems: z.number().int().positive().max(1000).optional() }).strict().refine(field => !(field.allowedTags?.length && field.allowedDefinitionIds?.length), 'Restrict by blocks or tags, not both'),
 ])
 export type FieldDefinition = z.infer<typeof fieldDefinitionSchema>
-export const definitionInputSchema = z.object({ name: z.string().regex(/^[a-z][a-z0-9_]*$/).max(80), displayName: z.string().min(1).max(120), kind: z.enum(['nestable', 'content-type', 'universal']), tags: tagsSchema.optional(), fields: z.array(fieldDefinitionSchema).max(200) }).strict().superRefine((schema, ctx) => {
+export const definitionInputSchema = z.object({ name: z.string().regex(/^[a-z][a-z0-9_]*$/, 'Use only lowercase letters, numbers and underscores, starting with a letter (e.g. hero_image).').max(80), displayName: z.string().min(1).max(120), kind: z.enum(['nestable', 'content-type', 'universal']), tags: tagsSchema.optional(), fields: z.array(fieldDefinitionSchema).max(200) }).strict().superRefine((schema, ctx) => {
   const names = new Set<string>(), ids = new Set<string>()
   schema.fields.forEach((field, i) => {
     if (names.has(field.name)) ctx.addIssue({ code: 'custom', path: ['fields', i, 'name'], message: 'Field names must be unique' })
@@ -108,7 +108,7 @@ export type LinkValue = z.infer<typeof linkValueSchema>
 export type PageEditor = { userId:string; name:string; avatarUrl:string|null; locales:string[] }
 export type PageEditors = Record<string,PageEditor[]>
 export type PublicationStatus = 'draft' | 'changed' | 'published'
-export type StorySummary = Story & { pinned:boolean; publicationStatus:PublicationStatus; localeCount:number; pendingLocaleCount:number; modifiedBy:{id:string;name:string}|null; contentType:{id:string;name:string}|null }
+export type StorySummary = Story & { pinned:boolean; publicationStatus:PublicationStatus; localeCount:number; pendingLocaleCount:number; pendingLocales?:Pick<StoryLocale,'id'|'name'|'slug'>[]; modifiedBy:{id:string;name:string}|null; contentType:{id:string;name:string}|null }
 export type Story = { id: string; name: string; slug: string; folderId?:string|null; slugSegment?:string; formOnly?:boolean; createdAt: string; updatedAt: string }
 export type StoryLocale = { id: string; storyId: string; spaceLocaleId: string; slug: string; name: string; urlSlug: string; slugSegment?:string; rootBlockId: string; revision: number; checkpointId: string | null; publishedVersionId: string | null }
 export type BlockDraft = { id: string; definitionId: string; schemaVersionId: string; parentId: string | null; parentField: string | null; position: number; fields: Record<string, Json>; revision: number }
@@ -122,12 +122,28 @@ export type CommitResult = { mutationId: string; localeRevision: number; changed
 
 const id = z.uuid()
 const mutationBase = { migrationVersion: z.number().int().nonnegative().optional(), mutationId: id, expectedRevisions: z.record(z.string(), z.number().int().nonnegative()).default({}), leaseTokens: z.record(z.string(), z.string().min(1)).default({}) }
+export const blockClipboardSchema = z.object({
+  type:z.literal('storypane/block'),version:z.literal(1),spaceId:id,migrationVersion:z.number().int().nonnegative(),
+  blocks:z.array(z.object({definitionId:id,parentIndex:z.number().int().nonnegative().nullable(),parentField:z.string().regex(/^[a-z][a-z0-9_]{0,79}$/).nullable(),position:z.number().int().nonnegative(),fields:z.record(z.string(),jsonSchema)}).strict()).min(1).max(1000),
+}).strict().superRefine((value,ctx)=>{
+  const depths:number[]=[]
+  value.blocks.forEach((block,index)=>{
+    if(index===0 ? block.parentIndex!==null || block.parentField!==null : block.parentIndex===null || block.parentIndex>=index || block.parentField===null) {
+      ctx.addIssue({code:'custom',path:['blocks',index],message:'Copied blocks must form one tree, with parents before children'})
+      return
+    }
+    depths[index]=block.parentIndex===null?0:(depths[block.parentIndex] ?? 31)+1
+    if(depths[index]!>30)ctx.addIssue({code:'custom',path:['blocks',index],message:'Block nesting exceeds the supported depth'})
+  })
+})
+export type BlockClipboard = z.infer<typeof blockClipboardSchema>
 export const commandSchema = z.discriminatedUnion('type', [
   z.object({ ...mutationBase, type: z.literal('saveBlock'), payload: z.object({ blockId: id, fields: z.record(z.string(), jsonSchema) }).strict() }).strict(),
   z.object({ ...mutationBase, type: z.literal('insertBlock'), payload: z.object({ parentId: id, parentField: z.string(), definitionId: id, position: z.number().int().nonnegative().optional() }).strict() }).strict(),
   z.object({ ...mutationBase, type: z.literal('moveBlock'), payload: z.object({ blockId: id, parentId: id, parentField: z.string(), position: z.number().int().nonnegative() }).strict() }).strict(),
   z.object({ ...mutationBase, type: z.literal('deleteBlock'), payload: z.object({ blockId: id }).strict() }).strict(),
   z.object({ ...mutationBase, type: z.literal('importBlocks'), payload: z.object({ sourceLocaleId: id, blockIds: z.array(id).min(1).max(100), parentId: id, parentField: z.string() }).strict() }).strict(),
+  z.object({ ...mutationBase, type: z.literal('pasteBlock'), payload: z.object({ clipboard:blockClipboardSchema,parentId:id,parentField:z.string() }).strict() }).strict(),
   z.object({ ...mutationBase, type: z.literal('restoreBlock'), payload: z.object({ blockId: id, checkpointId: id }).strict() }).strict(),
   z.object({ ...mutationBase, type: z.literal('restorePage'), payload: z.object({ checkpointId: id }).strict() }).strict(),
   z.object({ ...mutationBase, type: z.literal('publishCheckpoint'), payload: z.object({ checkpointId: id }).strict() }).strict(),
@@ -226,3 +242,4 @@ export function validateFields(schema: DefinitionInput, fields: Record<string, J
 }
 
 export * from './migrations.js'
+export * from './block-clipboard.js'

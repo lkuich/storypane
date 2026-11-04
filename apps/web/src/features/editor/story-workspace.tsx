@@ -1,5 +1,5 @@
 "use client";
-import { isBlockAllowed } from "@storypane/core";
+import { createBlockClipboard, isBlockAllowed, parseBlockClipboard, serializeBlockClipboard } from "@storypane/core";
 import { setStoryLocation, spaceUrl } from "../../lib/space-url";
 
 import {
@@ -14,6 +14,7 @@ import {
   Check,
   ChevronRight,
   Clock3,
+  ClipboardPaste,
   Copy,
   FileJson,
   FileText,
@@ -64,6 +65,7 @@ import { useStoryEditor } from "./use-story-editor";
 import { PreviewPanel } from "./preview-panel";
 import { BlockNavigation, blockSummary, blockTitle, definitionFor } from "./block-navigation";
 import { SchemaDrawer } from "../schema/schema-drawer";
+import { PendingSchemaMigration } from "../schema/pending-schema-migration";
 
 function outline(
   snapshot: LocaleSnapshot,
@@ -142,7 +144,7 @@ export function StoryWorkspace({
       setConfiguredLocales(configured);
       setDefinitions(blocks);
       setInitialSnapshot(snapshot);
-      setStoryLocation(story.id, locale.slug);
+      setStoryLocation(story.id, locale.slug, new URLSearchParams(window.location.search).get('block'));
     })().catch(cause => { if (!stopped) setError(errorMessage(cause)); })
       .finally(() => { if (!stopped) setLoading(false); });
     return () => { stopped = true; };
@@ -298,6 +300,10 @@ function LocaleEditor({
   const dragSource = useRef<string | null>(null);
   const [draggedId, setDraggedId] = useState<string | null>(null);
   const [dropTarget, setDropTarget] = useState<{ id: string; edge: "before" | "after" } | null>(null);
+  const [clipboardNotice,setClipboardNotice] = useState('');
+  const [copyFallback,setCopyFallback] = useState<string|null>(null);
+  const [pasteTo,setPasteTo] = useState<{parentId:string;field:Extract<FieldDefinition,{type:'blocks'}>}|null>(null);
+  const [pasteText,setPasteText] = useState(''),[pasteError,setPasteError] = useState('');
   const [reorderAnnouncement, setReorderAnnouncement] = useState("");
   useEffect(() => {
     registerGuard(async () => {
@@ -310,6 +316,7 @@ function LocaleEditor({
     const command = editor.completedCommand;
     if (command?.type === "insertBlock") setAddTo(null);
     if (command?.type === "importBlocks") setImportTo(null);
+    if (command?.type === "pasteBlock") setPasteTo(null);
     if (command?.type === "restoreBlock" || command?.type === "restorePage")
       setHistoryOpen(false);
     if (command?.type === "publishCheckpoint") setReview(null);
@@ -365,6 +372,29 @@ function LocaleEditor({
     } finally {
       setBusy(false);
     }
+  }
+  async function copyBlock(blockId:string) {
+    const text=serializeBlockClipboard(createBlockClipboard(snapshot,session.space.id,blockId,editor.buffers));
+    try { await navigator.clipboard.writeText(text);setClipboardNotice('Block copied, including nested blocks. Paste it into a block list in this space.'); }
+    catch { setCopyFallback(text); }
+  }
+  async function pasteBlock(text:string,parentId:string,field:Extract<FieldDefinition,{type:'blocks'}>) {
+    const clipboard=parseBlockClipboard(text);
+    if(clipboard.spaceId!==session.space.id)throw new Error('Blocks can only be pasted within the space they were copied from.');
+    if(clipboard.migrationVersion!==(snapshot.migrationVersion ?? 0))throw new Error('The schema changed since this block was copied. Copy it again before pasting.');
+    const definition=definitions.find(item=>item.id===clipboard.blocks[0]!.definitionId);
+    if(!definition || !isBlockAllowed(field,definition))throw new Error(`${field.label} does not allow this block type.`);
+    const result=await editor.runCommand({type:'pasteBlock',payload:{parentId,parentField:field.name,clipboard}},[parentId]);
+    setPasteTo(null);
+    setClipboardNotice('Block pasted as an independent copy.');
+    const pasted=result.snapshot.blocks.find(item=>item.parentId===parentId && item.parentField===field.name && result.changedBlockIds.includes(item.id));
+    if(pasted)await editor.select(pasted.id);
+  }
+  async function readAndPaste(parentId:string,field:Extract<FieldDefinition,{type:'blocks'}>) {
+    let text:string;
+    try { text=await navigator.clipboard.readText(); }
+    catch { setPasteTo({parentId,field});setPasteText('');setPasteError('');return; }
+    await pasteBlock(text,parentId,field);
   }
   async function openHistory() {
     setHistoryOpen(true);
@@ -643,7 +673,7 @@ function LocaleEditor({
       <p className="sr-only" role="status">{reorderAnnouncement}</p>
       <div className="story-heading">
         <div>
-          <div className="story-title-status"><h1>{snapshot.story.name}</h1><PublicationStatus status={publicationStatus} /></div>
+          <div className="story-title-status"><h1>{snapshot.story.name}</h1><PublicationStatus status={publicationStatus} localeName={snapshot.locale.name} /></div>
           <div className="entity-subtitle mono">
             /{snapshot.locale.slug ? `${snapshot.locale.slug}/` : ""}
             {snapshot.locale.urlSlug}
@@ -743,6 +773,7 @@ function LocaleEditor({
           </span>
         </div>
       )}
+      {clipboardNotice && <div className="notice" role="status"><span>{clipboardNotice}</span><Button variant="ghost" aria-label="Dismiss clipboard message" onClick={()=>setClipboardNotice('')}>×</Button></div>}
       {editor.connection === "disconnected" && (
         <div className="notice notice--warning" role="status">
           Editing is paused while the connection is unavailable. Your unsaved input is kept on this device.
@@ -766,14 +797,21 @@ function LocaleEditor({
                   <p>
                     <span className="mono">{definition.name}</span> · schema v
                     {definition.version}
+                    <PendingSchemaMigration definitionId={definition.id} schemaOpen={!!schema} />
                   </p>
                 </div>
                 <div className="button-group">
+                  {definition.kind!=='content-type' && <Button variant="ghost" disabled={busy} onClick={()=>void action(()=>copyBlock(block.id))}><Copy aria-hidden="true" />Copy block</Button>}
                   {can(session.space,"schemas:write") && <Button id="edit-block-schema" variant="ghost" onClick={() => void openSchema()} disabled={busy} title={`Edit ${definition.displayName} schema`}>
                     <Settings2 aria-hidden="true" /> Edit schema
                   </Button>}
                   {ownsLease ? (
-                    <span className="pill pill--green">You’re editing</span>
+                    <EditorAvatars editors={[{
+                      userId:session.user.id,
+                      name:session.user.name,
+                      avatarUrl:currentEditors.find(item=>item.userId===session.user.id)?.avatarUrl ?? null,
+                      locales:[snapshot.locale.name],
+                    }]} currentUserId={session.user.id} />
                   ) : editor.connection === "connecting" ? (
                     <span className="pill">Connecting…</span>
                   ) : (
@@ -872,6 +910,7 @@ function LocaleEditor({
                               </span>
                               <div className="button-group">
                                 <BlockEditorAvatar blockId={child.id} snapshot={snapshot} editors={currentEditors} currentUserId={session.user.id} />
+                                <Button variant="ghost" className="icon-button" disabled={busy} aria-label={`Copy ${blockTitle(snapshot,child)}`} title="Copy block and nested content" onClick={()=>void action(()=>copyBlock(child.id))}><Copy aria-hidden="true" /></Button>
                                 <Button
                                   variant="ghost"
                                   className="icon-button"
@@ -928,6 +967,7 @@ function LocaleEditor({
                             >
                               <Plus /> Add block
                             </Button>
+                            <Button variant="ghost" disabled={disabled || (field.maxItems!==undefined && snapshot.blocks.filter(item=>item.parentId===block.id && item.parentField===field.name).length>=field.maxItems)} onClick={()=>void action(()=>readAndPaste(block.id,field))}><ClipboardPaste aria-hidden="true" />Paste block</Button>
                             {snapshot.locale.slug !== "" && (
                               <Button
                                 variant="ghost"
@@ -1068,6 +1108,21 @@ function LocaleEditor({
             Revision {snapshot.revision} · {snapshot.locale.name}
           </div>
         </aside>
+      </Modal>
+      <Modal open={copyFallback!==null} title="Copy block" description="Clipboard access is unavailable. Copy the selected content, then paste it into a block list." onClose={()=>setCopyFallback(null)}>
+        <label className="field">Block to copy<textarea rows={6} readOnly autoFocus value={copyFallback ?? ''} onFocus={event=>event.currentTarget.select()} /></label>
+        <Button onClick={()=>setCopyFallback(null)}>Done</Button>
+      </Modal>
+      <Modal open={!!pasteTo} title={pasteTo?`Paste block into ${pasteTo.field.label}`:'Paste block'} description="Clipboard access is unavailable. Paste your copied block below." onClose={()=>{if(!busy)setPasteTo(null)}}>
+        <form onSubmit={event=>{
+          event.preventDefault();if(!pasteTo)return;
+          setBusy(true);setPasteError('');
+          void pasteBlock(pasteText,pasteTo.parentId,pasteTo.field).catch(cause=>setPasteError(errorMessage(cause))).finally(()=>setBusy(false));
+        }}>
+          <ErrorNotice message={pasteError} />
+          <label className="field">Copied block<textarea autoFocus rows={6} value={pasteText} disabled={busy} onChange={event=>setPasteText(event.target.value)} /></label>
+          <div className="button-group"><Button disabled={busy} onClick={()=>setPasteTo(null)}>Cancel</Button><Button type="submit" variant="primary" disabled={busy || !pasteText.trim()}>{busy?'Pasting…':'Paste block'}</Button></div>
+        </form>
       </Modal>
       <Modal
         open={!!addTo}

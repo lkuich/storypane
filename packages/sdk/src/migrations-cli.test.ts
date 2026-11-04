@@ -51,6 +51,18 @@ it('preserves dirty files on conflicting pulls and refuses modified deployed his
   await writeFile(join(dir,'1.json'),JSON.stringify(deployed));
   await expect(cli.localMigrations(dir)).rejects.toThrow('history is modified');
 });
+it('passes explicit CI data-loss acceptance after printing the reviewed impact',async()=>{
+  const log=vi.spyOn(console,'log').mockImplementation(()=>{});
+  const {dir,request}=await fixture();
+  await cli.createMigration('Remove a field',dir);
+  const reviewed=async(path='',body?:unknown)=>{
+    const result=await request(path,body);
+    return path.endsWith('/review')?{...result,confirmation:'DEPLOY 2'}:result;
+  };
+  await cli.pushMigration(reviewed,{dir,deploy:true,yes:true});
+  expect(request).toHaveBeenCalledWith(expect.stringContaining('/deploy'),{reviewToken:'review-token',confirmation:'DEPLOY 2'});
+  expect(log).toHaveBeenCalledWith(expect.stringContaining('WARNING:'));
+});
 it('retains local edits when the remote workspace is unchanged and refuses duplicate create',async()=>{
   vi.spyOn(console,'log').mockImplementation(()=>{});
   const {dir,request}=await fixture();

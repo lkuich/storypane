@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState, type DragEvent, type FormEvent } from "react";
-import { ArrowDown, ArrowUp, ChevronDown, GripVertical, Trash2 } from "lucide-react";
-import { definitionInputSchema, fieldDefinitionSchema, type BlockDefinition, type Datasource, type DefinitionInput, type SchemaMigration, definitionInput } from "@storypane/core";
+import { ArrowDown, ArrowUp, ChevronDown, GitBranch, GripVertical, Trash2 } from "lucide-react";
+import { canonicalJson, definitionInputSchema, fieldDefinitionSchema, type BlockDefinition, type Datasource, type DefinitionInput, type SchemaMigration, definitionInput } from "@storypane/core";
 import { Button, EmptyState, ErrorNotice, Field, Modal } from "@storypane/ui";
 import { api, errorMessage, fieldName, jsonRequest } from "../editor/api";
 import type { RegisterGuard } from "../editor/navigation";
@@ -29,6 +29,7 @@ export function SchemaDrawer({ initialDefinition, definitions, datasources, canM
   const [dirty, setDirty] = useState(false);
   const [availableDefinitions,setAvailableDefinitions]=useState(definitions);
   const [baseVersion,setBaseVersion]=useState<number|null>(null);
+  const [migrationWorkspace,setMigrationWorkspace]=useState<{deployed:BlockDefinition[];activeVersion:number|null}|null>(null);
   const [remote,setRemote]=useState<{definition:BlockDefinition|null;baseVersion:number}|null>(null);
 
   const [selectedField, setSelectedField] = useState<number | null>(null);
@@ -63,7 +64,9 @@ export function SchemaDrawer({ initialDefinition, definitions, datasources, canM
       try {
         const migrations=await api<SchemaMigration[]>("/migrations?workspace=true");
         if(stopped)return;
-        const deployed=migrations.filter(item=>item.status==='deployed').at(-1)?.version ?? 0;
+        const deployedMigration=migrations.filter(item=>item.status==='deployed').at(-1);
+        const deployed=deployedMigration?.version ?? 0;
+        setMigrationWorkspace({deployed:deployedMigration?.definitions ?? [],activeVersion:migrations.find(item=>item.status==='active')?.version ?? null});
         const shared=(migrations.find(item=>item.status==='active') ?? migrations.at(-1))?.definitions ?? [];
         setAvailableDefinitions(shared);
         const latest=shared.find(item=>item.id===original?.id) ?? null;
@@ -120,6 +123,7 @@ export function SchemaDrawer({ initialDefinition, definitions, datasources, canM
     return { index, edge: event.clientY < bounds.top + bounds.height / 2 ? "before" as const : "after" as const };
   }
   const duplicate = draft.fields.some(field => field.name === newName);
+  const deployedDefinition=migrationWorkspace?.deployed.find(item=>item.id===original?.id);
   return (
       <Modal open closeOnBackdrop onClose={close} title={original ? `Edit '${original.name}'` : "New block"} className="schema-drawer" description={description}>
         {draft && <div className="schema-editor" onKeyDown={event => {
@@ -161,6 +165,9 @@ export function SchemaDrawer({ initialDefinition, definitions, datasources, canM
                   <Field label="Technical name" htmlFor="definition-name">
                     <input
                       id="definition-name"
+                      aria-describedby="definition-name-hint"
+                      autoCapitalize="none"
+                      spellCheck={false}
                       placeholder="hero"
                       value={draft.name}
                       disabled={!!original}
@@ -168,6 +175,7 @@ export function SchemaDrawer({ initialDefinition, definitions, datasources, canM
                         change({ ...draft, name: event.target.value })
                       }
                     />
+                    <p id="definition-name-hint" className="field-hint">Lowercase letters, numbers and underscores only. Start with a letter, e.g. hero_image.</p>
                   </Field>
                 </div>
                 <Field label="Tags" htmlFor="definition-tags" description="Separate tags with commas, e.g. rootComponent, marketing. Blocks fields can use these tags to restrict which blocks are allowed.">
@@ -210,10 +218,11 @@ export function SchemaDrawer({ initialDefinition, definitions, datasources, canM
               {canManage && <form className="schema-add-field" onSubmit={addField}>
                 <label htmlFor="schema-new-name">Name</label>
                 <fieldset className="schema-add-control" disabled={busy}>
-                  <input id="schema-new-name" value={newName} onChange={event => setNewName(event.target.value)} required maxLength={80} pattern="[a-z][a-z0-9_]*" placeholder="e.g. headline, body, featured_image" autoComplete="off" />
+                  <input id="schema-new-name" aria-describedby="schema-new-name-hint" value={newName} onChange={event => setNewName(event.target.value)} required maxLength={80} pattern="[a-z][a-z0-9_]*" placeholder="e.g. headline, body, featured_image" autoComplete="off" autoCapitalize="none" spellCheck={false} />
                   <FieldTypePicker compact value={newType} onChange={setNewType} />
                   <Button type="submit" variant="primary" disabled={!/^[a-z][a-z0-9_]*$/.test(newName) || duplicate || draft.fields.length >= 200}>Add</Button>
                 </fieldset>
+                <p id="schema-new-name-hint" className="field-hint">Lowercase letters, numbers and underscores only. Start with a letter, e.g. hero_image.</p>
                 {duplicate && <p className="field-error" role="alert">A field with this name already exists.</p>}
                 {draft.fields.length >= 200 && <p className="field-hint">A block can contain up to 200 fields.</p>}
               </form>}
@@ -224,7 +233,11 @@ export function SchemaDrawer({ initialDefinition, definitions, datasources, canM
                 {draft.fields.map((item, index) => {
                   const choice = choiceForField(item);
                   const expanded = selectedField === index;
-                  return <div className="schema-field-card" key={index} data-expanded={expanded || undefined} data-drop-position={dropTarget?.index === index ? dropTarget.edge : undefined} onDragOver={event => {
+                  const savedField=original?.fields.find(field=>field.id ? field.id===item.id : field.name===item.name);
+                  const deployedField=deployedDefinition?.fields.find(field=>field.id ? field.id===savedField?.id : field.name===savedField?.name);
+                  const pendingMigration=!!migrationWorkspace?.activeVersion && !!savedField && canonicalJson(savedField)!==canonicalJson(deployedField);
+                  const migrationHint=`${savedField?.name}: ${deployedField?'changed':'added'} in migration ${migrationWorkspace?.activeVersion}, not deployed yet`;
+                  return <div className="schema-field-card" key={index} data-expanded={expanded || undefined} data-pending-migration={pendingMigration || undefined} data-drop-position={dropTarget?.index === index ? dropTarget.edge : undefined} onDragOver={event => {
                     const next = placement(index, event);
                     if (next) { event.preventDefault(); event.dataTransfer.dropEffect = "move"; setDropTarget(next); }
                   }} onDragLeave={event => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDropTarget(null); }} onDrop={event => {
@@ -236,9 +249,10 @@ export function SchemaDrawer({ initialDefinition, definitions, datasources, canM
                       {canManage && <button type="button" id={`schema-field-handle-${index}`} className="block-drag-handle" draggable={!busy} disabled={busy} aria-label={`Reorder ${item.name}`} aria-describedby="schema-reorder-help" onDragStart={event => { dragSource.current = index; event.dataTransfer.effectAllowed = "move"; event.dataTransfer.setData("text/plain", item.name); }} onDragEnd={() => { dragSource.current = null; setDropTarget(null); }} onKeyDown={event => {
                         if (event.key === "ArrowUp" || event.key === "ArrowDown") { event.preventDefault(); moveField(index, index + (event.key === "ArrowUp" ? -1 : 1)); }
                       }}><GripVertical aria-hidden="true" /></button>}
-                      <button type="button" className="schema-field-toggle" id={`schema-field-${index}`} aria-label={`Edit ${item.name}`} aria-expanded={expanded} aria-controls={expanded ? `schema-field-settings-${index}` : undefined} onClick={() => setSelectedField(expanded ? null : index)}>
+                      <button type="button" className="schema-field-toggle" id={`schema-field-${index}`} aria-label={`Edit ${item.name}`} aria-describedby={pendingMigration?`schema-field-migration-${index}`:undefined} aria-expanded={expanded} aria-controls={expanded ? `schema-field-settings-${index}` : undefined} onClick={() => setSelectedField(expanded ? null : index)}>
                         <span className="field-type-icon" data-tone={choice.tone}><choice.icon aria-hidden="true" /></span>
                         <span><strong>{item.name || "field_name"}</strong><small>{choice.label}</small></span>
+                        {pendingMigration && <span id={`schema-field-migration-${index}`} className="pending-migration-mark" title={migrationHint}><GitBranch aria-hidden="true" /><span className="sr-only">{migrationHint}</span></span>}
                         <ChevronDown aria-hidden="true" />
                       </button>
                     </div>

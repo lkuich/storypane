@@ -1,7 +1,8 @@
 'use client';
 import { useCallback,useEffect,useState } from 'react';
 import { migrationChanges,type ManagementToken,type MigrationReview,type SchemaMigration } from '@storypane/core';
-import { Button,ErrorNotice,Modal } from '@storypane/ui';
+import { Button,ErrorNotice } from '@storypane/ui';
+import { MigrationReviewDialog } from './migration-review';
 import { api,errorMessage,jsonRequest } from '../editor/api';
 
 export function MigrationPanel({canDeploy,onDeploy}:{canDeploy:boolean;onDeploy:()=>Promise<void>}) {
@@ -9,6 +10,14 @@ export function MigrationPanel({canDeploy,onDeploy}:{canDeploy:boolean;onDeploy:
   const [migrations,setMigrations]=useState<SchemaMigration[]>([]),[review,setReview]=useState<MigrationReview|null>(null);
   const [error,setError]=useState(''),[busy,setBusy]=useState(false);
   const [tokens,setTokens]=useState<ManagementToken[]>([]),[name,setName]=useState(''),[capability,setCapability]=useState<ManagementToken['capability']>('stage'),[secret,setSecret]=useState('');
+  useEffect(()=>{
+    const id=new URLSearchParams(window.location.search).get('migration');
+    if(!id)return;
+    let stopped=false;
+    setBusy(true);
+    void api<MigrationReview>(`/migrations/${encodeURIComponent(id)}/review?destructive=false`).then(value=>{if(!stopped)setReview(value)}).catch(cause=>{if(!stopped)setError(errorMessage(cause))}).finally(()=>{if(!stopped)setBusy(false)});
+    return ()=>{stopped=true};
+  },[]);
   const load=useCallback(async()=>{setMigrations(await api<SchemaMigration[]>('/migrations?workspace=true'));setHistory(null);},[]);
   useEffect(()=>{
     let stopped=false;
@@ -19,16 +28,21 @@ export function MigrationPanel({canDeploy,onDeploy}:{canDeploy:boolean;onDeploy:
   useEffect(()=>{if(canDeploy)void api<ManagementToken[]>('/management-tokens').then(setTokens).catch(cause=>setError(errorMessage(cause)))},[canDeploy]);
   const active=migrations.find(item=>item.status==='active'),deployed=migrations.filter(item=>item.status==='deployed').at(-1);
   async function action(work:()=>Promise<void>) {setBusy(true);setError('');try{await work()}catch(cause){setError(errorMessage(cause))}finally{setBusy(false)}}
-  const inspect=(id:string)=>action(async()=>setReview(await api<MigrationReview>(`/migrations/${id}/review`)));
+  const inspect=(id:string,destructive=false)=>action(async()=>setReview(await api<MigrationReview>(`/migrations/${id}/review?destructive=${destructive}`)));
+  function closeReview() {
+    setReview(null);
+    const url=new URL(window.location.href);url.searchParams.delete('migration');
+    window.history.replaceState(window.history.state,'',url);
+  }
   return <section className="panel migration-panel" aria-label="Schema migrations">
-    <header className="panel-heading"><div><h2>Schema migrations</h2><p className="field-hint">{deployed?.version ? `Deployed migration ${deployed.version}` : 'Initial migration needs deployment'}{active ? ` · Migration ${active.version} is active` : ' · No pending changes'}</p></div>
+    <header className="panel-heading"><div><h2>Schema migrations {active && <span className="pill">Active v{active.version}</span>}</h2><p className="field-hint">{deployed?.version ? `Deployed migration ${deployed.version}` : 'Initial migration needs deployment'}{active ? ` · Migration ${active.version} is active` : ' · No pending changes'}</p></div>
       {active && <Button disabled={busy} onClick={()=>void inspect(active.id)}>Review migration {active.version}</Button>}
     </header>
     <div className="panel-body">
       <ErrorNotice message={error} />
-      {active && <p>Schema saves are shared here. Page editing and delivery change when an admin deploys this migration.</p>}
+      {active && <p className="migration-staging-note">Changes are shared in the active migration. Review their impact, then deploy to update page editing and delivery for everyone.</p>}
       <details onToggle={event=>{if(event.currentTarget.open && !history)void api<SchemaMigration[]>('/migrations').then(setHistory).catch(cause=>setError(errorMessage(cause)))}}><summary>Migration history ({deployed?.version ?? 0})</summary>
-        {(history ?? []).filter(item=>item.status==='deployed' && item.version>0).reverse().map(item=><details key={item.id}><summary>Migration {item.version}: {item.name} · {item.deployedAt && new Date(item.deployedAt).toLocaleString()}</summary><p>Deployed by {item.deployedBy ?? 'setup'}. Contributors: {item.contributors.join(', ') || 'setup'}.</p><ul>{migrationChanges(history?.find(old=>old.version===item.baseVersion)?.definitions ?? [],item.definitions).map((change,index)=><li key={index}>{change.definition}{change.field?`.${change.field}`:''}: {change.kind}</li>)}</ul></details>)}
+        {(history ?? []).filter(item=>item.status==='deployed' && item.version>0).reverse().map(item=><details key={item.id}><summary>Migration {item.version}: {item.name} · {item.deployedAt && new Date(item.deployedAt).toLocaleString()}{item.destructive?' · Destructive deployment':''}</summary><p>Deployed by {item.deployedBy ?? 'setup'}. Contributors: {item.contributors.join(', ') || 'setup'}.</p><ul>{migrationChanges(history?.find(old=>old.version===item.baseVersion)?.definitions ?? [],item.definitions).map((change,index)=><li key={index}>{change.definition}{change.field?`.${change.field}`:''}: {change.kind}</li>)}</ul></details>)}
       </details>
       {canDeploy && <details><summary>CLI & CI access tokens</summary><p className="field-hint">Use a token as STORYPANE_MANAGEMENT_TOKEN. Tokens are scoped to this space and can be revoked here.</p>
         {secret && <label className="field">Copy this token now<input readOnly aria-label="New management token" value={secret} onFocus={event=>event.target.select()} /></label>}
@@ -40,18 +54,11 @@ export function MigrationPanel({canDeploy,onDeploy}:{canDeploy:boolean;onDeploy:
         <ul className="delivery-token-list">{tokens.map(token=><li key={token.id}><span>{token.name} · {token.capability}</span><Button disabled={busy} onClick={()=>{if(window.confirm(`Revoke “${token.name}”?`))void action(async()=>{await api(`/management-tokens/${token.id}`,{method:'DELETE'});setTokens(items=>items.filter(item=>item.id!==token.id));setSecret('')})}}>Revoke</Button></li>)}</ul>
       </details>}
     </div>
-    <Modal open={!!review} wide title={review?`Review migration ${review.migration.version}`:'Review migration'} onClose={()=>{if(!busy)setReview(null)}}>
-      {review && <div className="migration-review">
-        <ErrorNotice message={error} />
-        <p>{review.migration.name}. {review.impacts.filter(item=>item.target==='draft').length} page locales will move to this schema.</p>
-        <p>Values deleted: <strong>{review.impacts.reduce((sum,item)=>sum+item.deletedValues,0)}</strong> · Values reset: <strong>{review.impacts.reduce((sum,item)=>sum+item.resetValues,0)}</strong> · Nested blocks deleted: <strong>{review.impacts.reduce((sum,item)=>sum+item.deletedBlocks,0)}</strong>. Counts include drafts and publications separately. Old values remain in history.</p>
-        {review.changes.map((change,index)=><details key={index}><summary>{change.definition}{change.field?`.${change.field}`:''} — {change.kind}</summary><div className="migration-diff"><div><strong>Before</strong><pre>{JSON.stringify(change.before ?? null,null,2)}</pre></div><div><strong>After</strong><pre>{JSON.stringify(change.after ?? null,null,2)}</pre></div></div></details>)}
-        {!review.changes.length && <p>{review.migration.baseVersion===0?'The initial migration brings existing blocks onto the current schema definitions.':'No schema differences remain. Deployment records this workspace as the next migration version.'}</p>}
-        {!!review.blockers.length && <div role="alert"><h3>Resolve before deploying</h3><ul>{review.blockers.map((issue,index)=><li key={index}>{issue.path}: {issue.message}</li>)}</ul></div>}
-        <details><summary>Affected pages and locales</summary><ul>{review.impacts.map(item=><li key={`${item.localeId}:${item.target}`}>{item.name} / {item.locale} ({item.target}): {item.deletedValues} values deleted, {item.resetValues} reset, {item.deletedBlocks} blocks deleted</li>)}</ul></details>
-        <div className="button-group"><Button disabled={busy} onClick={()=>void inspect(review.migration.id)}>Refresh review</Button>{canDeploy && <Button variant="primary" disabled={busy || !!review.blockers.length} onClick={()=>void action(async()=>{await api(`/migrations/${review.migration.id}/deploy`,jsonRequest('POST',{reviewToken:review.token}));setReview(null);await load();await onDeploy()})}>{busy?'Working…':'Deploy migration'}</Button>}</div>
-        {!canDeploy && <p>An administrator can deploy this migration.</p>}
-      </div>}
-    </Modal>
+    <MigrationReviewDialog review={review} busy={busy} error={error} canDeploy={canDeploy} onClose={()=>{if(!busy)closeReview()}}
+      onInspect={destructive=>{if(review)void inspect(review.migration.id,destructive)}}
+      onDeploy={confirmation=>{if(review)void action(async()=>{
+        await api(`/migrations/${review.migration.id}/deploy`,jsonRequest('POST',{reviewToken:review.token,destructive:review.destructive,confirmation}));
+        closeReview();await load();await onDeploy();
+      })}} />
   </section>;
 }

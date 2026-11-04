@@ -10,7 +10,7 @@ async function deployPending(page:Page) {
   if(!active)return
   const review=await (await page.request.get(`/api/cms/migrations/${active.id}/review`)).json() as MigrationReview
   expect(review.blockers).toEqual([])
-  const response=await page.request.post(`/api/cms/migrations/${active.id}/deploy`,{headers:{Origin:origin},data:{reviewToken:review.token}})
+  const response=await page.request.post(`/api/cms/migrations/${active.id}/deploy`,{headers:{Origin:origin},data:{reviewToken:review.token,confirmation:review.confirmation ?? undefined}})
   expect(response.ok(),await response.text()).toBeTruthy()
 }
 
@@ -417,30 +417,54 @@ test('opens the latest selected block schema from content without losing edits',
   await page.goto(url)
   const panel = page.getByRole('region', { name: 'Block editor' })
   const shortcut = panel.getByRole('button', { name: 'Edit schema', exact: true })
-  const drawer = page.locator('dialog.schema-drawer')
+  const drawer = page.locator('dialog.schema-drawer:not(.block-picker-drawer)')
+  const migrationLink=panel.getByRole('link',{name:/1 new field pending in migration .*eyebrow/})
+  await expect(migrationLink).toBeVisible()
+  await expect(migrationLink).toHaveText('+1')
   await panel.getByLabel('Title', { exact: true }).fill('Keep my page content')
   await shortcut.click()
   await expect(drawer.getByRole('heading', { name: `Edit '${root.name}'`, exact: true })).toBeVisible()
   await expect(drawer.getByText('Version 2', { exact: true })).toBeVisible()
   await expect(drawer.getByRole('button', { name: 'Edit eyebrow', exact: true })).toBeVisible()
+  await expect(drawer.getByRole('button',{name:'Edit eyebrow',exact:true})).toHaveAccessibleDescription(/added in migration .*not deployed yet/)
+  await expect(drawer.getByRole('button',{name:'Edit title',exact:true})).not.toHaveAttribute('aria-describedby')
   await addField(page, 'Summary')
+  await expect(drawer.getByRole('button',{name:'Edit summary',exact:true})).not.toHaveAttribute('aria-describedby')
   page.once('dialog', dialog => void dialog.dismiss())
   await page.keyboard.press('Escape')
   await expect(drawer).toBeVisible()
   await drawer.getByRole('button', { name: 'Save to migration', exact: true }).click()
   await expect(drawer.getByText('Saved to active migration', { exact: true })).toBeVisible()
+  await expect(drawer.getByRole('button',{name:'Edit summary',exact:true})).toHaveAccessibleDescription(/added in migration .*not deployed yet/)
   await drawer.getByRole('button', { name: 'Close dialog', exact: true }).click()
   await expect(drawer).not.toBeVisible()
   await expect(shortcut).toBeFocused()
   await expect(panel.getByLabel('Title', { exact: true })).toHaveValue('Keep my page content')
   await expect(panel.locator('.editor-panel-heading')).toContainText('schema v1')
   await expect(page).toHaveURL(new RegExp(`story=${story.id}`))
+  const updatedLink=panel.getByRole('link',{name:/2 new fields pending in migration .*eyebrow, summary/})
+  await expect(updatedLink).toHaveText('+2')
+  const popupPromise=page.waitForEvent('popup')
+  await updatedLink.click()
+  const migrationPage=await popupPromise
+  try {
+    await expect(migrationPage).toHaveURL(/view=blocks&migration=/)
+    await expect(migrationPage.getByRole('dialog',{name:/^Review migration/})).toContainText('eyebrow')
+    await migrationPage.getByRole('dialog',{name:/^Review migration/}).getByRole('button',{name:'Close dialog',exact:true}).click()
+    expect(new URL(migrationPage.url()).searchParams.has('migration')).toBe(false)
+  } finally { await migrationPage.close() }
 
   await panel.getByRole('button', { name: 'Add block', exact: true }).click()
   const add = page.getByRole('dialog', { name: 'Add a block', exact: true })
   await add.getByRole('button', { name:`Add ${child.displayName}`,exact:true }).click()
   await expect(add).not.toBeVisible()
   await panel.locator('.block-list-item').getByRole('button', { name: 'Quick feature', exact: true }).click()
+  await expect(panel.locator('.pending-migration-link')).toHaveCount(0)
+  await expect(page).toHaveURL(/block=/)
+  const blockUrl=page.url()
+  await page.reload()
+  await expect(panel.getByRole('heading',{name:'Quick feature',exact:true})).toBeVisible()
+  expect(page.url()).toBe(blockUrl)
   await panel.getByLabel('Caption', { exact: true }).fill('Keep my nested content')
   await shortcut.click()
   await expect(drawer.getByRole('heading', { name: `Edit '${child.name}'`, exact: true })).toBeVisible()
@@ -481,6 +505,7 @@ test('opens the latest selected block schema from content without losing edits',
     await editorPage.goto(url)
     await expect(editorPage.getByRole('region', { name: 'Block editor' }).getByRole('heading', { name: 'Quick page', exact: true })).toBeVisible()
     await expect(editorPage.getByRole('button', { name: 'Edit schema', exact: true })).toHaveCount(0)
+    await expect(editorPage.getByRole('link',{name:/2 new fields pending in migration/})).toBeVisible()
   } finally { await editorContext.close() }
 })
 
@@ -519,6 +544,7 @@ test('shared migration saves conflict safely and deployment updates existing blo
     await expect(review).not.toBeVisible()
     await page.goto(`/?space=11111111-1111-4111-8111-111111111111&story=${story.id}`)
     await expect(page.getByRole('region',{name:'Block editor'}).getByLabel('Title',{exact:true})).toHaveValue('Preserved content')
+    await expect(page.getByRole('region',{name:'Block editor'}).locator('.pending-migration-link')).toHaveCount(0)
     const locales=await (await page.request.get(`/api/cms/stories/${story.id}/locales`)).json() as StoryLocale[]
     const current=await (await page.request.get(`/api/cms/stories/${story.id}/locales/${locales[0]!.id}`)).json() as LocaleSnapshot
     expect(current.blocks[0]!.fields).toEqual({headline:'Preserved content'})

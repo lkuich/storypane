@@ -33,10 +33,16 @@ const tabs = [
   { id: "settings", label: "Settings", icon: Settings2 },
 ] as const;
 
+function tabFromUrl(url:URL):Tab {
+  const view=url.searchParams.get('view');
+  return tabs.find(tab=>tab.id===view)?.id ?? 'content';
+}
+
 export function CMSApp({ session: initialSession }: { session: CMSSession }) {
   const [session, setSession] = useState(initialSession);
   useEffect(() => { setSession(initialSession); }, [initialSession]);
-  const [tab, setTab] = useState<Tab>(() => typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('view') === 'settings' ? 'settings' : 'content');
+  const [tab, setTab] = useState<Tab>(() => typeof window !== 'undefined' ? tabFromUrl(new URL(window.location.href)) : 'content');
+  const historyIndex=useRef(0);
   const [story, setStory] = useState<Story | null>(null);
   const [storyId, setStoryId] = useState(() => typeof window === 'undefined' ? null : new URLSearchParams(window.location.search).get('story'));
   const [storyError, setStoryError] = useState<string | null>(null);
@@ -50,8 +56,9 @@ export function CMSApp({ session: initialSession }: { session: CMSSession }) {
     }).catch(error => { if (!stopped) setStoryError(errorMessage(error)); });
     return () => { stopped = true; };
   }, [storyId, story?.id, storyAttempt]);
-  function openStory(next: Story) {
-    setStoryLocation(next.id);
+  function openStory(next: Story,locale='') {
+    setStoryLocation(next.id,locale,undefined,'push');
+    historyIndex.current=window.history.state.storypaneIndex;
     setStory(next);
     setStoryId(next.id);
     setStoryError(null);
@@ -85,6 +92,28 @@ export function CMSApp({ session: initialSession }: { session: CMSSession }) {
   const registerGuard = useCallback<RegisterGuard>((next) => {
     guard.current = next;
   }, []);
+  useEffect(()=>{
+    historyIndex.current=window.history.state?.storypaneIndex ?? 0;
+    window.history.replaceState({...window.history.state,storypaneIndex:historyIndex.current},'',window.location.href);
+    let attempt=0;
+    async function restoreLocation(event:PopStateEvent) {
+      const currentAttempt=++attempt,target=new URL(window.location.href),targetIndex=event.state?.storypaneIndex ?? 0;
+      if(targetIndex===historyIndex.current)return;
+      let allowed=false;
+      try { allowed=!guard.current || await guard.current(); } catch { /* A failed save must keep the current editor open. */ }
+      if(currentAttempt!==attempt)return;
+      // Saving while Back is pending can update the selected block URL; restore the requested entry first.
+      window.history.replaceState(event.state,'',target);
+      if(!allowed){window.history.go(historyIndex.current-targetIndex);return;}
+      historyIndex.current=targetIndex;
+      guard.current=null;
+      const nextStoryId=target.searchParams.get('story');
+      setTab(nextStoryId?'content':tabFromUrl(target));
+      setStory(null);setStoryId(nextStoryId);setStoryError(null);
+    }
+    window.addEventListener('popstate',restoreLocation);
+    return ()=>{attempt++;window.removeEventListener('popstate',restoreLocation)};
+  },[]);
   async function navigate(next: Tab) {
     if (next === tab && !storyId) return;
     if (guard.current && !(await guard.current())) return;
@@ -92,9 +121,9 @@ export function CMSApp({ session: initialSession }: { session: CMSSession }) {
     closeStory();
     setTab(next);
     const url = new URL(window.location.href);
-    if (next === 'settings') url.searchParams.set('view', 'settings');
+    if (next !== 'content') url.searchParams.set('view', next);
     else url.searchParams.delete('view');
-    window.history.replaceState(null, '', url);
+    window.history.replaceState(window.history.state, '', url);
   }
   async function allSpaces() {
     if (guard.current && !(await guard.current())) return;

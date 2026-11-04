@@ -234,13 +234,16 @@ export function FieldSettings({
         <Field
           label="Field name"
           htmlFor="field-name"
-          description="Lowercase letters, numbers, and underscores."
         >
           <input
             id="field-name"
+            aria-describedby="field-name-hint"
+            autoCapitalize="none"
+            spellCheck={false}
             value={field.name}
             onChange={(event) => update({ name: event.target.value })}
           />
+          <p id="field-name-hint" className="field-hint">Lowercase letters, numbers and underscores only. Start with a letter, e.g. hero_image.</p>
         </Field>
       </div>
       <Field label="Description" htmlFor="field-description">

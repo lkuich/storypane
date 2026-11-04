@@ -34,7 +34,7 @@ export function ContentList({
   onBlocks,
 }: {
   canCreate: boolean;
-  onOpen: (story: Story) => void;
+  onOpen: (story: Story,locale?:string) => void;
   onBlocks: () => void;
 }) {
   const editors = usePageEditors();
@@ -73,7 +73,7 @@ export function ContentList({
       const currentFolder = new URLSearchParams(window.location.search).get('folder');
       if (currentFolder && !availableFolders.some(item => item.id === currentFolder)) {
         setFolderId(null);
-        const url = new URL(window.location.href); url.searchParams.delete('folder'); window.history.replaceState(null, '', url);
+        const url = new URL(window.location.href); url.searchParams.delete('folder'); window.history.replaceState(window.history.state, '', url);
       }
     } catch (error) {
       setError(errorMessage(error));
@@ -98,13 +98,13 @@ export function ContentList({
     setFilters(next);
     const url = new URL(window.location.href);
     writeContentFilters(url.searchParams, next);
-    window.history.replaceState(null, "", url);
+    window.history.replaceState(window.history.state, "", url);
   }
   function openFolder(id: string | null) {
     setFolderId(id);
     const url = new URL(window.location.href);
     if (id) url.searchParams.set('folder',id); else url.searchParams.delete('folder');
-    window.history.replaceState(null,'',url);
+    window.history.replaceState(window.history.state,'',url);
   }
   async function togglePin(story: StorySummary, button: HTMLButtonElement) {
     if (pinningId) return;
@@ -206,7 +206,9 @@ export function ContentList({
                           </div>
                         </div>
                       </td>
-                      <td className="publication-cell"><PublicationStatus status={story.publicationStatus} /><div className="entity-subtitle">{story.publicationStatus === 'draft' ? 'Not published' : story.publicationStatus === 'changed' ? `${story.pendingLocaleCount} of ${story.localeCount} locales pending` : 'All locales published'}</div></td>
+                      <td className="publication-cell"><PublicationStatus status={story.publicationStatus} /><div className="entity-subtitle">{story.publicationStatus === 'draft' ? 'Not published' : story.publicationStatus === 'changed' ? `${story.pendingLocaleCount} of ${story.localeCount} locales pending` : 'All locales published'}</div>
+                        {!!story.pendingLocales?.length && <div className="pending-locale-links" aria-label={`Unpublished locales for ${story.name}`}>{story.pendingLocales.map(locale=><button key={locale.id} type="button" onClick={()=>onOpen(story,locale.slug)} aria-label={`Open ${story.name} in ${locale.name} to review unpublished changes`}>{locale.name}</button>)}</div>}
+                      </td>
                       <td className="mono table-mobile-hide">/{story.slug}</td>
                       <td><PageId id={story.id} name={story.name} showLabel={false} /></td>
                       <td>

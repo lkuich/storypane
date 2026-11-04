@@ -121,6 +121,50 @@ test('add from a child block and reorder siblings with drag handles and the keyb
   expect(children(await json<LocaleSnapshot>(page.request, base))).toEqual([footerId, newId, heroId])
 })
 
+test('copies the selected block and pastes an independent copy into a block list',async({page,context})=>{
+  await context.grantPermissions(['clipboard-read','clipboard-write'],{origin})
+  await login(page,'admin')
+  const {story,base,snapshot}=await fixture(page.request)
+  await page.goto(`/?space=11111111-1111-4111-8111-111111111111&story=${story.id}`)
+  const editor=page.getByRole('region',{name:'Block editor'})
+  await editor.getByRole('button',{name:'Hero',exact:true}).click()
+  await expect(editor.getByLabel('Title',{exact:true})).toBeEditable()
+  await editor.getByLabel('Title',{exact:true}).fill('Copy my current content')
+  await editor.getByRole('button',{name:'Copy block',exact:true}).click()
+  await page.getByRole('navigation',{name:'Block path'}).getByRole('button',{name:'Page',exact:true}).click()
+  await editor.getByRole('button',{name:'Paste block',exact:true}).click()
+  await expect(editor.getByLabel('Title',{exact:true})).toHaveValue('Copy my current content')
+  const result=await json<LocaleSnapshot>(page.request,base)
+  const pasted=result.blocks.find(block=>!snapshot.blocks.some(source=>source.id===block.id))!
+  expect(pasted.fields.title).toBe('Copy my current content')
+  expect(pasted.parentId).toBe(result.locale.rootBlockId)
+  expect(result.blocks).toHaveLength(snapshot.blocks.length+1)
+  await expect(page).toHaveURL(new RegExp(`block=${pasted.id}`))
+  await editor.getByLabel('Title',{exact:true}).fill('Only the copy changes')
+  await expect(page.getByText('All changes saved',{exact:true})).toBeVisible()
+  const after=await json<LocaleSnapshot>(page.request,base)
+  expect(after.blocks.filter(block=>block.fields.title==='Copy my current content')).toHaveLength(1)
+})
+
+test('browser Back returns to the filtered content list and Forward restores the selected block',async({page})=>{
+  await login(page,'admin')
+  const {story,snapshot}=await fixture(page.request)
+  const listUrl=`/?space=11111111-1111-4111-8111-111111111111&q=${encodeURIComponent(story.name)}`
+  await page.goto(listUrl)
+  await page.getByRole('button',{name:story.name,exact:true}).click()
+  const editor=page.getByRole('region',{name:'Block editor'})
+  await editor.getByRole('button',{name:'Hero',exact:true}).click()
+  const hero=snapshot.blocks.find(block=>snapshot.definitions.find(def=>def.versionId===block.schemaVersionId)?.name==='hero')!
+  await expect(page).toHaveURL(new RegExp(`block=${hero.id}`))
+  await page.goBack()
+  await expect(page.getByRole('button',{name:story.name,exact:true})).toBeVisible()
+  expect(new URL(page.url()).searchParams.get('q')).toBe(story.name)
+  expect(new URL(page.url()).searchParams.has('story')).toBe(false)
+  await page.goForward()
+  await expect(editor.getByRole('heading',{name:'Hero',exact:true})).toBeVisible()
+  await expect(page).toHaveURL(new RegExp(`block=${hero.id}`))
+})
+
 test('locale imports copy blocks independently and restoration keeps history', async ({ page }) => {
   await login(page, 'admin')
   const { story, base } = await fixture(page.request)

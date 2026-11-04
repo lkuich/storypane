@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { spaceHeaders, spaceUrl } from "../../lib/space-url";
+import { setStoryLocation, spaceHeaders, spaceUrl } from "../../lib/space-url";
 import {
   LEASE_RENEW_MS,
   type BlockDraft,
@@ -40,7 +40,10 @@ export function useStoryEditor({
   const storageKey = `blok:drafts:${userId}:${spaceId}:${storyId}:${localeId}`;
   const [snapshot, setSnapshot] = useState<LocaleSnapshot>(initialSnapshot);
   const snapshotRef = useRef<LocaleSnapshot | null>(initialSnapshot);
-  const [selectedId, setSelectedId] = useState<string | null>(initialSnapshot.locale.rootBlockId);
+  const [linkedBlockId] = useState(() => typeof window==='undefined'?null:new URLSearchParams(window.location.search).get('block'));
+  const [linkError,setLinkError] = useState(linkedBlockId && !initialSnapshot.blocks.some(block=>block.id===linkedBlockId)
+    ? 'The linked block is not in this draft. It may have been deleted or exist only in the published version. Check page history to inspect earlier content.' : null);
+  const [selectedId, setSelectedId] = useState<string | null>(initialSnapshot.blocks.find(block=>block.id===linkedBlockId)?.id ?? initialSnapshot.locale.rootBlockId);
   const selectedRef = useRef<string | null>(null);
   const [buffers, setBuffers] = useState<DraftBuffers>({});
   const buffersRef = useRef<DraftBuffers>({});
@@ -131,7 +134,7 @@ export function useStoryEditor({
       ) {
         // Keep a deleted block's recovery buffer available until the editor explicitly discards it.
         const recoveryId = Object.keys(buffersRef.current)[0];
-        selectedRef.current = recoveryId ?? next.locale.rootBlockId;
+        selectedRef.current = (!selectedRef.current && next.blocks.find(block=>block.id===linkedBlockId)?.id) || recoveryId || next.locale.rootBlockId;
         setSelectedId(selectedRef.current);
       }
       for (const [id, buffer] of Object.entries(buffersRef.current)) {
@@ -149,8 +152,10 @@ export function useStoryEditor({
           );
       }
     },
-    [sessionId, setBlockError],
+    [sessionId, setBlockError, linkedBlockId],
   );
+
+  useEffect(() => { setStoryLocation(storyId,initialSnapshot.locale.slug,selectedId); }, [storyId,initialSnapshot.locale.slug,selectedId]);
 
   const sync = useCallback(async () => {
     if (syncing.current) return syncing.current;
@@ -386,6 +391,7 @@ export function useStoryEditor({
       selectedRef.current = blockId;
       setSelectedId(blockId);
       setError(null);
+      setLinkError(null);
       if (connected.current && editable)
         await acquire(blockId).catch((error) => {
           if (!(error instanceof ApiError && error.code === "locked"))
@@ -698,7 +704,7 @@ export function useStoryEditor({
     selectedId,
     buffers,
     connection,
-    error,
+    error: error ?? linkError,
     setError,
     blockErrors,
     saving,

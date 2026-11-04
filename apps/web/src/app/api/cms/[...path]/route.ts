@@ -20,11 +20,11 @@ async function handle(request: Request, route: { params: Promise<{ path: string[
     if(resource==='migrations') {
       if(method==='GET' && !id)return jsonResponse(await store.listMigrations(actor,new URL(request.url).searchParams.get('workspace')==='true'))
       if(method==='POST' && !id)return jsonResponse(await store.pushMigration(actor,await readJson(request)))
-      if(method==='GET' && id && child==='review')return jsonResponse(await store.reviewMigration(actor,id))
+      if(method==='GET' && id && child==='review')return jsonResponse(await store.reviewMigration(actor,id,new URL(request.url).searchParams.get('destructive')==='true'))
       if(method==='POST' && id && child==='deploy') {
-        const input=await readJson(request) as {reviewToken?:unknown}
+        const input=await readJson(request) as {reviewToken?:unknown;destructive?:boolean;confirmation?:string}
         if(!input || typeof input.reviewToken!=='string')throw new StorypaneError('invalid','A reviewed migration token is required')
-        return jsonResponse(await store.deployMigration(actor,id,input.reviewToken))
+        return jsonResponse(await store.deployMigration(actor,id,input.reviewToken,{destructive:input.destructive,confirmation:input.confirmation}))
       }
     }
     if(resource==='management-tokens' && !child) {

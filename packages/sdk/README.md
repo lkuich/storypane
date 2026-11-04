@@ -293,6 +293,11 @@ subtree. Type changes reset values to a valid target default or unset them.
 Renames and plain text format changes preserve values. Defaults do not overwrite
 unchanged fields. Invalid resulting publications, constraints, references, or
 nesting block deployment. Drafts may still omit fields required for publication.
+Interactive deployment requires typing `DEPLOY <version>` when the review
+includes data loss. In the CMS, **Preview destructive deployment** can additionally
+remove disallowed/excess nested blocks and reset invalid field values. It still
+validates the resulting content and requires explicit confirmation. The CLI uses
+standard deployment and does not automatically select this destructive mode.
 
 Drafts and live publications migrate separately in one transaction, so deploying
 schemas never publishes unfinished edits. Old values remain in history. Restores
@@ -309,7 +314,8 @@ storypane generate-types --out src/types/storypane.ts
 # Run your application's build/tests, then deploy it.
 ```
 
-`--yes` permits noninteractive deployment; validation and conflict checks still
+`--yes` explicitly accepts the reviewed data loss for noninteractive deployment;
+validation and conflict checks still
 apply. A stale impact review or failed deployment exits nonzero. Retrying the
 same migration is safe, including after a lost response. The CLI does not commit
 files or deploy your application. On success, the local active file becomes a

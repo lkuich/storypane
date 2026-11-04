@@ -8,6 +8,7 @@ import { folderPath, folderInputSchema, storyLocationSchema, type ContentFolder 
 import { roleInputSchema, type Permission, type SpaceRole, memberRoleSchema, spaceInvitationSchema, type SpaceInvitation, spaceInputSchema, spaceLocaleInputSchema, type Space, type SpaceDetails, type SpaceLocale } from '@storypane/core'
 import { deliverySettingsSchema, isBlockAllowed, type DeliveredStory, type DeliverySettings, type DeliveryToken, type PreviewSession } from '@storypane/core'
 
+const pendingLocaleSql="p.id IS NULL OR c.content IS DISTINCT FROM p.content OR coalesce(p.snapshot->'locale'->>'urlSlug',l.url_slug) IS DISTINCT FROM l.url_slug"
 const tokenHash = (token: string) => createHash('sha256').update(token).digest('hex')
 const secretToken = (prefix: string) => `${prefix}_${randomBytes(32).toString('base64url')}`
 const deliveryQuerySchema = z.object({ id:z.uuid().optional(), slug:z.string().max(2048).optional(), locale:z.string().max(80).default(''), offset:z.number().int().min(0).max(100000).default(0), limit:z.number().int().min(1).max(100).default(50) }).strict()
@@ -33,7 +34,7 @@ const blockRow = (r: Row): BlockDraft => ({ id: r.id, definitionId: r.definition
 const definitionRow = (r: Row): BlockDefinition => ({ ...r.schema, id: r.definition_id, versionId: r.id, version: r.version, createdAt: iso(r.created_at) })
 const checkpointRow = (r: Row): Checkpoint => ({ id: r.id, revision: Number(r.revision), reason: r.reason, actorId: r.actor_id, createdAt: iso(r.created_at) })
 const canonical = (value: unknown): string => JSON.stringify(value, (_key, item) => item && typeof item === 'object' && !Array.isArray(item) ? Object.fromEntries(Object.entries(item).sort(([a], [b]) => a.localeCompare(b))) : item)
-const migrationRow = (row:Row):SchemaMigration => ({id:row.id,spaceId:row.space_id,version:row.version,baseVersion:row.base_version,name:row.name,status:row.status,revision:row.revision,definitions:row.definitions,contributors:row.contributors,createdAt:iso(row.created_at),deployedAt:row.deployed_at?iso(row.deployed_at):null,deployedBy:row.deployed_by})
+const migrationRow = (row:Row):SchemaMigration => ({id:row.id,spaceId:row.space_id,version:row.version,baseVersion:row.base_version,name:row.name,status:row.status,revision:row.revision,definitions:row.definitions,contributors:row.contributors,createdAt:iso(row.created_at),deployedAt:row.deployed_at?iso(row.deployed_at):null,deployedBy:row.deployed_by,destructive:row.destructive ?? false})
 const digest = (value:unknown) => createHash('sha256').update(canonicalJson(value)).digest('hex')
 const migrationTarget = (migration:SchemaMigration) => migration.definitions.map(definition=>({id:definition.id,schema:definitionInput(definition)}))
 function dbError(error: unknown): never {
@@ -541,13 +542,29 @@ export class StorypaneStore {
     const versions=(await client.query('SELECT * FROM definition_versions WHERE id=ANY($1::uuid[])',[snapshot.definitions.map(definition=>definition.versionId)])).rows.map(definitionRow)
     return {...snapshot,definitions:versions}
   }
+  private async migrateContent(client:PoolClient,actor:Actor,source:LocaleSnapshot,migration:SchemaMigration,destructive=false) {
+    const result=migrateSnapshot(source,migration.definitions,migration.version,destructive)
+    if(destructive)for(const block of result.snapshot.blocks) {
+      const definition=result.snapshot.definitions.find(item=>item.id===block.definitionId)!
+      for(const field of definition.fields) {
+        try { await this.validateReferences(client,actor,{...definition,fields:[field]},block.fields) }
+        catch(error) {
+          if(!(error instanceof StorypaneError) || error.code!=='invalid')throw error
+          delete block.fields[field.name]
+          if(field.defaultValue!==undefined)block.fields[field.name]=structuredClone(field.defaultValue)
+          result.resetValues++
+        }
+      }
+    }
+    return result
+  }
   private async restoreMigrationSnapshot(client:PoolClient,actor:Actor,snapshot:LocaleSnapshot):Promise<LocaleSnapshot> {
     let current=await this.hydrateHistoricalDefinitions(client,snapshot)
     const migrations=(await client.query("SELECT * FROM schema_migrations WHERE space_id=$1 AND status='deployed' AND version>$2 ORDER BY version",[actor.spaceId,snapshot.migrationVersion ?? 0])).rows.map(migrationRow)
-    for(const migration of migrations)current=migrateSnapshot(current,migration.definitions,migration.version).snapshot
+    for(const migration of migrations)current=(await this.migrateContent(client,actor,current,migration,migration.destructive)).snapshot
     return current
   }
-  private async inspectMigration(client:PoolClient,actor:Actor,id:string) {
+  private async inspectMigration(client:PoolClient,actor:Actor,id:string,destructive=false) {
     const row=(await client.query('SELECT * FROM schema_migrations WHERE id=$1 AND space_id=$2',[id,actor.spaceId])).rows[0]
     if(!row)throw new StorypaneError('not_found','Migration not found')
     const migration=migrationRow(row), base=await this.deployedMigration(client,actor.spaceId)
@@ -572,27 +589,34 @@ export class StorypaneStore {
         if(target==='published' && !publication)continue
         const source=await this.hydrateHistoricalDefinitions(client,target==='draft'?draft:publication.snapshot)
         if(base.version===0)for(const change of migrationChanges(source.definitions,migration.definitions.filter(definition=>source.definitions.some(old=>old.id===definition.id))))if(!changes.some(existing=>digest(existing)===digest(change)))changes.push(change)
-        const result=migrateSnapshot(source,migration.definitions,migration.version)
+        const result=await this.migrateContent(client,actor,source,migration,destructive)
         plan[target]=result.snapshot
-        impacts.push({storyId:draft.story.id,localeId:locale.id,name:draft.story.name,locale:draft.locale.name,target,deletedValues:result.deletedValues,resetValues:result.resetValues,deletedBlocks:result.deletedBlocks})
+        impacts.push({storyId:draft.story.id,localeId:locale.id,name:draft.story.name,locale:draft.locale.name,localeSlug:draft.locale.slug,target,deletedValues:result.deletedValues,resetValues:result.resetValues,deletedBlocks:result.deletedBlocks})
         try { await this.validateSnapshot(client,actor,result.snapshot,target==='published') }
         catch(error) {
           if(!(error instanceof StorypaneError))throw error
-          for(const issue of error.details ?? [{path:'',message:error.message}])blockers.push({path:`${draft.story.name}/${draft.locale.name}/${target}/${issue.path}`,message:issue.message})
+          for(const issue of error.details ?? [{path:'',message:error.message}]) {
+            const [blockId,field]=issue.path.split('.')
+            const block=result.snapshot.blocks.find(item=>item.id===blockId)
+            const definition=result.snapshot.definitions.find(item=>item.id===block?.definitionId)
+            blockers.push({path:`${draft.story.name}/${draft.locale.name}/${target}/${issue.path}`,message:issue.message,storyId:draft.story.id,storyName:draft.story.name,localeSlug:draft.locale.slug,localeName:draft.locale.name,target,blockId:block?.id,blockName:definition?.displayName,field})
+          }
         }
       }
       plans.push(plan)
     }
-    const review:MigrationReview={migration,changes,impacts,blockers,token:digest({id:migration.id,revision:migration.revision,heads,folders,blockers,plans})}
+    const confirmation=destructive || impacts.some(item=>item.deletedValues+item.resetValues+item.deletedBlocks>0) ? `DEPLOY ${migration.version}` : null
+    const review:MigrationReview={migration,destructive,confirmation,changes,impacts,blockers,token:digest({id:migration.id,revision:migration.revision,destructive,heads,folders,blockers,plans})}
     return {review,plans}
   }
-  async reviewMigration(actor:Actor,id:string):Promise<MigrationReview> {
+  async reviewMigration(actor:Actor,id:string,destructive=false):Promise<MigrationReview> {
     parseInput(z.uuid(),id)
-    return this.tx(actor,async client=>(await this.inspectMigration(client,actor,id)).review,undefined,true)
+    return this.tx(actor,async client=>(await this.inspectMigration(client,actor,id,destructive)).review,undefined,true)
   }
-  async deployMigration(actor:Actor,id:string,reviewToken:string):Promise<SchemaMigration> {
+  async deployMigration(actor:Actor,id:string,reviewToken:string,options:{destructive?:boolean;confirmation?:string}={}):Promise<SchemaMigration> {
     parseInput(z.uuid(),id)
     parseInput(z.string().regex(/^[a-f0-9]{64}$/),reviewToken)
+    const {destructive,confirmation}=parseInput(z.object({destructive:z.boolean().default(false),confirmation:z.string().optional()}).strict(),options)
     const started=Date.now()
     try {
       const result=await this.tx(actor,async client=>{
@@ -601,9 +625,10 @@ export class StorypaneStore {
           if(existing.review_token!==reviewToken)throw new StorypaneError('stale_revision','This migration was deployed from a different review')
           return migrationRow(existing)
         }
-        const {review,plans}=await this.inspectMigration(client,actor,id)
+        const {review,plans}=await this.inspectMigration(client,actor,id,destructive)
         if(review.token!==reviewToken)throw new StorypaneError('stale_revision','The migration or affected content changed. Review it again before deploying.')
         if(review.blockers.length)throw new StorypaneError('invalid','Resolve migration validation errors before deploying',review.blockers)
+        if(review.confirmation && confirmation!==review.confirmation)throw new StorypaneError('invalid',`Data loss requires explicit confirmation: ${review.confirmation}`)
         await client.query('UPDATE spaces SET schema_version=$2 WHERE id=$1',[actor.spaceId,review.migration.version])
         for(const {draft,published} of plans) {
           const localeId=draft.locale.id
@@ -620,7 +645,7 @@ export class StorypaneStore {
           for(const block of draft.blocks)await client.query('UPDATE block_drafts SET schema_version_id=$3,parent_field=$4,fields=$5,revision=$6 WHERE locale_id=$1 AND id=$2',[localeId,block.id,block.schemaVersionId,block.parentField,JSON.stringify(block.fields),block.revision])
           await this.checkpoint(client,actor,draft.story.id,localeId,`Migration ${review.migration.version}`)
         }
-        return migrationRow((await client.query("UPDATE schema_migrations SET status='deployed',deployed_at=clock_timestamp(),deployed_by=$2,review_token=$3 WHERE id=$1 RETURNING *",[id,actor.userId,reviewToken])).rows[0])
+        return migrationRow((await client.query("UPDATE schema_migrations SET status='deployed',deployed_at=clock_timestamp(),deployed_by=$2,review_token=$3,destructive=$4 WHERE id=$1 RETURNING *",[id,actor.userId,reviewToken,destructive])).rows[0])
       },'admin',true)
       console.info('Schema migration deployed',{spaceId:actor.spaceId,version:result.version,actor:actor.userId,managementTokenId:actor.managementTokenId,durationMs:Date.now()-started})
       return result
@@ -741,7 +766,8 @@ export class StorypaneStore {
     return this.tx(actor, async client => (await client.query(`SELECT s.*,f.form_only,u.name AS editor_name,v.definition_id AS content_type_id,v.schema->>'displayName' AS content_type_name,
       EXISTS(SELECT 1 FROM story_pins pin WHERE pin.story_id=s.id AND pin.user_id=$2) AS pinned,
       count(l.id)::integer AS locale_count,count(p.id)::integer AS published_count,
-      (count(l.id) FILTER (WHERE p.id IS NULL OR c.content IS DISTINCT FROM p.content OR coalesce(p.snapshot->'locale'->>'urlSlug',l.url_slug) IS DISTINCT FROM l.url_slug))::integer AS pending_count
+      (count(l.id) FILTER (WHERE ${pendingLocaleSql}))::integer AS pending_count,
+      coalesce(jsonb_agg(jsonb_build_object('id',l.id,'name',l.name,'slug',l.slug) ORDER BY (l.slug='') DESC,l.name) FILTER (WHERE l.id IS NOT NULL AND (${pendingLocaleSql})),'[]'::jsonb) AS pending_locales
       FROM stories s LEFT JOIN story_locales l ON l.story_id=s.id LEFT JOIN checkpoints c ON c.id=l.checkpoint_id
       LEFT JOIN publications p ON p.id=l.published_version_id LEFT JOIN "user" u ON u.id=s.updated_by
       LEFT JOIN story_locales base ON base.story_id=s.id AND base.slug=''
@@ -749,7 +775,7 @@ export class StorypaneStore {
       LEFT JOIN definition_versions v ON v.id=root.schema_version_id
       LEFT JOIN content_folders f ON f.id=s.folder_id
       WHERE s.space_id=$1 GROUP BY s.id,u.id,v.id,f.id ORDER BY pinned DESC,s.updated_at DESC,s.id`, [actor.spaceId,actor.userId])).rows.map(row => ({
-        ...storyRow(row),pinned:row.pinned,localeCount:row.locale_count,pendingLocaleCount:row.pending_count,publicationStatus:!row.published_count ? 'draft' : row.pending_count ? 'changed' : 'published',
+        ...storyRow(row),pinned:row.pinned,localeCount:row.locale_count,pendingLocaleCount:row.pending_count,pendingLocales:row.pending_locales,publicationStatus:!row.published_count ? 'draft' : row.pending_count ? 'changed' : 'published',
         modifiedBy:row.updated_by ? {id:row.updated_by,name:row.editor_name ?? 'Unknown editor'} : null,
         contentType:row.content_type_id ? {id:row.content_type_id,name:row.content_type_name} : null,
       })))
@@ -889,7 +915,7 @@ export class StorypaneStore {
   private async validateSnapshot(client: PoolClient, actor: Actor, snapshot: LocaleSnapshot, publish: boolean): Promise<void> {
     const issues = []
     const root=snapshot.blocks.find(block=>block.id===snapshot.locale.rootBlockId)
-    if(!root || snapshot.definitions.find(definition=>definition.versionId===root.schemaVersionId)?.kind==='nestable')throw new StorypaneError('invalid','The root must use a content type or universal schema')
+    if(!root || snapshot.definitions.find(definition=>definition.versionId===root.schemaVersionId)?.kind==='nestable')issues.push({path:snapshot.locale.rootBlockId,message:'The root must use a content type or universal schema'})
     for (const block of snapshot.blocks) {
       const definition = snapshot.definitions.find(d => d.versionId === block.schemaVersionId)!
       issues.push(...validateFields(definition, block.fields, publish).map(i => ({ ...i, path: `${block.id}.${i.path}` })))
@@ -897,11 +923,23 @@ export class StorypaneStore {
         const children = snapshot.blocks.filter(b => b.parentId === block.id && b.parentField === field.name)
         if (publish && (field.required || field.minItems) && children.length < Math.max(field.required ? 1 : 0, field.minItems ?? 0)) issues.push({ path: `${block.id}.${field.name}`, message: `Requires at least ${Math.max(field.required ? 1 : 0, field.minItems ?? 0)} blocks` })
         if (field.maxItems !== undefined && children.length > field.maxItems) issues.push({ path: `${block.id}.${field.name}`, message: `Allows at most ${field.maxItems} blocks` })
-        for (const child of children) this.nestingField(snapshot, block, field.name, snapshot.definitions.find(d => d.versionId === child.schemaVersionId)!)
+        for (const child of children) {
+          try { this.nestingField(snapshot, block, field.name, snapshot.definitions.find(d => d.versionId === child.schemaVersionId)!) }
+          catch(error) {
+            if(!(error instanceof StorypaneError))throw error
+            issues.push({path:child.id,message:`${definition.displayName} → ${field.label}: ${error.message}`})
+          }
+        }
       }
-      await this.validateReferences(client, actor, definition, block.fields)
+      for(const field of definition.fields) {
+        try { await this.validateReferences(client,actor,{...definition,fields:[field]},block.fields) }
+        catch(error) {
+          if(!(error instanceof StorypaneError))throw error
+          issues.push({path:`${block.id}.${field.name}`,message:error.message})
+        }
+      }
     }
-    if (issues.length) throw new StorypaneError('invalid', publish ? 'Resolve validation errors before publishing' : 'Invalid field values', issues)
+    if (issues.length) throw new StorypaneError('invalid', issues.length===1 ? issues[0]!.message : publish ? 'Resolve validation errors before publishing' : 'Invalid field values', issues)
     assembleContent(snapshot)
   }
   private async normalizePositions(client: PoolClient, localeId: string, parentId: string, field: string, orderedIds?: string[]): Promise<void> {
@@ -952,6 +990,27 @@ export class StorypaneStore {
         await client.query('INSERT INTO block_drafts(id,locale_id,schema_version_id,parent_id,parent_field,fields) VALUES($1,$2,$3,$4,$5,$6)', [id, localeId, definition.versionId, parent.id, command.payload.parentField, JSON.stringify(defaultFields(definition))])
         await this.normalizePositions(client, localeId, parent.id, command.payload.parentField, siblings)
         changed.add(parent.id); changed.add(id)
+      } else if (command.type === 'pasteBlock') {
+        const {clipboard,parentId,parentField}=command.payload
+        if(clipboard.spaceId!==actor.spaceId)throw new StorypaneError('invalid','Blocks can only be pasted within the space they were copied from')
+        if(clipboard.migrationVersion!==deployed.version)throw new StorypaneError('stale_revision','The schema changed since this block was copied. Copy it again before pasting.')
+        const parent=requireBlock(before,parentId)
+        await requireOwned(parent)
+        const ids=clipboard.blocks.map(()=>randomUUID())
+        const definitions=new Map(deployed.definitions.map(definition=>[definition.id,definition]))
+        const pasted:BlockDraft[]=clipboard.blocks.map((block,index)=>{
+          const definition=definitions.get(block.definitionId)
+          if(!definition)throw new StorypaneError('invalid','A copied block schema is not deployed in this space')
+          return {id:ids[index]!,definitionId:definition.id,schemaVersionId:definition.versionId,parentId:block.parentIndex===null?parentId:ids[block.parentIndex]!,parentField:block.parentIndex===null?parentField:block.parentField,position:block.parentIndex===null?before.blocks.filter(item=>item.parentId===parentId && item.parentField===parentField).length:block.position,fields:block.fields,revision:1}
+        })
+        const proposed={...before,blocks:[...before.blocks,...pasted],definitions:[...new Map([...before.definitions,...definitions.values()].map(definition=>[definition.versionId,definition])).values()]}
+        for(const block of pasted)this.nestingField(proposed,requireBlock(proposed,block.parentId!),block.parentField!,definitions.get(block.definitionId)!)
+        for(const block of pasted) {
+          await client.query('INSERT INTO block_drafts(id,locale_id,schema_version_id,parent_id,parent_field,position,fields) VALUES($1,$2,$3,$4,$5,$6,$7)',[block.id,localeId,block.schemaVersionId,block.parentId,block.parentField,block.position,JSON.stringify(block.fields)])
+          changed.add(block.id)
+        }
+        await this.normalizePositions(client,localeId,parentId,parentField)
+        changed.add(parentId)
       } else if (command.type === 'moveBlock') {
         const block = requireBlock(before, command.payload.blockId)
         if (!block.parentId || !block.parentField) throw new StorypaneError('invalid', 'The root block cannot be moved')

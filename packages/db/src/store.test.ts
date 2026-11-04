@@ -5,7 +5,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { StorypaneStore } from './store.js'
 import { migrate } from './migrate.js'
 import { acceptVerifiedEmailInvitations } from './invitations.js'
-import { definitionInput } from '@storypane/core'
+import { createBlockClipboard,definitionInput } from '@storypane/core'
 import type { Actor, BlockDraft, Command, Lease, LocaleSnapshot } from '@storypane/core'
 
 const databaseUrl = process.env.TEST_DATABASE_URL ?? 'postgresql://blok:blok@127.0.0.1:55432/blok_test'
@@ -33,7 +33,7 @@ async function deployActive() {
   const migration=(await store.listMigrations(alice)).find(item=>item.status==='active')!
   const review=await store.reviewMigration(alice,migration.id)
   expect(review.blockers).toEqual([])
-  const result=await store.deployMigration(alice,migration.id,review.token)
+  const result=await store.deployMigration(alice,migration.id,review.token,{confirmation:review.confirmation ?? undefined})
   snapshot=await store.getSnapshot(alice,snapshot.story.id,snapshot.locale.id)
   return result
 }
@@ -420,6 +420,57 @@ describe('Postgres collaboration and immutable history', () => {
     await save(bob, snapshot, original, { title: 'Updated Default' })
     expect(blockNamed(await store.getSnapshot(alice, french.story.id, french.locale.id), 'hero').fields).toEqual(original.fields)
   })
+  it('pastes independent nested copies across pages and locales, with retry-safe fresh IDs',async()=>{
+    const page=snapshot.definitions.find(item=>item.name==='page')!
+    await store.updateDefinition(alice,page.id,{...definitionInput(page),kind:'universal'})
+    await deployActive()
+    const clipboard=createBlockClipboard(snapshot,alice.spaceId,snapshot.locale.rootBlockId)
+    const state=await store.createStory(alice,{name:'Destination',slug:'destination',definitionId:page.id})
+    const destination=state.story,locale=state.locale,parent=state.blocks[0]!,own=await lease(alice,state,parent)
+    const command:Command={...commandBase({block:parent,lease:own}),type:'pasteBlock',payload:{clipboard,parentId:parent.id,parentField:'body'}}
+    const pasted=await run(alice,state,command),repeated=await run(alice,state,command)
+    expect(repeated.checkpointId).toBe(pasted.checkpointId)
+    expect(repeated.changedBlockIds).toEqual(pasted.changedBlockIds)
+    expect(pasted.snapshot.blocks).toHaveLength(4)
+    const copy=pasted.snapshot.blocks.find(block=>block.parentId===parent.id)!
+    expect(snapshot.blocks.some(block=>pasted.snapshot.blocks.some(item=>item.id===block.id))).toBe(false)
+    const children=pasted.snapshot.blocks.filter(block=>block.parentId===copy.id).sort((a,b)=>a.position-b.position)
+    expect(children.map(block=>block.fields)).toEqual([blockNamed(snapshot,'hero').fields,blockNamed(snapshot,'footer').fields])
+    expect(children.map(block=>block.parentField)).toEqual(['body','body'])
+    const configured=await store.createSpaceLocale(alice,{name:'French',slug:'fr'})
+    const french=await store.createLocale(alice,destination.id,{spaceLocaleId:configured.id}),root=french.blocks[0]!,frenchLease=await lease(alice,french,root)
+    const translated=await run(alice,french,{...commandBase({block:root,lease:frenchLease}),type:'pasteBlock',payload:{clipboard,parentId:root.id,parentField:'body'}})
+    expect(translated.snapshot.blocks).toHaveLength(4)
+    await save(bob,snapshot,blockNamed(snapshot,'hero'),{title:'Source edited later'})
+    expect(blockNamed(await store.getSnapshot(alice,destination.id,locale.id),'hero').fields.title).toBe(blockNamed(snapshot,'hero').fields.title)
+    expect(await store.getPublished(alice,destination.id,locale.id)).toBeNull()
+  })
+  it('validates every pasted block, references, limits, leases, spaces and migration versions atomically',async()=>{
+    const root=snapshot.blocks.find(block=>block.id===snapshot.locale.rootBlockId)!,hero=blockNamed(snapshot,'hero')
+    const clipboard=createBlockClipboard(snapshot,alice.spaceId,hero.id)
+    const payload={clipboard,parentId:root.id,parentField:'body'}
+    await expect(run(alice,snapshot,{...commandBase(),type:'pasteBlock',payload})).rejects.toMatchObject({code:'stale_revision'})
+    const own=await lease(alice,snapshot,root)
+    const paste=(overrides:Partial<typeof payload>={})=>run(alice,snapshot,{...commandBase({block:root,lease:own}),type:'pasteBlock',payload:{...payload,...overrides}})
+    await expect(run(bob,snapshot,{...commandBase({block:root,lease:own}),type:'pasteBlock',payload})).rejects.toMatchObject({code:'locked'})
+    await expect(paste({clipboard:{...clipboard,spaceId:randomUUID()}})).rejects.toMatchObject({code:'invalid'})
+    await expect(paste({clipboard:{...clipboard,migrationVersion:0}})).rejects.toMatchObject({code:'stale_revision'})
+    await expect(paste({parentField:'title'})).rejects.toMatchObject({code:'invalid'})
+    await expect(paste({clipboard:{...clipboard,blocks:[{...clipboard.blocks[0]!,definitionId:randomUUID()}]}})).rejects.toMatchObject({code:'invalid'})
+    const invalidFields:BlockDraft['fields'][]=[{title:123},{title:'Copied',image:{assetId:randomUUID()}}]
+    for(const fields of invalidFields)await expect(paste({clipboard:{...clipboard,blocks:[{...clipboard.blocks[0]!,fields}]}})).rejects.toMatchObject({code:'invalid'})
+    const malformed={...clipboard,blocks:[...clipboard.blocks,{...clipboard.blocks[0]!,parentIndex:0,parentField:'title'}]}
+    await expect(paste({clipboard:malformed})).rejects.toMatchObject({code:'invalid'})
+    const unchanged=await store.getSnapshot(alice,snapshot.story.id,snapshot.locale.id)
+    expect(unchanged.blocks).toEqual(snapshot.blocks)
+    expect(unchanged.checkpointId).toBe(snapshot.checkpointId)
+    const definition=snapshot.definitions.find(item=>item.id===root.definitionId)!
+    await store.updateDefinition(alice,definition.id,{...definitionInput(definition),fields:definition.fields.map(field=>field.type==='blocks'?{...field,maxItems:2}:field)})
+    await deployActive()
+    const currentRoot=blockNamed(snapshot,'page'),currentLease=await lease(alice,snapshot,currentRoot),currentClipboard=createBlockClipboard(snapshot,alice.spaceId,hero.id)
+    await expect(run(alice,snapshot,{...commandBase({block:currentRoot,lease:currentLease}),type:'pasteBlock',payload:{...payload,clipboard:currentClipboard}})).rejects.toMatchObject({code:'invalid'})
+    expect((await store.getSnapshot(alice,snapshot.story.id,snapshot.locale.id)).blocks).toHaveLength(3)
+  })
   it('restores one blok without reverting another editor’s sibling work', async () => {
     const originalCheckpoint = snapshot.checkpointId!
     const hero = blockNamed(snapshot, 'hero'); const footer = blockNamed(snapshot, 'footer')
@@ -743,7 +794,7 @@ describe('Publication status', () => {
     const published=await publish(snapshot)
     expect(published.snapshot.checkpointId).not.toBe(snapshot.checkpointId)
     expect(published.snapshot.publicationStatus).toBe('published')
-    expect((await store.listStories(alice))[0]).toMatchObject({publicationStatus:'published',pendingLocaleCount:0})
+    expect((await store.listStories(alice))[0]).toMatchObject({publicationStatus:'published',pendingLocaleCount:0,pendingLocales:[]})
     const root=published.snapshot.blocks.find(block=>!block.parentId)!
     const changed=await save(alice,published.snapshot,root,{...root.fields,title:'Waiting to go live'})
     expect(changed.snapshot.publicationStatus).toBe('changed')
@@ -761,7 +812,13 @@ describe('Publication status', () => {
     const french=await store.createLocale(alice,snapshot.story.id,{spaceLocaleId:configured.id})
     expect(french.publicationStatus).toBe('draft')
     expect((await store.getSnapshot(alice,snapshot.story.id,published.snapshot.locale.id)).publicationStatus).toBe('published')
-    expect((await store.listStories(alice))[0]).toMatchObject({publicationStatus:'changed',localeCount:2,pendingLocaleCount:1})
+    expect((await store.listStories(alice))[0]).toMatchObject({publicationStatus:'changed',localeCount:2,pendingLocaleCount:1,pendingLocales:[{id:french.locale.id,name:'French',slug:'fr'}]})
+    const liveFrench=await publish(french)
+    expect((await store.listStories(alice))[0]).toMatchObject({publicationStatus:'published',pendingLocales:[]})
+    const root=liveFrench.snapshot.blocks[0]!
+    await save(alice,liveFrench.snapshot,root,{...root.fields,title:'Unpublished French edit'})
+    expect((await store.getSnapshot(alice,snapshot.story.id,published.snapshot.locale.id)).publicationStatus).toBe('published')
+    expect((await store.listStories(alice))[0]).toMatchObject({publicationStatus:'changed',pendingLocaleCount:1,pendingLocales:[{id:french.locale.id,name:'French',slug:'fr'}]})
   })
 })
 
@@ -828,7 +885,7 @@ describe('shared schema migrations',()=>{
     const review=await store.reviewMigration(actor,active.id)
     expect(review.changes.some(change=>change.field==='retired' && change.kind==='removed')).toBe(true)
     expect(review.impacts[0]!.deletedValues).toBe(1)
-    await store.deployMigration(actor,active.id,review.token)
+    await store.deployMigration(actor,active.id,review.token,{confirmation:review.confirmation ?? undefined})
     const after=await store.getSnapshot(actor,legacyStoryId,legacyLocaleId)
     expect(after.migrationVersion).toBe(1)
     expect(after.blocks[0]!.id).toBe(legacyRootId)
@@ -862,7 +919,8 @@ describe('shared schema migrations',()=>{
     expect(review.blockers).toEqual([])
     expect(review.impacts.reduce((sum,item)=>sum+item.deletedValues,0)).toBe(2)
     await expect(store.deployMigration(bob,active.id,review.token)).rejects.toMatchObject({code:'forbidden'})
-    const deployment=await store.deployMigration(alice,active.id,review.token)
+    await expect(store.deployMigration(alice,active.id,review.token)).rejects.toThrow('explicit confirmation')
+    const deployment=await store.deployMigration(alice,active.id,review.token,{confirmation:review.confirmation!})
     expect(await store.deployMigration(alice,active.id,review.token)).toEqual(deployment)
     const current=await store.getSnapshot(alice,snapshot.story.id,snapshot.locale.id)
     expect(blockNamed(current,'hero').fields).toMatchObject({headline:'Unpublished title'})
@@ -894,6 +952,72 @@ describe('shared schema migrations',()=>{
     await expect(store.deployMigration(alice,active.id,invalid.token)).rejects.toMatchObject({code:'invalid'})
     expect((await store.listMigrations(alice)).find(item=>item.status==='deployed')?.version).toBe(1)
     expect(blockNamed(await store.getSnapshot(alice,snapshot.story.id,snapshot.locale.id),'hero').schemaVersionId).toBe(definition.versionId)
+  })
+  it('links every invalid block and requires fresh, explicit admin approval before pruning drafts and publications',async()=>{
+    const original=snapshot.checkpointId!,hero=blockNamed(snapshot,'hero'),footer=blockNamed(snapshot,'footer')
+    await run(alice,snapshot,{...commandBase(),type:'publishCheckpoint',payload:{checkpointId:original}})
+    const definition=snapshot.definitions.find(item=>item.name==='page')!
+    await store.updateDefinition(alice,definition.id,{...definitionInput(definition),fields:definition.fields.map(field=>field.type==='blocks'?{...field,allowedDefinitionIds:[footer.definitionId]}:field)})
+    const active=(await store.listMigrations(alice)).find(item=>item.status==='active')!
+    const standard=await store.reviewMigration(alice,active.id)
+    expect(standard.blockers).toHaveLength(2)
+    for(const issue of standard.blockers)expect(issue).toMatchObject({storyId:snapshot.story.id,storyName:'Home',localeSlug:'',blockId:hero.id,blockName:'Hero'})
+    expect(standard.blockers.map(issue=>issue.target)).toEqual(['draft','published'])
+    const destructive=await store.reviewMigration(alice,active.id,true)
+    expect(destructive.blockers).toEqual([])
+    expect(destructive.impacts.map(item=>item.deletedBlocks)).toEqual([1,1])
+    expect(destructive.confirmation).toBe('DEPLOY 2')
+    await expect(store.deployMigration(bob,active.id,destructive.token,{destructive:true,confirmation:'DEPLOY 2'})).rejects.toMatchObject({code:'forbidden'})
+    await expect(store.deployMigration(alice,active.id,standard.token,{destructive:true,confirmation:'DEPLOY 2'})).rejects.toMatchObject({code:'stale_revision'})
+    await expect(store.deployMigration(alice,active.id,destructive.token,{destructive:true})).rejects.toThrow('explicit confirmation')
+    await expect(store.deployMigration(alice,active.id,destructive.token,{destructive:true,confirmation:'DEPLOY 1'})).rejects.toThrow('explicit confirmation')
+    expect((await store.getSnapshot(alice,snapshot.story.id,snapshot.locale.id)).blocks).toHaveLength(3)
+    const edited=await save(alice,await store.getSnapshot(alice,snapshot.story.id,snapshot.locale.id),footer,{text:'Unpublished footer'})
+    await expect(store.deployMigration(alice,active.id,destructive.token,{destructive:true,confirmation:'DEPLOY 2'})).rejects.toMatchObject({code:'stale_revision'})
+    const fresh=await store.reviewMigration(alice,active.id,true)
+    const deployed=await store.deployMigration(alice,active.id,fresh.token,{destructive:true,confirmation:'DEPLOY 2'})
+    expect(deployed.destructive).toBe(true)
+    const current=await store.getSnapshot(alice,snapshot.story.id,snapshot.locale.id)
+    expect(current.blocks.map(block=>block.id)).toEqual(expect.arrayContaining([snapshot.locale.rootBlockId,footer.id]))
+    expect(current.blocks).toHaveLength(2)
+    expect(blockNamed(current,'footer').fields.text).toBe('Unpublished footer')
+    const key=await store.createDeliveryToken(alice,{name:'Production',scope:'published'})
+    const delivered=await store.publishedStories(key.token,alice.spaceId,{})
+    expect((delivered.stories[0]!.content as any).body).toHaveLength(1)
+    expect((delivered.stories[0]!.content as any).body[0].text).toBe(footer.fields.text)
+    expect((await store.getCheckpoint(alice,snapshot.story.id,snapshot.locale.id,original)).snapshot.blocks).toHaveLength(3)
+    const root=blockNamed(current,'page'),own=await lease(alice,current,root)
+    const restored=await run(alice,current,{...commandBase({block:root,lease:own}),expectedRevisions:{[root.id]:root.revision,$locale:current.revision},type:'restorePage',payload:{checkpointId:original}})
+    expect(restored.snapshot.blocks).toHaveLength(2)
+    expect(restored.snapshot.blocks.some(block=>block.id===hero.id)).toBe(false)
+    expect(edited.snapshot.migrationVersion).toBe(1)
+  })
+  it('does not let destructive deployment bypass required content or invalid root schemas',async()=>{
+    await run(alice,snapshot,{...commandBase(),type:'publishCheckpoint',payload:{checkpointId:snapshot.checkpointId!}})
+    const page=snapshot.definitions.find(item=>item.name==='page')!
+    await store.updateDefinition(alice,page.id,{...definitionInput(page),kind:'nestable',fields:[...page.fields,{name:'required',label:'Required',type:'text',format:'singleline',required:true}]})
+    const active=(await store.listMigrations(alice)).find(item=>item.status==='active')!
+    const review=await store.reviewMigration(alice,active.id,true)
+    expect(review.blockers.some(issue=>issue.blockId===snapshot.locale.rootBlockId && issue.field==='required')).toBe(true)
+    expect(review.blockers.some(issue=>issue.message.includes('root must'))).toBe(true)
+    await expect(store.deployMigration(alice,active.id,review.token,{destructive:true,confirmation:'DEPLOY 2'})).rejects.toMatchObject({code:'invalid'})
+    expect((await store.getSnapshot(alice,snapshot.story.id,snapshot.locale.id)).migrationVersion).toBe(1)
+  })
+  it('links restricted asset fields and resets their references only in destructive mode',async()=>{
+    const hero=blockNamed(snapshot,'hero'),assetId=randomUUID()
+    await pool.query("INSERT INTO assets(id,space_id,object_key,filename,mime_type,byte_size,title) VALUES($1::uuid,$2,$1::text,'fixture','application/pdf',10,'Fixture')",[assetId,alice.spaceId])
+    await save(alice,snapshot,hero,{...hero.fields,image:{assetId}})
+    const definition=snapshot.definitions.find(item=>item.id===hero.definitionId)!
+    await store.updateDefinition(alice,definition.id,{...definitionInput(definition),fields:definition.fields.map(field=>field.type==='asset'?{...field,mimeTypes:['image/*']}:field)})
+    const active=(await store.listMigrations(alice)).find(item=>item.status==='active')!
+    const standard=await store.reviewMigration(alice,active.id)
+    expect(standard.blockers).toEqual([expect.objectContaining({blockId:hero.id,field:'image',message:'Image does not allow this asset type'})])
+    const destructive=await store.reviewMigration(alice,active.id,true)
+    expect(destructive.blockers).toEqual([])
+    expect(destructive.impacts[0]!.resetValues).toBe(1)
+    await store.deployMigration(alice,active.id,destructive.token,{destructive:true,confirmation:destructive.confirmation!})
+    expect(blockNamed(await store.getSnapshot(alice,snapshot.story.id,snapshot.locale.id),'hero').fields).not.toHaveProperty('image')
+    expect((await pool.query('SELECT id FROM assets WHERE id=$1',[assetId])).rowCount).toBe(1)
   })
   it('stages CLI migrations atomically and enforces management token capabilities and revocation',async()=>{
     const token=await store.createManagementToken(alice,{name:'CI',capability:'stage'})
