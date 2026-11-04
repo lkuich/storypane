@@ -13,13 +13,19 @@ export function createStorypaneClient(options: StorypaneClientOptions) {
   const base = new URL(options.url);
   const warnMigration=migrationWarning(options.migrationVersion);
   if (!['https:', 'http:'].includes(base.protocol) || base.username || base.password) throw new Error('Use an HTTP(S) CMS URL without credentials');
-  async function request<T>(resource:string, query:Record<string,string>, init:RequestInit = {}): Promise<T> {
+  async function response(resource:string, query:Record<string,string>, init:RequestInit = {}): Promise<Response> {
     const url = new URL(`/api/delivery/${resource}`, base);
     url.searchParams.set('space', options.spaceId);
     for (const [key,value] of Object.entries(query)) url.searchParams.set(key,value);
     const response = await (options.fetch ?? fetch)(url, { ...init, headers:{ Authorization:`Bearer ${options.token}`, ...(init.body ? { 'Content-Type':'application/json' } : {}), ...init.headers }, signal:init.signal ?? AbortSignal.timeout(20000) });
-    const body = await response.json() as { error?:{ message?:string } } | null;
-    if (!response.ok) throw new StorypaneError(body?.error?.message ?? `Storypane request failed (${response.status})`, response.status);
+    if (!response.ok) {
+      const body = await response.json() as { error?:{ message?:string } } | null;
+      throw new StorypaneError(body?.error?.message ?? `Storypane request failed (${response.status})`, response.status);
+    }
+    return response;
+  }
+  async function request<T>(resource:string, query:Record<string,string>, init?:RequestInit): Promise<T> {
+    const body=await (await response(resource,query,init)).json();
     if(resource==='stories')warnMigration((body as {migrationVersion?:number})?.migrationVersion);
     return body as T;
   }
@@ -27,6 +33,8 @@ export function createStorypaneClient(options: StorypaneClientOptions) {
     listLocales() { return request<StorypaneLocale[]>('locales', {}, { cache:'no-store' }); },
     /** Server-side tooling only: requires a preview token. Contains the deployed schema, never draft values. */
     getSchema() { return request<StorypaneSchema>('schema', {}, { cache:'no-store' }); },
+    /** Server-side only. Streams an asset referenced by a current publication in this space. */
+    getAsset(assetId:string,init?:RequestInit) { return response('assets',{id:assetId},init); },
     async getStory<T = StorypaneStory['content']>(reference:StoryReference, init?:RequestInit): Promise<StorypaneStory<T>> {
       const query = { locale:reference.locale ?? '', ...(reference.id ? { id:reference.id } : { slug:reference.slug! }) };
       const result = await request<{ stories:StorypaneStory<T>[] }>('stories', query, init);

@@ -4,16 +4,25 @@ import {
   storypaneMigrationVersion,
   type StorypaneContentType,
 } from "../types/storypane";
-import { Block } from "./blocks";
+import { Content } from "./blocks";
+import { storyReferences,type SiteReferences } from "../lib/content";
 
 export default function Story({
   initial,
   cmsUrl,
   spaceId,
+  references,
+  previewParameter = 'blok_preview',
+  previewEnabled,
+  framework,
 }: {
   initial: StorypaneStory<StorypaneContentType>;
   cmsUrl: string;
   spaceId: string;
+  references: SiteReferences;
+  previewParameter?: string;
+  previewEnabled?: string;
+  framework?: 'Astro' | 'Next.js';
 }) {
   const { story, status, error } = useStorypaneStory(initial, {
     cmsUrl,
@@ -21,16 +30,11 @@ export default function Story({
     migrationVersion: storypaneMigrationVersion,
     mode: {
       query: {
-        name:
-          (import.meta.env.PUBLIC_STORYPANE_PREVIEW_PARAMETER ??
-            import.meta.env.PUBLIC_BLOK_PREVIEW_PARAMETER) ||
-          "blok_preview",
+        name: previewParameter,
         value: "1",
       },
       cookie: { name: "blok_preview", value: "1" },
-      env:
-        import.meta.env.PUBLIC_STORYPANE_PREVIEW ??
-        import.meta.env.PUBLIC_BLOK_PREVIEW,
+      env: previewEnabled,
     },
   });
   return (
@@ -43,7 +47,7 @@ export default function Story({
               : "Connecting to Storypane…")}
         </div>
       )}
-      <Block block={story.content} />
+      <Content block={story.content} references={storyReferences(story,references)} cmsUrl={cmsUrl} spaceId={spaceId} framework={framework} preview={status === "connected" || status === "reconnecting"} />
     </>
   );
 }

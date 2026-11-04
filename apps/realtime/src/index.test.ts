@@ -17,6 +17,18 @@ function fixture(preview = false) {
 }
 beforeEach(() => { vi.clearAllMocks(); mocks.snapshot.mockResolvedValue(snapshot); mocks.assertActor.mockResolvedValue(undefined); mocks.end.mockResolvedValue(undefined) })
 describe('realtime recovery and authorization', () => {
+  it('refreshes referenced drafts even when the parent story revision is unchanged',async()=>{
+    const story={id:'story',localeId:'locale',revision:7,referencesRevision:'footer-v2',references:[{id:'footer',content:{text:'Updated footer'}}]}
+    mocks.preview.mockResolvedValue(story)
+    const {socket,room}=fixture(true)
+    await room.webSocketMessage(socket as never,JSON.stringify({type:'heartbeat',revision:7,referencesRevision:'footer-v1'}))
+    expect(JSON.parse(socket.send.mock.calls[0][0])).toEqual({type:'content',story})
+    await room.webSocketMessage(socket as never,JSON.stringify({type:'heartbeat',revision:7,referencesRevision:'footer-v2'}))
+    expect(JSON.parse(socket.send.mock.calls[1][0])).toEqual({type:'heartbeat',revision:7})
+    mocks.preview.mockResolvedValue({...story,referencesRevision:'empty',references:[]})
+    await room.webSocketMessage(socket as never,JSON.stringify({type:'heartbeat',revision:7,referencesRevision:'footer-v2'}))
+    expect(JSON.parse(socket.send.mock.calls[2][0]).story.references).toEqual([])
+  })
   it('streams content-only preview snapshots and refuses editing commands', async () => {
     const story = { id:'story',localeId:'locale',revision:7,content:{ title:'Draft' } }
     mocks.preview.mockResolvedValue(story)

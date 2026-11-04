@@ -300,6 +300,13 @@ export class StorypaneStore {
       })),
     })) }
   }
+  async authorizePublishedAsset(token:string,spaceId:string,assetId:string):Promise<void> {
+    await this.authenticateDelivery(token,spaceId)
+    parseInput(z.uuid(),assetId)
+    const {rowCount}=await this.pool.query(`SELECT 1 FROM stories s JOIN story_locales l ON l.story_id=s.id JOIN publications p ON p.id=l.published_version_id
+      WHERE s.space_id=$1 AND jsonb_path_exists(p.content,'$.**.assetId ? (@ == $assetId)',jsonb_build_object('assetId',$2::text)) LIMIT 1`,[spaceId,assetId])
+    if(!rowCount)throw new StorypaneError('not_found','Published asset not found')
+  }
   async publishedStories(token:string,spaceId:string,raw:unknown):Promise<{migrationVersion:number;stories:DeliveredStory[];nextOffset:number|null}> {
     await this.authenticateDelivery(token,spaceId)
     const input=parseInput(deliveryQuerySchema,raw)
@@ -349,14 +356,30 @@ export class StorypaneStore {
     return session as { id:string; spaceId:string; storyId:string; localeId:string }
   }
   async previewStory(previewId: string): Promise<DeliveredStory> {
-    const { rows } = await this.pool.query(`SELECT sp.schema_version AS migration_version,st.id AS story_id,st.name,l.url_slug AS slug,l.slug AS locale,l.id AS locale_id,c.revision,c.content
+    const { rows } = await this.pool.query(`SELECT p.space_id,sp.schema_version AS migration_version,st.id AS story_id,st.name,l.url_slug AS slug,l.slug AS locale,l.id AS locale_id,c.revision,c.content,c.snapshot
       FROM preview_sessions p JOIN spaces sp ON sp.id=p.space_id JOIN stories st ON st.id=p.story_id AND st.space_id=p.space_id
       JOIN story_locales l ON l.id=p.locale_id AND l.story_id=st.id JOIN checkpoints c ON c.id=l.checkpoint_id
       WHERE p.id=$1 AND p.expires_at>clock_timestamp() AND (
         EXISTS(SELECT 1 FROM cms_sessions se JOIN memberships m ON m.user_id=se.user_id AND m.space_id=p.space_id WHERE se.id=p.session_id AND se.user_id=p.user_id AND se.expires_at>clock_timestamp())
         OR EXISTS(SELECT 1 FROM delivery_tokens t WHERE t.id=p.delivery_token_id AND t.space_id=p.space_id AND t.scope='preview' AND t.revoked_at IS NULL))`, [previewId])
     if (!rows[0]) throw new StorypaneError('unauthenticated', 'Preview access expired or was revoked')
-    return deliveredRow(rows[0])
+    const story=deliveredRow(rows[0]),snapshot=rows[0].snapshot as LocaleSnapshot,ids=new Set<string>()
+    // shortcut: Resolve direct story references only; add traversal when nested shared stories need it.
+    for(const block of snapshot.blocks) {
+      const definition=snapshot.definitions.find(item=>item.versionId===block.schemaVersionId)
+      for(const field of definition?.fields ?? []) {
+        const value=block.fields[field.name]
+        let values:Json[]=[]
+        if((field.type==='option' || field.type==='options') && field.source.type==='stories')values=Array.isArray(value)?value:[value ?? null]
+        if(field.type==='link' && value && typeof value==='object' && !Array.isArray(value) && value.type==='story')values=[value.storyId]
+        for(const id of values)if(typeof id==='string' && z.uuid().safeParse(id).success)ids.add(id)
+      }
+    }
+    const references=ids.size?(await this.pool.query(`SELECT DISTINCT ON (st.id) st.id AS story_id,st.name,l.url_slug AS slug,l.slug AS locale,l.id AS locale_id,c.revision,c.content
+      FROM stories st JOIN story_locales l ON l.story_id=st.id JOIN checkpoints c ON c.id=l.checkpoint_id AND c.locale_id=l.id
+      WHERE st.space_id=$1 AND st.id=ANY($2::uuid[]) AND l.slug=ANY($3::text[])
+      ORDER BY st.id,(l.slug=$4) DESC`,[rows[0].space_id,[...ids],['',story.locale],story.locale])).rows.map(row=>deliveredRow({...row,migration_version:story.migrationVersion})):[]
+    return {...story,references,referencesRevision:digest(references.map(item=>[item.id,item.localeId,item.revision,item.name,item.slug]))}
   }
   private async tx<T>(actor: Actor, fn: (client: PoolClient) => Promise<T>, permission?: Permission | 'admin', exclusive=false): Promise<T> {
     const client = await this.pool.connect()

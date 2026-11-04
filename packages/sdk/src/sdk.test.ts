@@ -4,6 +4,17 @@ import { connectPreview } from './preview.js';
 
 afterEach(() => vi.unstubAllGlobals());
 describe('delivery and preview activation', () => {
+  it('downloads published assets as bytes with server credentials only in the header',async()=>{
+    const bytes=new Uint8Array([137,80,78,71]);
+    const fetch=vi.fn().mockResolvedValueOnce(new Response(bytes,{headers:{'Content-Type':'image/png'}})).mockResolvedValueOnce(Response.json({error:{message:'Published asset not found'}},{status:404}));
+    const client=createStorypaneClient({url:'https://cms.test',spaceId:'space',token:'private-key',fetch});
+    const response=await client.getAsset('image');
+    expect(response.headers.get('Content-Type')).toBe('image/png');
+    expect(new Uint8Array(await response.arrayBuffer())).toEqual(bytes);
+    expect(fetch.mock.calls[0][0].href).toBe('https://cms.test/api/delivery/assets?space=space&id=image');
+    expect(fetch.mock.calls[0][1].headers.Authorization).toBe('Bearer private-key');
+    await expect(client.getAsset('draft-only')).rejects.toMatchObject({status:404});
+  });
   it('returns migrated content to outdated and unversioned clients with deduplicated warnings',async()=>{
     const warning=vi.spyOn(console,'warn').mockImplementation(()=>{});
     try {
@@ -65,6 +76,9 @@ describe('delivery and preview activation', () => {
       sockets[0].onopen();
       for(const revision of [1,2])sockets[0].onmessage({data:JSON.stringify({type:'content',story:{id:'story',localeId:'locale',revision,migrationVersion:2,content:{headline:'Migrated'}}})});
       expect(onChange).toHaveBeenCalledTimes(2);expect(warning).toHaveBeenCalledTimes(1);
+      const references=[{id:'footer',content:{text:'Updated footer'}}];
+      sockets[0].onmessage({data:JSON.stringify({type:'content',story:{id:'story',localeId:'locale',revision:2,migrationVersion:2,references,referencesRevision:'footer-v2'}})});
+      expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({revision:2,references,referencesRevision:'footer-v2'}));
       expect(sockets[0].close).not.toHaveBeenCalled();expect(onStatus).not.toHaveBeenCalledWith('error',expect.anything());
     }finally{stop();warning.mockRestore()}
   });

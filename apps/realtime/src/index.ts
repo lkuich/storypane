@@ -87,11 +87,11 @@ export class StoryRoom extends DurableObject<Env> {
     const connection = socket.deserializeAttachment() as Connection
     try {
       if (typeof raw !== 'string' || raw.length > 4096) throw new StorypaneError('invalid', 'Invalid collaboration message')
-      const message = JSON.parse(raw) as { type: string; revision?: number }
+      const message = JSON.parse(raw) as { type: string; revision?: number; referencesRevision?:string }
       if (!['heartbeat', 'sync'].includes(message.type)) throw new StorypaneError('invalid', 'Unsupported collaboration message')
       if (connection.previewSessionId) {
         const story = await this.withStore(store => store.previewStory(connection.previewSessionId!))
-        this.send(socket, message.type === 'sync' || message.revision !== story.revision ? { type:'content', story } : { type:'heartbeat', revision:story.revision })
+        this.send(socket, message.type === 'sync' || message.revision !== story.revision || message.referencesRevision !== story.referencesRevision ? { type:'content', story } : { type:'heartbeat', revision:story.revision })
         return
       }
       const snapshot = await this.withStore(store => store.getSnapshot(connection.actor, connection.storyId, connection.localeId))

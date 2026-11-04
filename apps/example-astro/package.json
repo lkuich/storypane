@@ -3,6 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "lint": "eslint . --max-warnings 0",
     "dev": "astro dev --host 127.0.0.1 --port 3132",
     "build": "astro check && astro build",
     "preview": "astro preview --host 127.0.0.1 --port 3132",
@@ -20,8 +21,14 @@
   },
   "devDependencies": {
     "@astrojs/check": "^0.9.9",
+    "@eslint/js": "^10.0.1",
     "@types/react": "^19",
     "@types/react-dom": "^19",
-    "typescript": "^6.0.3"
+    "eslint": "^10.14.0",
+    "eslint-plugin-astro": "^3.2.1",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "globals": "^17.14.0",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.72.1"
   }
 }

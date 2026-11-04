@@ -31,6 +31,13 @@ Setup creates a separate Fieldwork example space with published Default/French
 content and an unpublished page. See [the Astro example guide](apps/example-astro/README.md)
 for static builds, visual preview, and schema-to-TypeScript generation.
 
+For the same site in Next.js, run `pnpm example:setup:next` followed by
+`pnpm dev:example:next`, then open **http://127.0.0.1:3133/home**. Setup adds
+**Local Next.js** as an optional application in Storypane's preview selector and
+preserves the Astro default. Both examples share their renderer and generated
+types. See [the Next.js example guide](apps/example-next/README.md).
+Run `pnpm lint:example` to lint the Astro and shared React source.
+
 Postgres listens only on `127.0.0.1:55432`, using database/user/password `blok`.
 Optional settings are in `.env.example`; copy it to `.env` when changing defaults.
 Keep `DATABASE_URL` consistent with the Compose settings. `pnpm db:setup` applies database migrations. Local R2/room state persists
@@ -135,6 +142,7 @@ of a draft. This avoids a second draft database and a cross-database publish ste
 | `apps/web` | Next.js App Router UI/API, authentication, Cloudflare entrypoint |
 | `apps/realtime` | Durable Object rooms and WebSockets |
 | `apps/example-astro` | Static example website, generated block props, live preview |
+| `apps/example-next` | Next.js version of Fieldwork, sharing Astro's renderer and schema |
 | `packages/core` | Content contracts and validation |
 | `packages/db` | Postgres migrations, transactions, history, publishing |
 | `packages/assets` | Asset metadata and R2 upload/delivery service |
@@ -264,3 +272,6 @@ space members through the CMS API and to applications with scoped delivery token
 
 See [the implementation work breakdown](docs/work-breakdown.md) for ownership,
 contracts, and acceptance criteria.
+
+See [the internal issue tracker](docs/issues/README.md) for researched feature TODOs,
+proposed behavior, implementation scope, and acceptance tests.

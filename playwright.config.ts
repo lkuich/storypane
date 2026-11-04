@@ -9,10 +9,15 @@ export default defineConfig({
   timeout: 45_000,
   use: { baseURL: 'http://127.0.0.1:3130', channel: 'chrome', trace: 'retain-on-failure' },
   reporter: 'list',
-  webServer: existsSync('apps/example-astro/.env') ? {
+  webServer: [ ...(existsSync('apps/example-astro/.env') ? [{
     command:'pnpm --filter @storypane/example-astro preview --ignore-lock',
     url:'http://127.0.0.1:3132/home',
     reuseExistingServer:!process.env.CI,
     timeout:30000,
-  } : undefined,
+  }] : []), ...(existsSync('apps/example-next/.env') ? [{
+    command:'pnpm --filter @storypane/example-next start',
+    url:'http://127.0.0.1:3133/home',
+    reuseExistingServer:!process.env.CI,
+    timeout:30000,
+  }] : []) ],
 })

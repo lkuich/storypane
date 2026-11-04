@@ -280,24 +280,6 @@ export function FieldSettings({
       </div>
       {field.type === "text" && (
         <>
-          <Field label="Text format" htmlFor="text-format">
-            <select
-              id="text-format"
-              value={field.format}
-              onChange={(event) => {
-                const { defaultValue: _default, ...rest } = field;
-                onChange({
-                  ...rest,
-                  format: event.target.value as typeof field.format,
-                });
-              }}
-            >
-              <option value="singleline">Single line</option>
-              <option value="textarea">Textarea</option>
-              <option value="richtext">Rich text</option>
-              <option value="markdown">Markdown</option>
-            </select>
-          </Field>
           <Field label="Maximum characters" htmlFor="text-max">
             <input
               id="text-max"

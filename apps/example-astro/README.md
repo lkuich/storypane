@@ -4,6 +4,9 @@ A complete, statically built website using `@storypane/sdk`. It follows the refe
 Storyblok app's structure: Astro routes, a hydrated React component registry,
 pulled schema JSON, and generated TypeScript block props.
 
+The [Next.js version](../example-next/README.md) shares the renderer, styles and
+generated types, and can be selected as another Storypane preview application.
+
 New configuration uses `STORYPANE_*` / `PUBLIC_STORYPANE_*` variables. Existing
 `BLOK_*` / `PUBLIC_BLOK_*` values remain supported, so the rename does not require
 replacing your local `.env` or its tokens.
@@ -137,16 +140,36 @@ the pulled deployed migration. The delivery client and preview components pass
 its generated `storypaneMigrationVersion`; outdated integrations warn and keep
 receiving content. Schema deployment migrates both drafts and live publications.
 
+The current example supports hero images, rich-text descriptions, linked feature cards placed directly in
+a page body, and a shared footer selected through `page.footer`. Story links and
+footer references use published stories in the page's locale, with Default as a
+fallback. Publish the referenced footer and rebuild before it appears on the public
+site. In authenticated live preview, the selected footer uses its current draft,
+including unpublished footers. Changes made in another tab refresh on the preview
+heartbeat (within 15 seconds); changing the selection refreshes with the page save.
+
+Published assets are downloaded through the server-side delivery client and built
+into `/media/` alongside the static pages. Visitors never receive a CMS token or
+need a CMS login. Rebuild after changing or removing published assets. Local CMS
+preview uses the signed-in editor's asset URLs so newly selected draft images can
+appear immediately; this relies on the CMS and example using the same site
+(such as `127.0.0.1` on different ports).
+
 ## Files and checks
 
 | File | Purpose |
 | --- | --- |
 | `src/lib/cms.ts` | Discover space locales, fetch publications, paginate, build routes |
+| `src/lib/publications.ts` | Shared publication pagination and route validation for both frameworks |
 | `src/pages/[...path].astro` | Static route generation |
 | `src/components/Story.tsx` | Published-first rendering and live preview hook |
 | `src/components/PreviewShell.tsx` | Preview of unpublished stories/locales |
 | `src/components/blocks.tsx` | Typed component registry and editable markers |
 | `storypane/components.json`, `src/types/storypane.ts` | Pulled schema and generated types |
+
+`pnpm lint:example` runs ESLint over Astro, TypeScript and React source, including
+the shared renderer, using recommended JavaScript/TypeScript/Astro rules and React
+hook checks. Generated schema types are checked by TypeScript instead.
 
 `pnpm typecheck` includes Astro checking. `pnpm build:example` checks and builds
 this site; root `pnpm build` builds the CMS/SDK independently of a configured CMS
@@ -164,7 +187,7 @@ The full browser suite skips this test if the example has not been configured.
 The generated `dist/` can be hosted as static assets, including on Cloudflare.
 Use an HTTPS preview URL when the CMS is HTTPS, permit the CMS origin in
 `frame-ancestors`, and avoid an incompatible `X-Frame-Options` header. Deployment,
-standalone preview authentication, and public DAM delivery are outside this example.
+standalone preview authentication, and a public DAM/CDN are outside this example.
 
 For authoring and CI/CD, the SDK also supports `storypane migrations pull`,
 `storypane migrations create "description"`, and `storypane migrations push

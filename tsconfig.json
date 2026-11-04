@@ -15,5 +15,5 @@
     "paths": { "@/*": ["./apps/web/src/*"] }
   },
   "include": ["apps/**/*.ts", "apps/**/*.tsx", "packages/**/*.ts", "packages/**/*.tsx", "scripts/**/*.ts", "tests/**/*.ts", "*.ts"],
-  "exclude": ["node_modules", "**/dist", "**/.cloudflare", "apps/example-astro"]
+  "exclude": ["node_modules", "**/dist", "**/.cloudflare", "apps/example-astro", "apps/example-next"]
 }

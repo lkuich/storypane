@@ -15,7 +15,7 @@ export const roleInputSchema = z.object({ name:z.string().trim().min(1).max(80),
 export function can(space:{ permissions:readonly Permission[] }, permission:Permission) { return space.permissions.includes(permission) }
 export type SpaceLocale = { id: string; name: string; slug: string; storyCount: number }
 export const spaceLocaleInputSchema = z.object({ name:z.string().trim().min(1).max(80), slug:z.string().trim().regex(/^[a-zA-Z0-9][a-zA-Z0-9-]*$/).max(30) }).strict()
-export type DeliveredStory = { migrationVersion?:number; id: string; name: string; slug: string; locale: string; localeId: string; revision: number; content: Json; publishedAt: string | null }
+export type DeliveredStory = { migrationVersion?:number; id: string; name: string; slug: string; locale: string; localeId: string; revision: number; content: Json; publishedAt: string | null; references?:DeliveredStory[]; referencesRevision?:string }
 export type PreviewSession = { token: string; expiresAt: string; spaceId: string; storyId: string; localeId: string; slug: string; locale: string }
 export type DeliveryToken = { id: string; name: string; scope: 'published' | 'preview'; createdAt: string }
 const previewUrlSchema = z.string().trim().min(1).max(2048).refine(value => {

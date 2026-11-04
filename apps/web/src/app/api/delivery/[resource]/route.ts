@@ -1,4 +1,6 @@
 import { StorypaneError } from '@storypane/core'
+import { env } from 'cloudflare:workers'
+import { handleAssets } from '@storypane/assets'
 import { createServices } from '../../../../lib/context'
 import { errorResponse, jsonResponse, readJson } from '../../../../lib/http'
 
@@ -15,6 +17,11 @@ async function handle(request: Request, route: { params:Promise<{ resource:strin
     const { resource } = await route.params
     const url = new URL(request.url), token = request.headers.get('authorization')?.replace(/^Bearer /i, '') ?? ''
     const spaceId = url.searchParams.get('space') ?? ''
+    if(resource==='assets' && ['GET','HEAD'].includes(request.method)) {
+      const id=url.searchParams.get('id') ?? ''
+      await services.store.authorizePublishedAsset(token,spaceId,id)
+      return cors(await handleAssets(request,[id,'content'],{db:services.db,bucket:env.MEDIA,canWrite:false,actor:{spaceId,userId:'delivery',sessionId:'',role:'viewer'}}))
+    }
     if (resource === 'locales' && request.method === 'GET') return cors(jsonResponse(await services.store.deliveryLocales(token, spaceId)))
     if (resource === 'schema' && request.method === 'GET') return cors(jsonResponse(await services.store.deliverySchema(token, spaceId)))
     if (resource === 'stories' && request.method === 'GET') {
@@ -30,4 +37,4 @@ async function handle(request: Request, route: { params:Promise<{ resource:strin
   } catch (error) { return cors(errorResponse(error)) }
   finally { await services.db.end() }
 }
-export { handle as GET, handle as POST }
+export { handle as GET, handle as HEAD, handle as POST }

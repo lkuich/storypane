@@ -1,8 +1,11 @@
 ---
 import PreviewShell from '../components/PreviewShell';
 import Layout from '../layouts/Layout.astro';
-import { cmsUrl,spaceId } from '../lib/cms';
+import { cmsUrl,spaceId,publishedStories } from '../lib/cms';
+import { referencesFor } from '../lib/content';
+const stories=await publishedStories();
+const references=Object.fromEntries([...new Set(['',...stories.map(story=>story.locale)])].map(locale=>[locale,referencesFor(stories,locale)]));
 ---
 <Layout title="Preview" preview>
-  <PreviewShell client:load cmsUrl={cmsUrl} spaceId={spaceId} />
+  <PreviewShell client:load cmsUrl={cmsUrl} spaceId={spaceId} references={references} />
 </Layout>

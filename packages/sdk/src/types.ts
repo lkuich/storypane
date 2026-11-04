@@ -26,6 +26,9 @@ export interface StorypaneStory<T = StorypaneBlock> {
   migrationVersion?:number;
   id:string; name:string; slug:string; locale:string; localeId:string;
   revision:number; content:T; publishedAt:string | null;
+  /** Direct story references, resolved to current drafts only in authenticated preview. */
+  references?:StorypaneStory[];
+  referencesRevision?:string;
 }
 export type StoryReference = { id:string; slug?:never; locale?:string } | { slug:string; id?:never; locale?:string };
 export interface PreviewSession { token:string; expiresAt:string; spaceId:string; storyId:string; localeId:string; slug:string; locale:string }

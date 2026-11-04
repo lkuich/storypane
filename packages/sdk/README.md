@@ -235,6 +235,13 @@ browser. The application origin must match the configured preview URL.
 Sessions are checked on connect, draft broadcasts, and heartbeats. Revoking a key,
 removing a member, or expiring their login stops subsequent draft delivery.
 Preview sockets accept only sync/heartbeat requests and never hold editing leases.
+
+Preview stories include a `references` array for direct story-backed option,
+multi-option, and story-link fields. These contain current drafts from the same
+space, preferring the preview locale with Default as the fallback. References stay
+as IDs in `content`; renderers can look them up in `references`. Referenced-story
+edits refresh on the 15-second heartbeat even if the parent revision is unchanged.
+References are resolved one level deep and are not added to public delivery responses.
 After interruptions the SDK reconnects and reads the latest durable draft; older
 revisions are ignored. Errors are exposed through `onStatus` / the React hook.
 
@@ -337,6 +344,12 @@ the locally pulled deployment; draft values can be incomplete. Rebuild static
 sites after publishing or deploying schemas.
 
 ### Existing schema-pull commands
+
+`client.getAsset(assetId)` returns a `Response` with the original asset bytes for
+server-side rendering or static export. It requires a valid delivery token and
+only serves assets referenced by a current publication in that token's space;
+draft-only and historical references do not grant access. Keep the token on the
+server. Static copies must be rebuilt or removed when their publications change.
 
 The original commands still work with `STORYPANE_PREVIEW_TOKEN`:
 

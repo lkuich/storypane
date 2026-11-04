@@ -20,6 +20,7 @@ export function connectPreview<T>(options:PreviewOptions<T>): () => void {
   let stopped = false, socket:WebSocket | undefined, session:PreviewSession | undefined;
   let reconnect:ReturnType<typeof setTimeout> | undefined, renew:ReturnType<typeof setTimeout> | undefined;
   let ready:ReturnType<typeof setInterval> | undefined, retry = 0, revision = -1, selected = '';
+  let referencesRevision:string | undefined;
   const embedded = window.parent !== window;
   const send = (message:unknown) => { if (embedded) window.parent.postMessage(message, editorOrigin); };
   function status(value:PreviewStatus, error?:Error) { options.onStatus?.(value,error); send({ type:'blok:status', status:value, message:error?.message }); }
@@ -50,7 +51,7 @@ export function connectPreview<T>(options:PreviewOptions<T>): () => void {
         const message = JSON.parse(event.data);
         if (message.type === 'content' && message.story?.id === value.storyId && message.story?.localeId === value.localeId && typeof message.story.revision === 'number' && message.story.revision >= revision) {
           warnMigration(message.story.migrationVersion);
-          revision = message.story.revision; options.onChange(message.story); highlight();
+          revision = message.story.revision; referencesRevision = message.story.referencesRevision; options.onChange(message.story); highlight();
         } else if (message.type === 'error') status('error', new Error(message.message ?? 'Preview is unavailable'));
       } catch { status('error', new Error('Invalid preview response')); }
     };
@@ -94,7 +95,7 @@ export function connectPreview<T>(options:PreviewOptions<T>): () => void {
   observer.observe(document.documentElement, { childList:true, subtree:true });
   window.addEventListener('message',message);
   document.addEventListener('click',click,true); document.addEventListener('keydown',click,true);
-  const heartbeat = setInterval(() => { if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type:'heartbeat', revision })); },15000);
+  const heartbeat = setInterval(() => { if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type:'heartbeat', revision, referencesRevision })); },15000);
   status('waiting'); void authorize();
   return () => {
     stopped = true; if (socket) { socket.onclose = null; socket.close(); }

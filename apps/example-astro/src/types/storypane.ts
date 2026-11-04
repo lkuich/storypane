@@ -2,16 +2,17 @@
 
 // Describes this deployed migration. Outdated clients receive newer content with a warning.
 
-export const storypaneMigrationVersion = 1 as const;
+export const storypaneMigrationVersion = 4 as const;
 
-import type { StorypaneLink } from '@storypane/sdk';
+import type { StorypaneAsset, StorypaneLink, StorypaneRichText } from '@storypane/sdk';
 
 export interface FeatureBlock {
   _uid: string;
   component: "feature";
   "title": string;
-  "text"?: string | null;
+  "text"?: StorypaneRichText | null | "";
   "tag"?: "Discover" | "Create" | "Grow" | null | "";
+  "page"?: StorypaneLink | null | "";
 }
 
 export interface FeatureGridBlock {
@@ -34,13 +35,15 @@ export interface HeroBlock {
   "eyebrow"?: string | null;
   "title": string;
   "description"?: string | null;
+  "hero_image"?: StorypaneAsset | null | "";
 }
 
 export interface PageBlock {
   _uid: string;
   component: "page";
   "title": string;
-  "body": Array<FeatureGridBlock | FooterBlock | HeroBlock>;
+  "body": Array<FeatureBlock | FooterBlock | HeroBlock>;
+  "footer"?: string | null;
 }
 
 export interface StorypaneComponentMap {
@@ -55,5 +58,5 @@ export type StorypaneComponent = FeatureBlock | FeatureGridBlock | FooterBlock |
 
 export type StorypaneNestable = FeatureBlock | FeatureGridBlock | FooterBlock | HeroBlock;
 
-export type StorypaneContentType = PageBlock;
+export type StorypaneContentType = FooterBlock | PageBlock;
 

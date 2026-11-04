@@ -75,6 +75,27 @@ beforeEach(async () => {
 afterAll(async () => { await pool.end(); await admin.query(`DROP SCHEMA ${schemaName} CASCADE`); await admin.end() })
 
 describe('Postgres collaboration and immutable history', () => {
+  it('limits asset delivery to current publications in the token’s space',async()=>{
+    const key=await store.createDeliveryToken(alice,{name:'Website',scope:'published'}),assetId=randomUUID(),draftAssetId=randomUUID();
+    for(const id of [assetId,draftAssetId])await pool.query("INSERT INTO assets(id,space_id,object_key,filename,mime_type,byte_size,title) VALUES($1::uuid,$2,$1::text,'image.png','image/png',10,'Image')",[id,alice.spaceId]);
+    const footer=blockNamed(snapshot,'footer');
+    const saved=await save(alice,snapshot,footer,{...footer.fields,link:{type:'asset',assetId}});
+    await expect(store.authorizePublishedAsset(key.token,alice.spaceId,assetId)).rejects.toMatchObject({code:'not_found'});
+    const published=await run(alice,saved.snapshot,{...commandBase(),type:'publishCheckpoint',payload:{checkpointId:saved.checkpointId}});
+    await expect(store.authorizePublishedAsset(key.token,alice.spaceId,assetId)).resolves.toBeUndefined();
+    const edited=await save(alice,published.snapshot,blockNamed(published.snapshot,'footer'),{...footer.fields,link:{type:'asset',assetId:draftAssetId}});
+    await expect(store.authorizePublishedAsset(key.token,alice.spaceId,draftAssetId)).rejects.toMatchObject({code:'not_found'});
+    const other=await store.createSpace(alice,{name:'Private assets'}),otherKey=await store.createDeliveryToken({...alice,spaceId:other.id},{name:'Other site',scope:'published'});
+    await expect(store.authorizePublishedAsset(otherKey.token,other.id,assetId)).rejects.toMatchObject({code:'not_found'});
+    await expect(store.authorizePublishedAsset(key.token,other.id,assetId)).rejects.toMatchObject({code:'unauthenticated'});
+    await expect(store.authorizePublishedAsset('',alice.spaceId,assetId)).rejects.toMatchObject({code:'unauthenticated'});
+    await expect(store.authorizePublishedAsset(key.token,alice.spaceId,'invalid')).rejects.toMatchObject({code:'invalid'});
+    await run(alice,edited.snapshot,{...commandBase(),type:'publishCheckpoint',payload:{checkpointId:edited.checkpointId}});
+    await expect(store.authorizePublishedAsset(key.token,alice.spaceId,assetId)).rejects.toMatchObject({code:'not_found'});
+    await expect(store.authorizePublishedAsset(key.token,alice.spaceId,draftAssetId)).resolves.toBeUndefined();
+    await store.revokeDeliveryToken(alice,key.id);
+    await expect(store.authorizePublishedAsset(key.token,alice.spaceId,draftAssetId)).rejects.toMatchObject({code:'unauthenticated'});
+  });
   it('creates nested folders, translated paths, type restrictions, and form-only pages',async()=>{
     const type=blockNamed(snapshot,'page').definitionId
     const french=await store.createSpaceLocale(alice,{name:'French',slug:'fr'})
@@ -325,6 +346,58 @@ describe('Postgres collaboration and immutable history', () => {
     const renewedConnection = await store.authenticatePreview(renewed.token,'http://localhost:3131')
     await store.revokeDeliveryToken(alice,key.id)
     await expect(store.previewStory(renewedConnection.id)).rejects.toMatchObject({ code:'unauthenticated' })
+  })
+  it('resolves direct preview story references from current drafts with locale fallback and space isolation',async()=>{
+    const definitions=await store.listDefinitions(alice),page=definitions.find(item=>item.name==='page')!,footer=definitions.find(item=>item.name==='footer')!
+    await store.updateDefinition(alice,footer.id,{...definitionInput(footer),kind:'universal'})
+    await store.updateDefinition(alice,page.id,{...definitionInput(page),fields:[...page.fields,
+      {name:'footer',label:'Footer',type:'option',source:{type:'stories'}},
+      {name:'related',label:'Related',type:'options',source:{type:'stories'}},
+      {name:'link',label:'Link',type:'link'},
+    ]})
+    await deployActive()
+    let shared=await store.createStory(alice,{name:'Shared footer',slug:'shared-footer',definitionId:footer.id})
+    shared=(await save(alice,shared,shared.blocks[0],{text:'Unpublished footer'})).snapshot
+    const other=await store.createStory(alice,{name:'Other page',slug:'other',definitionId:page.id})
+    snapshot=(await save(alice,snapshot,blockNamed(snapshot,'page'),{title:'Home',footer:shared.story.id,related:[shared.story.id],link:{type:'story',storyId:other.story.id}})).snapshot
+    const previewId=randomUUID()
+    await store.updateDeliverySettings(alice,{previewUrls:[{id:previewId,name:'Local',url:'http://localhost:3132/preview?slug={slug}'}],defaultPreviewId:previewId})
+    const session=await store.createEditorPreview(alice,snapshot.story.id,snapshot.locale.id)
+    const connection=await store.authenticatePreview(session.token,'http://localhost:3132')
+    const first=await store.previewStory(connection.id)
+    expect(first.references).toHaveLength(2)
+    expect(first.references?.find(item=>item.id===shared.story.id)).toMatchObject({locale:'',publishedAt:null,content:{text:'Unpublished footer'}})
+    expect(JSON.stringify(first)).not.toContain('leaseTokens')
+    expect(JSON.stringify(first)).not.toContain('schemaVersionId')
+    shared=(await save(alice,shared,shared.blocks[0],{text:'Edited in another tab'})).snapshot
+    const updated=await store.previewStory(connection.id)
+    expect(updated.revision).toBe(first.revision)
+    expect(updated.referencesRevision).not.toBe(first.referencesRevision)
+    expect(updated.references?.find(item=>item.id===shared.story.id)?.content).toMatchObject({text:'Edited in another tab'})
+    const french=await store.createSpaceLocale(alice,{name:'French',slug:'fr'})
+    let translated=await store.createLocale(alice,snapshot.story.id,{spaceLocaleId:french.id})
+    translated=(await save(alice,translated,blockNamed(translated,'page'),{title:'Accueil',footer:shared.story.id})).snapshot
+    const frenchSession=await store.createEditorPreview(alice,translated.story.id,translated.locale.id)
+    const frenchConnection=await store.authenticatePreview(frenchSession.token,'http://localhost:3132')
+    expect((await store.previewStory(frenchConnection.id)).references?.[0]).toMatchObject({id:shared.story.id,locale:''})
+    let frenchFooter=await store.createLocale(alice,shared.story.id,{spaceLocaleId:french.id})
+    frenchFooter=(await save(alice,frenchFooter,frenchFooter.blocks[0],{text:'Pied de page'})).snapshot
+    expect((await store.previewStory(frenchConnection.id)).references?.[0]).toMatchObject({id:shared.story.id,locale:'fr',content:{text:'Pied de page'}})
+    const key=await store.createDeliveryToken(alice,{name:'Public',scope:'published'})
+    await run(alice,snapshot,{...commandBase(),type:'publishCheckpoint',payload:{checkpointId:snapshot.checkpointId!}})
+    const published=await store.publishedStories(key.token,alice.spaceId,{id:snapshot.story.id})
+    expect(published.stories[0].references).toBeUndefined()
+    expect(JSON.stringify(published)).not.toContain('Edited in another tab')
+    // Simulate stale or malformed stored references without weakening normal command validation.
+    const current=await store.getSnapshot(alice,snapshot.story.id,snapshot.locale.id)
+    for(const value of [legacyStoryId,'not-a-uuid']) {
+      const malformed=structuredClone(current),root=blockNamed(malformed,'page')
+      root.fields={title:shared.story.id,footer:value,related:[value],link:{type:'story',storyId:value}}
+      await pool.query('UPDATE checkpoints SET snapshot=$2 WHERE id=$1',[current.checkpointId,JSON.stringify(malformed)])
+      expect((await store.previewStory(connection.id)).references).toEqual([])
+    }
+    await pool.query('DELETE FROM memberships WHERE space_id=$1 AND user_id=$2',[alice.spaceId,alice.userId])
+    await expect(store.previewStory(connection.id)).rejects.toMatchObject({code:'unauthenticated'})
   })
   it('preserves legacy preview URLs and scopes selected preview sessions to configured targets', async () => {
     const legacy = (await pool.query("SELECT preview_urls,default_preview_id FROM spaces WHERE name='Before upgrade'")).rows[0]

@@ -1,9 +1,10 @@
 'use client';
 import { useEffect,useState } from 'react';
-import { AlertTriangle,ArrowRight,CheckCircle2,ChevronRight,ExternalLink,GitCompareArrows,RefreshCw,Trash2 } from 'lucide-react';
+import { AlertTriangle,ArrowRight,CheckCircle2,ChevronRight,ExternalLink,RefreshCw,Trash2 } from 'lucide-react';
 import type { MigrationReview } from '@storypane/core';
 import { Button,ErrorNotice,Modal } from '@storypane/ui';
 import { storyUrl } from '../../lib/space-url';
+import { MigrationDiff } from './migration-diff';
 
 export function MigrationReviewDialog({review,busy,error,canDeploy,onClose,onInspect,onDeploy}:{
   review:MigrationReview|null;busy:boolean;error:string;canDeploy:boolean;onClose:()=>void;
@@ -49,14 +50,7 @@ export function MigrationReviewDialog({review,busy,error,canDeploy,onClose,onIns
           <Trash2 size={20} aria-hidden="true" /><div><h3>{review.destructive?'Destructive preview is active':'Apply with content removal'}</h3><p>Remove blocks that are no longer allowed, trim blocks over the new limit, and reset invalid field values. Missing required content and invalid schema rules still need to be fixed.</p><Button variant={review.destructive?'secondary':'danger'} disabled={busy} onClick={()=>onInspect(!review.destructive)}>{review.destructive?'Back to standard review':'Preview destructive deployment'}</Button></div>
         </section>}
 
-        <section aria-label="Schema changes">
-          <div className="migration-section-heading"><h3><GitCompareArrows size={17} aria-hidden="true" />Schema changes</h3><span>{review.changes.length} changes</span></div>
-          <div className="migration-changes">{review.changes.map((change,index)=><details key={index}>
-            <summary><ChevronRight size={15} aria-hidden="true" /><span><strong>{change.definition}</strong>{change.field && <><span className="muted"> / </span><code>{change.field}</code></>}</span><span className="migration-change-kind" data-kind={change.kind}>{change.kind}</span></summary>
-            <div className="migration-diff"><div><h4>− Before</h4><pre>{change.before===undefined?'Not present':JSON.stringify(change.before,null,2)}</pre></div><div><h4>+ After</h4><pre>{change.after===undefined?'Removed':JSON.stringify(change.after,null,2)}</pre></div></div>
-          </details>)}</div>
-          {!review.changes.length && <p className="field-hint">{review.migration.baseVersion===0?'Existing blocks will move to the current schema definitions.':'No schema differences remain. Deployment records this workspace as the next migration version.'}</p>}
-        </section>
+        <MigrationDiff changes={review.changes} emptyMessage={review.migration.baseVersion===0?'Existing blocks will move to the current schema definitions.':'No schema differences remain. Deployment records this workspace as the next migration version.'} />
 
         <details className="migration-affected"><summary><ChevronRight size={15} aria-hidden="true" />Affected pages and locales<span>{pageCount} pages</span></summary>
           <div className="migration-table-scroll"><table><caption className="sr-only">Content loss in each draft and publication</caption><thead><tr><th>Page / locale</th><th>Version</th><th>Values deleted</th><th>Values reset</th><th>Blocks deleted</th></tr></thead><tbody>{review.impacts.map(item=><tr key={`${item.localeId}:${item.target}`}><td><a href={storyUrl({spaceId:review.migration.spaceId,storyId:item.storyId,localeSlug:item.localeSlug})} target="_blank" rel="noreferrer">{item.name}<ExternalLink size={12} aria-label="Opens in a new tab" /></a><span>{item.locale}</span></td><td>{item.target==='draft'?'Draft':'Published'}</td><td>{item.deletedValues}</td><td>{item.resetValues}</td><td>{item.deletedBlocks}</td></tr>)}</tbody></table></div>

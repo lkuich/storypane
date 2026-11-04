@@ -4,10 +4,13 @@ import type { StorypaneContentType } from '../types/storypane';
 import Story from '../components/Story';
 import Layout from '../layouts/Layout.astro';
 import { publishedPages,cmsUrl,spaceId } from '../lib/cms';
+import type { SiteReferences } from '../lib/content';
 export const getStaticPaths = publishedPages;
-interface Props { story:StorypaneStory<StorypaneContentType> }
-const { story } = Astro.props;
+interface Props { story:StorypaneStory<StorypaneContentType>; references:SiteReferences }
+const { story,references } = Astro.props;
 ---
 <Layout title={story.name} locale={story.locale}>
-  <Story client:load initial={story} cmsUrl={cmsUrl} spaceId={spaceId} />
+  <Story client:load initial={story} references={references} cmsUrl={cmsUrl} spaceId={spaceId}
+    previewParameter={(import.meta.env.PUBLIC_STORYPANE_PREVIEW_PARAMETER ?? import.meta.env.PUBLIC_BLOK_PREVIEW_PARAMETER) || 'blok_preview'}
+    previewEnabled={import.meta.env.PUBLIC_STORYPANE_PREVIEW ?? import.meta.env.PUBLIC_BLOK_PREVIEW} />
 </Layout>

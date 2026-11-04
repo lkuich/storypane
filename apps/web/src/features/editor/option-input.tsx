@@ -1,12 +1,13 @@
 'use client'
 
 import { useEffect, useId, useRef, useState } from 'react'
-import { Check, ChevronDown, Search, X } from 'lucide-react'
+import { Check, ChevronDown, ExternalLink, Search, X } from 'lucide-react'
 import type { Json, OptionItem, OptionPage, OptionSource } from '@storypane/core'
 import { Button, ErrorNotice } from '@storypane/ui'
 import { EditorAvatars } from '../../components/editor-avatars'
 import { usePageEditors } from './use-page-editors'
 import { api, errorMessage, jsonRequest } from './api'
+import { selectedSpaceId,storyUrl } from '../../lib/space-url'
 
 export function OptionInput({ source,value,multiple=false,onChange,disabled,label,id:controlId,placeholder }: { id?:string; source:OptionSource; value:Json|undefined; multiple?:boolean; onChange:(value:Json)=>void; disabled:boolean; label:string; placeholder?:string }) {
   const [open,setOpen]=useState(false),[query,setQuery]=useState(''),[retry,setRetry]=useState(0)
@@ -61,6 +62,7 @@ export function OptionInput({ source,value,multiple=false,onChange,disabled,labe
     finally {if(current===generation.current)setLoading(false)}
   }
   const titleFor=(value:string)=>page.items.find(item=>item.value===value)?.label ?? saved.find(item=>item.value===value)?.label ?? (source.type==='inline' ? source.items.find(item=>item.value===value)?.label : undefined) ?? value
+  const spaceId=selectedSpaceId()
   return <div className="option-picker" ref={root} onBlur={event=>{if(event.relatedTarget && !event.currentTarget.contains(event.relatedTarget as Node))setOpen(false)}} onKeyDown={event=>{
     if(!open)return
     if(event.key==='Escape'){event.preventDefault();event.stopPropagation();close()}
@@ -73,9 +75,12 @@ export function OptionInput({ source,value,multiple=false,onChange,disabled,labe
     }
     if(event.key==='Enter' && event.target===search.current && !loading && page.items[0]) {event.preventDefault();choose(page.items[0])}
   }}>
-    <button ref={trigger} id={controlId} type="button" className="option-trigger" aria-label={label} aria-describedby={`${id}-value`} aria-haspopup="dialog" aria-expanded={open} aria-controls={open?id:undefined} disabled={disabled} onClick={()=>{setQuery('');setOpen(current=>!current)}}>
+    <div className="option-control"><button ref={trigger} id={controlId} type="button" className="option-trigger" aria-label={label} aria-describedby={`${id}-value`} aria-haspopup="dialog" aria-expanded={open} aria-controls={open?id:undefined} disabled={disabled} onClick={()=>{setQuery('');setOpen(current=>!current)}}>
       <span id={`${id}-value`}>{selected.length ? selected.map(titleFor).join(', ') : placeholder ?? (source.type==='stories' ? 'Choose a page…' : 'Choose an option…')}</span><ChevronDown aria-hidden="true" />
     </button>
+    {source.type==='stories' && spaceId && selected.length===1 && <a className="button button--ghost icon-button option-story-link" href={storyUrl({spaceId,storyId:selected[0]})} target="_blank" rel="noopener noreferrer" aria-label={`Open ${titleFor(selected[0])} story (new tab)`} title="Open story in a new tab"><ExternalLink size={16} aria-hidden="true" /></a>}
+    </div>
+    {source.type==='stories' && spaceId && selected.length>1 && <div className="option-story-links">{selected.map(value=><a key={value} href={storyUrl({spaceId,storyId:value})} target="_blank" rel="noopener noreferrer" aria-label={`Open ${titleFor(value)} story (new tab)`}>{titleFor(value)}<ExternalLink size={13} aria-hidden="true" /></a>)}</div>}
     {open && <div id={id} role="dialog" aria-label={`${label} options`} className="option-popover">
       <div className="search-input"><Search aria-hidden="true" /><input ref={search} type="search" maxLength={200} aria-label={`Search ${label} options`} placeholder={source.type==='stories' ? 'Search pages or paste a page ID…' : 'Search options…'} value={query} onChange={event=>setQuery(event.target.value)} /></div>
       {multiple && selected.length>0 && <div className="option-selections">{selected.map(value=><button type="button" key={value} aria-label={`Remove ${titleFor(value)}`} onClick={()=>{search.current?.focus();onChange(selected.filter(item=>item!==value))}}>{titleFor(value)}<X aria-hidden="true" /></button>)}</div>}
