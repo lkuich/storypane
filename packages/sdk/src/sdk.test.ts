@@ -1,12 +1,12 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { createBlokClient, isPreviewMode } from './index.js';
+import { createStorypaneClient, isPreviewMode } from './index.js';
 import { connectPreview } from './preview.js';
 
 afterEach(() => vi.unstubAllGlobals());
 describe('delivery and preview activation', () => {
   it('passes a configured preview target to the server without placing credentials in the URL', async () => {
     const fetch = vi.fn().mockResolvedValue(Response.json({ token:'session' }));
-    const client = createBlokClient({ url:'https://cms.test',spaceId:'space',token:'server-key',fetch });
+    const client = createStorypaneClient({ url:'https://cms.test',spaceId:'space',token:'server-key',fetch });
     await client.createPreviewSession({ slug:'home',locale:'fr',previewId:'22222222-2222-4222-8222-222222222222' });
     const [url,init] = fetch.mock.calls[0];
     expect(url.href).toBe('https://cms.test/api/delivery/preview?space=space');
@@ -34,7 +34,7 @@ describe('delivery and preview activation', () => {
   });
   it('uses bearer authentication and explicit locales for published reads, and throws on unpublished stories', async () => {
     const fetch = vi.fn().mockResolvedValueOnce(Response.json({ stories:[{ id:'story',content:{ title:'Published' } }] })).mockResolvedValueOnce(Response.json({ stories:[] }));
-    const client = createBlokClient({ url:'https://cms.test', spaceId:'space', token:'key', fetch });
+    const client = createStorypaneClient({ url:'https://cms.test', spaceId:'space', token:'key', fetch });
     expect((await client.getStory({ slug:'home',locale:'fr' })).content).toEqual({ title:'Published' });
     const [url, init] = fetch.mock.calls[0];
     expect(url.href).toBe('https://cms.test/api/delivery/stories?space=space&locale=fr&slug=home');

@@ -1,6 +1,6 @@
 import { env } from 'cloudflare:workers'
-import { BlokError } from '@blok/core'
-import { handleAssets } from '@blok/assets'
+import { StorypaneError } from '@storypane/core'
+import { handleAssets } from '@storypane/assets'
 import { authenticate, createServices } from '../../../../lib/context'
 import { assertOrigin, errorResponse, jsonResponse, readJson } from '../../../../lib/http'
 
@@ -45,7 +45,7 @@ async function handle(request: Request, route: { params: Promise<{ path: string[
     }
     if (resource === 'options' && method === 'POST') {
       const input = await readJson(request)
-      if (!input || typeof input !== 'object' || Array.isArray(input)) throw new BlokError('invalid', 'Invalid options request')
+      if (!input || typeof input !== 'object' || Array.isArray(input)) throw new StorypaneError('invalid', 'Invalid options request')
       const { search, ...rest } = input as Record<string, unknown>
       return jsonResponse(await store.resolveOptions(actor, { ...rest, query: search ?? rest.query }))
     }
@@ -76,9 +76,9 @@ async function handle(request: Request, route: { params: Promise<{ path: string[
           }
           if (action === 'leases') {
             const input = await readJson(request)
-            if (!input || typeof input !== 'object' || Array.isArray(input)) throw new BlokError('invalid', 'Invalid lease request')
+            if (!input || typeof input !== 'object' || Array.isArray(input)) throw new StorypaneError('invalid', 'Invalid lease request')
             const { blockId, token } = input as { blockId?: unknown; token?: unknown }
-            if (typeof blockId !== 'string' || (method !== 'POST' && typeof token !== 'string')) throw new BlokError('invalid', 'Missing lease details')
+            if (typeof blockId !== 'string' || (method !== 'POST' && typeof token !== 'string')) throw new StorypaneError('invalid', 'Missing lease details')
             if (method === 'POST') { const lease = await store.acquireLease(actor, id, localeId, blockId); await notify({ type: 'leases' }); return jsonResponse(lease) }
             if (method === 'PATCH') { const lease = await store.renewLease(actor, id, localeId, blockId, token as string); await notify({ type: 'leases' }); return jsonResponse(lease) }
             if (method === 'DELETE') { await store.releaseLease(actor, id, localeId, blockId, token as string); await notify({ type: 'leases' }); return jsonResponse({ ok: true }) }
@@ -86,13 +86,13 @@ async function handle(request: Request, route: { params: Promise<{ path: string[
           if (action === 'checkpoints' && method === 'GET') return jsonResponse(targetId ? await store.getCheckpoint(actor, id, localeId, targetId) : await store.listCheckpoints(actor, id, localeId))
           if (action === 'published' && method === 'GET') {
             const publication = await store.getPublication(actor, id, localeId)
-            if (!publication) throw new BlokError('not_found', 'This locale has not been published.')
+            if (!publication) throw new StorypaneError('not_found', 'This locale has not been published.')
             return jsonResponse(publication)
           }
         }
       }
     }
-    throw new BlokError('not_found', 'Endpoint not found')
+    throw new StorypaneError('not_found', 'Endpoint not found')
   } catch (error) { return errorResponse(error) }
   finally { await services.db.end() }
 }

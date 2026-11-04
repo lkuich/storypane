@@ -1,13 +1,13 @@
 {
-  "name": "@blok/web",
+  "name": "@storypane/web",
   "private": true,
   "type": "module",
   "scripts": { "dev": "vite dev --host 127.0.0.1 --port 3130 --strictPort", "build": "vite build", "preview": "vite preview --host 127.0.0.1 --port 3130" },
   "dependencies": {
-    "@blok/assets": "workspace:*",
-    "@blok/core": "workspace:*",
-    "@blok/db": "workspace:*",
-    "@blok/ui": "workspace:*",
+    "@storypane/assets": "workspace:*",
+    "@storypane/core": "workspace:*",
+    "@storypane/db": "workspace:*",
+    "@storypane/ui": "workspace:*",
     "@tiptap/react": "latest",
     "@tiptap/starter-kit": "latest",
     "@tiptap/pm": "latest",

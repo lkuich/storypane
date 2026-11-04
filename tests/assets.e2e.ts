@@ -2,7 +2,7 @@ import { signInPage, signInApi } from './auth';
 import { expect, test, type APIRequestContext, type APIResponse } from '@playwright/test';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
-import type { BlockDefinition, CommitResult, Lease, LocaleSnapshot, Story, StoryLocale } from '@blok/core';
+import type { BlockDefinition, CommitResult, Lease, LocaleSnapshot, Story, StoryLocale } from '@storypane/core';
 
 const origin = 'http://127.0.0.1:3130';
 const landscape = readFileSync(new URL('./fixtures/landscape.png', import.meta.url));
@@ -25,7 +25,7 @@ test('R2 multipart upload survives resume and archive, with authenticated range 
     await signInApi(otherEditor, 'editor');
     await expectStatus(await anonymous.get(apiPath), 401);
     const bytes = Buffer.alloc(partBytes + 4096, 'a');
-    bytes.write('Blok local R2 multipart regression fixture\n');
+    bytes.write('Storypane local R2 multipart regression fixture\n');
     bytes.write('last part: resume must preserve these bytes', partBytes);
     const title = `R2 roundtrip ${crypto.randomUUID()}`;
     const unauthorized = await client.post(`${apiPath}/uploads`, { headers: { Origin: 'https://untrusted.example' }, data: { filename: 'fixture.txt', mimeType: 'text/plain', byteSize: bytes.length, title } });
@@ -247,7 +247,7 @@ test('dropping multiple files starts the mini uploader and survives navigation, 
     await expect(manager.locator('.upload-mini-item--done')).toHaveCount(2, { timeout:20_000 });
     await expect(manager.locator('.upload-mini-item').filter({ hasText:invalidName })).toContainText('Unsupported file type');
     await expect(manager).toHaveCSS('background-color','rgb(25, 31, 41)');
-    await manager.screenshot({ path:'/tmp/blok-theme-uploader-dark.png' });
+    await manager.screenshot({ path:'/tmp/storypane-theme-uploader-dark.png' });
     await manager.getByRole('button', { name:'Minimize uploads' }).click();
     await expect(manager.locator('.upload-mini-items')).not.toBeVisible();
     await manager.getByRole('button', { name:'Expand uploads' }).click();

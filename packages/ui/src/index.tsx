@@ -59,6 +59,7 @@ export function Modal({
   children,
   wide = false,
   className = "",
+  closeOnBackdrop = false,
 }: {
   open: boolean;
   onClose: () => void;
@@ -67,8 +68,10 @@ export function Modal({
   children: ReactNode;
   wide?: boolean;
   className?: string;
+  closeOnBackdrop?: boolean;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
+  const backdropPress = useRef(false);
   const titleId = useId();
   const descriptionId = useId();
   useLayoutEffect(() => {
@@ -83,6 +86,18 @@ export function Modal({
       className={`dialog ${wide ? "dialog--wide" : ""} ${className}`}
       aria-labelledby={titleId}
       aria-describedby={description ? descriptionId : undefined}
+      onPointerDown={event => {
+        const bounds = event.currentTarget.getBoundingClientRect();
+        backdropPress.current = event.target === event.currentTarget &&
+          (event.clientX < bounds.left || event.clientX > bounds.right || event.clientY < bounds.top || event.clientY > bounds.bottom);
+      }}
+      onClick={event => {
+        const startedOutside = backdropPress.current;
+        backdropPress.current = false;
+        if (!closeOnBackdrop || !startedOutside || event.target !== event.currentTarget) return;
+        const bounds = event.currentTarget.getBoundingClientRect();
+        if (event.clientX < bounds.left || event.clientX > bounds.right || event.clientY < bounds.top || event.clientY > bounds.bottom) onClose();
+      }}
       onCancel={(event) => {
         event.preventDefault();
         onClose();

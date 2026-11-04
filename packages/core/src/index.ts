@@ -25,8 +25,8 @@ export const deliverySettingsSchema = z.object({
 export type DeliverySettings = z.infer<typeof deliverySettingsSchema>
 export type ErrorCode = 'unauthenticated' | 'forbidden' | 'not_found' | 'locked' | 'stale_revision' | 'invalid' | 'unavailable'
 export type FieldIssue = { path: string; message: string }
-export class BlokError extends Error {
-  constructor(public code: ErrorCode, message: string, public details?: FieldIssue[]) { super(message); this.name = 'BlokError' }
+export class StorypaneError extends Error {
+  constructor(public code: ErrorCode, message: string, public details?: FieldIssue[]) { super(message); this.name = 'StorypaneError' }
 }
 export const jsonSchema = z.custom<Json>((value) => {
   const pending: { value: unknown; depth: number }[] = [{ value, depth: 0 }]
@@ -126,7 +126,7 @@ export const LEASE_RENEW_MS = 15_000
 
 export function parseInput<T>(schema: z.ZodType<T>, value: unknown): T {
   const parsed = schema.safeParse(value)
-  if (!parsed.success) throw new BlokError('invalid', 'Invalid request', parsed.error.issues.map(i => ({ path: i.path.join('.'), message: i.message })))
+  if (!parsed.success) throw new StorypaneError('invalid', 'Invalid request', parsed.error.issues.map(i => ({ path: i.path.join('.'), message: i.message })))
   return parsed.data
 }
 export function defaultFields(schema: DefinitionInput): Record<string, Json> {

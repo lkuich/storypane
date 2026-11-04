@@ -1,4 +1,4 @@
-import type { ErrorCode, FieldIssue } from "@blok/core";
+import type { ErrorCode, FieldIssue } from "@storypane/core";
 import { spaceHeaders } from "../../lib/space-url";
 
 export class ApiError extends Error {

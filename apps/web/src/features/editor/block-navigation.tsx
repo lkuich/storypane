@@ -2,8 +2,8 @@
 
 import { Fragment, useEffect, useRef, useState } from "react";
 import { ChevronDown, ChevronRight, Layers, ListTree } from "lucide-react";
-import { Button } from "@blok/ui";
-import type { BlockDraft, LocaleSnapshot } from "@blok/core";
+import { Button } from "@storypane/ui";
+import type { BlockDraft, LocaleSnapshot } from "@storypane/core";
 
 export function definitionFor(snapshot: LocaleSnapshot, block: BlockDraft) {
   return snapshot.definitions.find(definition => definition.versionId === block.schemaVersionId);

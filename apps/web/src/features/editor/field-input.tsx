@@ -10,8 +10,8 @@ import type {
   LinkValue,
   OptionPage,
   OptionSource,
-} from "@blok/core";
-import { Button, ErrorNotice } from "@blok/ui";
+} from "@storypane/core";
+import { Button, ErrorNotice } from "@storypane/ui";
 import { AssetPicker } from "../assets/asset-picker";
 import { api, errorMessage, jsonRequest } from "./api";
 import { localDatetime, utcDatetime } from "./draft-buffer";

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { ArrowUpRight, ChevronRight, FileText, Folder, FolderPlus, Grid2X2, ImageIcon, List, MoreHorizontal, Play, Search, Upload, UploadCloud } from 'lucide-react';
-import type { AssetFolder, AssetRecord } from '@blok/assets';
+import type { AssetFolder, AssetRecord } from '@storypane/assets';
 import { assetApi, assetContentUrl, assetThumbnailUrl, formatBytes } from './api';
 import { useAssetUploads } from './upload';
 import './assets.css';

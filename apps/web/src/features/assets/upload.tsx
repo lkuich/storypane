@@ -3,7 +3,7 @@
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { AlertCircle, Check, ChevronDown, ChevronUp, FileText, Pause, RotateCcw, UploadCloud, X } from 'lucide-react';
-import type { AssetPart, AssetRecord } from '@blok/assets';
+import type { AssetPart, AssetRecord } from '@storypane/assets';
 import { assetApi, assetErrorMessage, formatBytes } from './api';
 import { spaceHeaders } from '../../lib/space-url';
 import './assets.css';

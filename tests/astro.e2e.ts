@@ -1,16 +1,17 @@
 import { expect,test } from '@playwright/test';
 import { existsSync,readFileSync,readdirSync } from 'node:fs';
 import { parseEnv } from 'node:util';
-import type { DeliverySettings,Lease,LocaleSnapshot,Story,StoryLocale } from '@blok/core';
+import type { DeliverySettings,Lease,LocaleSnapshot,Story,StoryLocale } from '@storypane/core';
 import { signInPage } from './auth';
 
 const env = existsSync('apps/example-astro/.env') ? parseEnv(readFileSync('apps/example-astro/.env','utf8')) : undefined;
+if (env) for (const name of ['URL','SPACE_ID','PREVIEW_TOKEN','DELIVERY_TOKEN']) env[`STORYPANE_${name}`] ??= env[`BLOK_${name}`]!;
 test('Astro serves built publications and locales, hydrates drafts, selects nested blocks, and previews unpublished stories',async ({ page,context }) => {
   test.skip(!env,'Run pnpm example:setup and pnpm build:example to enable the Astro integration test.');
   test.setTimeout(90000);
   const site = 'http://127.0.0.1:3132', cms = 'http://127.0.0.1:3130';
-  expect(env!.BLOK_URL).toBe(cms);
-  const headers = { Origin:cms,'x-blok-space-id':env!.BLOK_SPACE_ID! };
+  expect(env!.STORYPANE_URL).toBe(cms);
+  const headers = { Origin:cms,'x-blok-space-id':env!.STORYPANE_SPACE_ID! };
   const errors:string[] = [];
   const visitor = await context.newPage();
   visitor.on('pageerror',error => errors.push(error.message));
@@ -20,17 +21,17 @@ test('Astro serves built publications and locales, hydrates drafts, selects nest
   const files = readdirSync('apps/example-astro/dist',{ recursive:true }).filter((path):path is string => typeof path === 'string' && /\.(html|js)$/.test(path));
   for (const file of files) {
     const text = readFileSync(`apps/example-astro/dist/${file}`,'utf8');
-    expect(text).not.toContain(env!.BLOK_PREVIEW_TOKEN);
-    expect(text).not.toContain(env!.BLOK_DELIVERY_TOKEN);
+    expect(text).not.toContain(env!.STORYPANE_PREVIEW_TOKEN);
+    expect(text).not.toContain(env!.STORYPANE_DELIVERY_TOKEN);
   }
   await visitor.goto(`${site}/home`);
   const publishedTitle = await visitor.getByRole('heading',{ level:1 }).innerText();
   expect(built).toContain(publishedTitle);
   await expect(visitor.getByRole('status')).toHaveCount(0);
-  await visitor.screenshot({ path:'/tmp/blok-astro-desktop.png',fullPage:true });
+  await visitor.screenshot({ path:'/tmp/storypane-astro-desktop.png',fullPage:true });
   await visitor.setViewportSize({ width:390,height:844 });
   await expect.poll(() => visitor.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
-  await visitor.screenshot({ path:'/tmp/blok-astro-mobile.png',fullPage:true });
+  await visitor.screenshot({ path:'/tmp/storypane-astro-mobile.png',fullPage:true });
   await visitor.setViewportSize({ width:1440,height:1000 });
   await page.setViewportSize({ width:1600,height:1100 });
   await signInPage(page);
@@ -50,12 +51,12 @@ test('Astro serves built publications and locales, hydrates drafts, selects nest
     // Exercise the actual statically built page inside the editor, not just the shell.
     const saved = await page.request.put('/api/cms/delivery-settings',{ headers,data:previewSettings(`${site}/{locale}/{slug}`) });
     expect(saved.ok()).toBe(true);
-    await page.goto(`/?space=${env!.BLOK_SPACE_ID}`);
+    await page.goto(`/?space=${env!.STORYPANE_SPACE_ID}`);
     await page.getByRole('button',{ name:'Home',exact:true }).click();
     await expect(page.getByRole('button',{ name:'Hide preview',exact:true })).toBeVisible();
     const frame = page.frameLocator('iframe[title="Live application preview"]');
     await expect(frame.getByRole('status')).toHaveText('Live preview');
-    await page.screenshot({ path:'/tmp/blok-editor-desktop.png',fullPage:true });
+    await page.screenshot({ path:'/tmp/storypane-editor-desktop.png',fullPage:true });
     await page.getByRole('region',{ name:'Block editor' }).getByRole('button',{ name:'Hero',exact:true }).click();
     const title = `Live Astro draft ${Date.now()}`;
     await page.getByRole('textbox',{ name:/^Title/ }).fill(title);
@@ -72,12 +73,12 @@ test('Astro serves built publications and locales, hydrates drafts, selects nest
     await expect(siblings.getByRole('button')).toHaveCount(3);
     const featureTitles = original.blocks.filter(block => original.definitions.find(definition => definition.versionId === block.schemaVersionId)?.name === 'feature').sort((a,b) => a.position-b.position).map(block => String(block.fields.title));
     await expect(siblings.locator('small')).toHaveText(featureTitles);
-    await page.screenshot({ path:'/tmp/blok-editor-breadcrumbs.png',fullPage:true });
+    await page.screenshot({ path:'/tmp/storypane-editor-breadcrumbs.png',fullPage:true });
     await siblings.getByRole('button').nth(1).click();
     await expect(page.getByRole('textbox',{ name:'Title',exact:true })).toHaveValue(featureTitles[1]!);
     await page.setViewportSize({ width:390,height:844 });
     await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-    await page.screenshot({ path:'/tmp/blok-editor-nested-mobile.png',fullPage:true });
+    await page.screenshot({ path:'/tmp/storypane-editor-nested-mobile.png',fullPage:true });
     await page.setViewportSize({ width:1600,height:1100 });
     await path.getByRole('button',{ name:'Feature grid',exact:true }).click();
     await expect(page.getByRole('region',{ name:'Block editor' }).locator('.block-list-item')).toHaveCount(3);
@@ -100,7 +101,7 @@ test('Astro serves built publications and locales, hydrates drafts, selects nest
     await expect(visitor.getByRole('heading',{ level:1 })).toHaveText('Faites place à la suite.');
     // The shell can preview a story that has never been published or built.
     await page.request.put('/api/cms/delivery-settings',{ headers,data:previewSettings(`${site}/preview?slug={slug}&locale={locale}`) });
-    await page.goto(`/?space=${env!.BLOK_SPACE_ID}`);
+    await page.goto(`/?space=${env!.STORYPANE_SPACE_ID}`);
     await page.getByRole('button',{ name:'Work in progress',exact:true }).click();
     await expect(page.getByRole('button',{ name:'Hide preview',exact:true })).toBeVisible();
     await expect(frame.getByRole('status')).toHaveText('Live preview');
@@ -109,7 +110,7 @@ test('Astro serves built publications and locales, hydrates drafts, selects nest
     expect(errors).toEqual([]);
   } finally {
     // Restore the example's original draft and preview settings; never publish test edits.
-    await page.goto(`/?space=${env!.BLOK_SPACE_ID}`);
+    await page.goto(`/?space=${env!.STORYPANE_SPACE_ID}`);
     if (changed) {
       const current = await (await page.request.get(base,{ headers })).json() as LocaleSnapshot;
       const block = current.blocks.find(block => block.id === hero.id)!;

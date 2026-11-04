@@ -2,9 +2,9 @@ import { randomUUID } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import { Pool } from 'pg'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
-import { BlokStore } from './store.js'
+import { StorypaneStore } from './store.js'
 import { migrate } from './migrate.js'
-import type { Actor, BlockDraft, Command, Lease, LocaleSnapshot } from '@blok/core'
+import type { Actor, BlockDraft, Command, Lease, LocaleSnapshot } from '@storypane/core'
 
 const databaseUrl = process.env.TEST_DATABASE_URL ?? 'postgresql://blok:blok@127.0.0.1:55432/blok_test'
 const target = new URL(databaseUrl)
@@ -12,7 +12,7 @@ if (!['localhost', '127.0.0.1'].includes(target.hostname) || target.pathname !==
 const schemaName = `data_test_${randomUUID().replaceAll('-', '')}`
 const admin = new Pool({ connectionString: databaseUrl })
 const pool = new Pool({ connectionString: databaseUrl, options: `-c search_path=${schemaName},public`, max: 8 })
-const store = new BlokStore(pool)
+const store = new StorypaneStore(pool)
 let alice: Actor
 let bob: Actor
 let snapshot: LocaleSnapshot
@@ -206,7 +206,7 @@ describe('Postgres collaboration and immutable history', () => {
     expect((await store.getSpace(bob)).name).toBe('Updated')
     await expect(store.getSpace({ ...alice, spaceId:randomUUID() })).rejects.toMatchObject({ code:'forbidden' })
   })
-  it('allows simultaneous edits on different bloks without page-level revision conflicts', async () => {
+  it('allows simultaneous edits on different blocks without page-level revision conflicts', async () => {
     const hero = blockNamed(snapshot, 'hero'); const footer = blockNamed(snapshot, 'footer')
     const heroLease = await lease(alice, snapshot, hero); const footerLease = await lease(bob, snapshot, footer)
     await expect(lease(bob, snapshot, hero)).rejects.toMatchObject({ code: 'locked' })
@@ -233,7 +233,7 @@ describe('Postgres collaboration and immutable history', () => {
     const hero = blockNamed(snapshot, 'hero'); const own = await lease(alice, snapshot, hero)
     const command: Command = { ...commandBase({ block: hero, lease: own }), type: 'saveBlock', payload: { blockId: hero.id, fields: { title: 'Committed' } } }
     const first = await run(alice, snapshot, command)
-    const restarted = new BlokStore(pool)
+    const restarted = new StorypaneStore(pool)
     const retry = await restarted.command(alice, snapshot.story.id, snapshot.locale.id, command)
     expect(retry.checkpointId).toBe(first.checkpointId)
     expect((await store.listCheckpoints(alice, snapshot.story.id, snapshot.locale.id))).toHaveLength(2)

@@ -1,4 +1,4 @@
-import { BlokError } from '@blok/core'
+import { StorypaneError } from '@storypane/core'
 import { createServices } from '../../../../lib/context'
 import { errorResponse, jsonResponse, readJson } from '../../../../lib/http'
 
@@ -26,7 +26,7 @@ async function handle(request: Request, route: { params:Promise<{ resource:strin
       return cors(jsonResponse(result))
     }
     if (resource === 'preview' && request.method === 'POST') return cors(jsonResponse(await services.store.createTokenPreview(token, spaceId, await readJson(request)), 201))
-    throw new BlokError('not_found', 'Delivery endpoint not found')
+    throw new StorypaneError('not_found', 'Delivery endpoint not found')
   } catch (error) { return cors(errorResponse(error)) }
   finally { await services.db.end() }
 }

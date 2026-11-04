@@ -6,7 +6,7 @@ import {
   datasourceInputSchema,
   type Datasource,
   type OptionItem,
-} from "@blok/core";
+} from "@storypane/core";
 import {
   Button,
   EmptyState,
@@ -14,7 +14,7 @@ import {
   Field,
   Loading,
   Modal,
-} from "@blok/ui";
+} from "@storypane/ui";
 import { api, errorMessage, jsonRequest, slugify } from "../editor/api";
 
 export function DatasourceList({ canManage }: { canManage: boolean }) {

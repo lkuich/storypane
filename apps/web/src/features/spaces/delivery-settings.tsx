@@ -1,8 +1,8 @@
 'use client'
 import { useEffect, useState } from 'react'
 import { Code2, KeyRound, Plus, Trash2 } from 'lucide-react'
-import type { DeliverySettings as Settings, DeliveryToken } from '@blok/core'
-import { Button, ErrorNotice, Loading } from '@blok/ui'
+import type { DeliverySettings as Settings, DeliveryToken } from '@storypane/core'
+import { Button, ErrorNotice, Loading } from '@storypane/ui'
 import { api, errorMessage, jsonRequest } from '../editor/api'
 
 export function DeliverySettings({ canManage, onDirty, onBusy }: { canManage:boolean; onDirty:(value:boolean) => void; onBusy:(value:boolean) => void }) {

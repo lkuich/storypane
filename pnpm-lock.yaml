@@ -166,10 +166,10 @@ importers:
 
   .:
     dependencies:
-      '@blok/core':
+      '@storypane/core':
         specifier: workspace:*
         version: link:packages/core
-      '@blok/db':
+      '@storypane/db':
         specifier: workspace:*
         version: link:packages/db
       better-auth:
@@ -212,7 +212,7 @@ importers:
       '@astrojs/react':
         specifier: ^6.0.0
         version: 6.0.6(@types/node@24.19.2)(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(esbuild@0.28.2)(jiti@2.7.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)(supports-color@10.2.2)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1)
-      '@blok/sdk':
+      '@storypane/sdk':
         specifier: workspace:*
         version: link:../../packages/sdk
       astro:
@@ -240,10 +240,10 @@ importers:
 
   apps/realtime:
     dependencies:
-      '@blok/core':
+      '@storypane/core':
         specifier: workspace:*
         version: link:../../packages/core
-      '@blok/db':
+      '@storypane/db':
         specifier: workspace:*
         version: link:../../packages/db
       pg:
@@ -259,16 +259,16 @@ importers:
 
   apps/web:
     dependencies:
-      '@blok/assets':
+      '@storypane/assets':
         specifier: workspace:*
         version: link:../../packages/assets
-      '@blok/core':
+      '@storypane/core':
         specifier: workspace:*
         version: link:../../packages/core
-      '@blok/db':
+      '@storypane/db':
         specifier: workspace:*
         version: link:../../packages/db
-      '@blok/ui':
+      '@storypane/ui':
         specifier: workspace:*
         version: link:../../packages/ui
       '@tiptap/pm':
@@ -335,7 +335,7 @@ importers:
 
   packages/assets:
     dependencies:
-      '@blok/core':
+      '@storypane/core':
         specifier: workspace:*
         version: link:../core
       pg:
@@ -357,7 +357,7 @@ importers:
 
   packages/db:
     dependencies:
-      '@blok/core':
+      '@storypane/core':
         specifier: workspace:*
         version: link:../core
       pg:

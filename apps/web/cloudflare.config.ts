@@ -20,7 +20,7 @@ export default defineConfig({
       }),
       ROOMS: bindings.durableObject({ worker: realtimeWorker, exportName: 'StoryRoom' }),
       AUTH_SECRET: bindings.secret(),
-      APP_URL: bindings.text(process.env.BLOK_APP_URL ?? 'http://127.0.0.1:3130'),
+      APP_URL: bindings.text((process.env.STORYPANE_APP_URL ?? process.env.BLOK_APP_URL) ?? 'http://127.0.0.1:3130'),
       EXTERNAL_OPTION_HOSTS: bindings.text(process.env.EXTERNAL_OPTION_HOSTS ?? ''),
     },
   }),

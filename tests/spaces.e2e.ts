@@ -1,8 +1,8 @@
 import { expect, test } from '@playwright/test'
 import { Pool } from 'pg'
-import { BlokStore } from '@blok/db'
+import { StorypaneStore } from '@storypane/db'
 import { signInApi, signInPage } from './auth'
-import type { Actor, LocaleSnapshot, Space, SpaceLocale, Story, StoryLocale } from '@blok/core'
+import type { Actor, LocaleSnapshot, Space, SpaceLocale, Story, StoryLocale } from '@storypane/core'
 
 const origin = 'http://127.0.0.1:3130'
 const defaultSpace = '11111111-1111-4111-8111-111111111111'
@@ -96,7 +96,7 @@ test('space locales appear on stories and rename without replacing their content
     const created = await page.request.post('/api/spaces',{ headers:{ Origin:origin },data:{ name:`Locale check ${crypto.randomUUID()}` } })
     expect(created.status()).toBe(201); spaceId = (await created.json()).id
     const session = await (await page.request.get(`/api/session?space=${spaceId}`)).json()
-    await new BlokStore(db).seed({ spaceId:spaceId!,userId:session.user.id,sessionId:session.sessionId,role:'admin' } satisfies Actor)
+    await new StorypaneStore(db).seed({ spaceId:spaceId!,userId:session.user.id,sessionId:session.sessionId,role:'admin' } satisfies Actor)
     const headers = { Origin:origin,'x-blok-space-id':spaceId! }
     await page.goto(`/?space=${spaceId}&view=settings`)
     const section = page.getByRole('region',{ name:'Space locales' })
@@ -138,7 +138,7 @@ test('space locales appear on stories and rename without replacing their content
     const after = await (await page.request.get(base,{ headers })).json() as LocaleSnapshot
     expect(after.blocks).toEqual(before.blocks)
     expect(after.locale).toEqual({ ...before.locale,name:'Français',slug:'fr-CA' })
-    await page.screenshot({ path:'/tmp/blok-space-locales.png',fullPage:true })
+    await page.screenshot({ path:'/tmp/storypane-space-locales.png',fullPage:true })
     await page.getByRole('navigation',{ name:'Main navigation' }).getByRole('button',{ name:'Content',exact:true }).click()
     await page.getByRole('button',{ name:'Home',exact:true }).click()
     await page.getByRole('tab',{ name:'Français fr-CA',exact:true }).click()

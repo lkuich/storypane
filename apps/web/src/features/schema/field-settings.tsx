@@ -7,8 +7,8 @@ import type {
   FieldDefinition,
   Json,
   OptionSource,
-} from "@blok/core";
-import { Button, Field } from "@blok/ui";
+} from "@storypane/core";
+import { Button, Field } from "@storypane/ui";
 import { FieldTypePicker, choiceForField } from "./field-type-picker";
 import { BlockRestrictions } from "./block-restrictions";
 

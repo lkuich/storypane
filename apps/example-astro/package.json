@@ -1,5 +1,5 @@
 {
-  "name": "@blok/example-astro",
+  "name": "@storypane/example-astro",
   "private": true,
   "type": "module",
   "scripts": {
@@ -7,13 +7,13 @@
     "build": "astro check && astro build",
     "preview": "astro preview --host 127.0.0.1 --port 3132",
     "typecheck": "astro check",
-    "blok:pull": "node --env-file-if-exists=.env ../../packages/sdk/bin/blok.mjs pull-components --out blok/components.json",
-    "blok:types": "blok generate-types --input blok/components.json --out src/types/blok.ts",
-    "blok:generate": "pnpm blok:pull && pnpm blok:types"
+    "storypane:pull": "node --env-file-if-exists=.env ../../packages/sdk/bin/storypane.mjs pull-components --out storypane/components.json",
+    "storypane:types": "storypane generate-types --input storypane/components.json --out src/types/storypane.ts",
+    "storypane:generate": "pnpm storypane:pull && pnpm storypane:types"
   },
   "dependencies": {
     "@astrojs/react": "^6.0.0",
-    "@blok/sdk": "workspace:*",
+    "@storypane/sdk": "workspace:*",
     "astro": "^7.4.5",
     "react": "19.3.1",
     "react-dom": "19.3.1"

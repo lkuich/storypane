@@ -1,7 +1,7 @@
 import { resolve4, resolve6 } from 'node:dns/promises'
 import { isIP } from 'node:net'
 import { z } from 'zod'
-import { BlokError, optionItemSchema, type OptionItem } from '@blok/core'
+import { StorypaneError, optionItemSchema, type OptionItem } from '@storypane/core'
 
 export function isPublicAddress(address: string): boolean {
   if (isIP(address) === 6) return /^[23][0-9a-f]{3}:/i.test(address) && !/^2001:(?:db8|0|10|20):/i.test(address)
@@ -14,7 +14,7 @@ export async function fetchExternalOptions(urlString: string, allowedHosts: stri
   const url = new URL(urlString)
   const host = url.hostname.toLowerCase()
   // Only operator-approved domains can control DNS for an outbound source.
-  if (url.protocol !== 'https:' || url.username || url.password || (url.port && url.port !== '443') || !allowedHosts.map(v => v.toLowerCase()).includes(host) || isIP(host.replace(/^\[|\]$/g, '')) || !host.includes('.') || /(?:\.local|\.localhost|\.internal|\.test|\.invalid|\.home\.arpa)$/.test(host)) throw new BlokError('invalid', 'External sources require an approved public HTTPS hostname')
+  if (url.protocol !== 'https:' || url.username || url.password || (url.port && url.port !== '443') || !allowedHosts.map(v => v.toLowerCase()).includes(host) || isIP(host.replace(/^\[|\]$/g, '')) || !host.includes('.') || /(?:\.local|\.localhost|\.internal|\.test|\.invalid|\.home\.arpa)$/.test(host)) throw new StorypaneError('invalid', 'External sources require an approved public HTTPS hostname')
   let addresses: string[]
   let timer: ReturnType<typeof setTimeout> | undefined
   try {
@@ -23,17 +23,17 @@ export async function fetchExternalOptions(urlString: string, allowedHosts: stri
       new Promise<never>((_resolve, reject) => { timer = setTimeout(() => reject(new Error('DNS timeout')), 5000) }),
     ])
     addresses = results.flatMap(result => result.status === 'fulfilled' ? result.value : [])
-  } catch { throw new BlokError('unavailable', 'Could not resolve the external source') }
+  } catch { throw new StorypaneError('unavailable', 'Could not resolve the external source') }
   finally { clearTimeout(timer) }
-  if (!addresses.length || addresses.some(address => !isPublicAddress(address))) throw new BlokError('invalid', 'External sources cannot resolve to private or reserved networks')
+  if (!addresses.length || addresses.some(address => !isPublicAddress(address))) throw new StorypaneError('invalid', 'External sources cannot resolve to private or reserved networks')
   try {
     const response = await fetch(url, { redirect: 'manual', signal: AbortSignal.timeout(5000), headers: { Accept: 'application/json' } })
-    if (response.status >= 300 && response.status < 400) throw new BlokError('invalid', 'External source redirects are not allowed')
-    if (!response.ok) throw new BlokError('unavailable', 'The external source returned an error')
-    if (!response.headers.get('content-type')?.includes('json')) throw new BlokError('invalid', 'External source must return JSON')
-    if (Number(response.headers.get('content-length') ?? 0) > 512_000) throw new BlokError('invalid', 'External source is too large')
+    if (response.status >= 300 && response.status < 400) throw new StorypaneError('invalid', 'External source redirects are not allowed')
+    if (!response.ok) throw new StorypaneError('unavailable', 'The external source returned an error')
+    if (!response.headers.get('content-type')?.includes('json')) throw new StorypaneError('invalid', 'External source must return JSON')
+    if (Number(response.headers.get('content-length') ?? 0) > 512_000) throw new StorypaneError('invalid', 'External source is too large')
     const reader = response.body?.getReader()
-    if (!reader) throw new BlokError('invalid', 'External source returned an empty response')
+    if (!reader) throw new StorypaneError('invalid', 'External source returned an empty response')
     const chunks: Uint8Array[] = []
     let bytes = 0
     try {
@@ -41,7 +41,7 @@ export async function fetchExternalOptions(urlString: string, allowedHosts: stri
         const { done, value } = await reader.read()
         if (done) break
         bytes += value.length
-        if (bytes > 512_000) throw new BlokError('invalid', 'External source is too large')
+        if (bytes > 512_000) throw new StorypaneError('invalid', 'External source is too large')
         chunks.push(value)
       }
     } finally { await reader.cancel() }
@@ -49,10 +49,10 @@ export async function fetchExternalOptions(urlString: string, allowedHosts: stri
     let offset = 0
     for (const chunk of chunks) { data.set(chunk, offset); offset += chunk.length }
     const parsed = z.object({ items: z.array(optionItemSchema).max(1000) }).strict().safeParse(JSON.parse(new TextDecoder().decode(data)))
-    if (!parsed.success || new Set(parsed.data.items.map(i => i.value)).size !== parsed.data.items.length) throw new BlokError('invalid', 'Expected {items: [{value, label}]} with unique values')
+    if (!parsed.success || new Set(parsed.data.items.map(i => i.value)).size !== parsed.data.items.length) throw new StorypaneError('invalid', 'Expected {items: [{value, label}]} with unique values')
     return parsed.data.items
   } catch (error) {
-    if (error instanceof BlokError) throw error
-    throw new BlokError('unavailable', 'External source is unavailable or returned invalid JSON')
+    if (error instanceof StorypaneError) throw error
+    throw new StorypaneError('unavailable', 'External source is unavailable or returned invalid JSON')
   }
 }

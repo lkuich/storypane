@@ -1,5 +1,5 @@
 "use client";
-import { isBlockAllowed } from "@blok/core";
+import { isBlockAllowed } from "@storypane/core";
 import { setStoryLocation, spaceUrl } from "../../lib/space-url";
 
 import {
@@ -42,7 +42,7 @@ import type {
   Story,
   StoryLocale,
   SpaceLocale,
-} from "@blok/core";
+} from "@storypane/core";
 import {
   Button,
   EmptyState,
@@ -50,7 +50,7 @@ import {
   Field,
   Loading,
   Modal,
-} from "@blok/ui";
+} from "@storypane/ui";
 import type { CMSSession } from "../../components/cms-app";
 import { api, ApiError, dateLabel, errorMessage, jsonRequest } from "./api";
 import { FieldInput } from "./field-input";

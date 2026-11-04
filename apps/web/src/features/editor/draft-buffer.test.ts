@@ -7,7 +7,7 @@ import {
   readPendingCommand,
   utcDatetime,
 } from "./draft-buffer";
-import type { BlockDraft } from "@blok/core";
+import type { BlockDraft } from "@storypane/core";
 
 const block: BlockDraft = {
   id: "hero",

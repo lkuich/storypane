@@ -2,7 +2,7 @@
 
 import { useEffect, useId, useRef, useState } from "react";
 import { AlignLeft, Boxes, Braces, CalendarDays, ChevronDown, Code, Hash, ImageIcon, Link, ListChecks, ListFilter, Search, ToggleLeft, Type, type LucideIcon } from "lucide-react";
-import type { FieldDefinition } from "@blok/core";
+import type { FieldDefinition } from "@storypane/core";
 
 type FieldChoice = {
   id: string;

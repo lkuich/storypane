@@ -1,4 +1,11 @@
-# Blok SDK
+# Storypane SDK
+
+Use `@storypane/sdk`, `createStorypaneClient`, and `useStorypaneStory` in new apps.
+The previous `createBlokClient`, `useBlokStory`, and `Blok*` type exports remain
+aliases within this package. The `blok` CLI alias and legacy `BLOK_*` environment
+variables also continue to work; `STORYPANE_*` settings take precedence.
+Preview messages, editable attributes, and the default `blok_preview` parameter
+retain their existing identifiers so previously built preview apps still connect.
 
 TypeScript SDK for published content and live, read-only draft preview. Works with
 Node, Workers, browsers, Next.js client components, and Astro islands/scripts.
@@ -7,12 +14,12 @@ The package has no runtime dependencies; React is an optional peer dependency.
 See the [working Astro example](../../apps/example-astro/README.md) in this monorepo
 for a built site, typed block registry, locale pages, and unpublished-story preview.
 
-Build from this monorepo with `pnpm --filter @blok/sdk build`. Until an npm release,
+Build from this monorepo with `pnpm --filter @storypane/sdk build`. Until an npm release,
 install a packed archive or link `packages/sdk` into your app. Three entrypoints:
 
-- `@blok/sdk`: delivery client, types, preview detection, editable attributes.
-- `@blok/sdk/preview`: framework-independent browser subscription and editor bridge.
-- `@blok/sdk/react`: `useBlokStory` and `editable` for a client component/island.
+- `@storypane/sdk`: delivery client, types, preview detection, editable attributes.
+- `@storypane/sdk/preview`: framework-independent browser subscription and editor bridge.
+- `@storypane/sdk/react`: `useStorypaneStory` and `editable` for a client component/island.
 
 ## Configure the CMS
 
@@ -31,25 +38,25 @@ supported for development.
 ## Published content
 
 ```ts
-import { createBlokClient, type BlokBlock } from '@blok/sdk'
+import { createStorypaneClient, type StorypaneBlock } from '@storypane/sdk'
 
-const blok = createBlokClient({
-  url: process.env.BLOK_URL!,
-  spaceId: process.env.BLOK_SPACE_ID!,
-  token: process.env.BLOK_DELIVERY_TOKEN!,
+const storypane = createStorypaneClient({
+  url: process.env.STORYPANE_URL!,
+  spaceId: process.env.STORYPANE_SPACE_ID!,
+  token: process.env.STORYPANE_DELIVERY_TOKEN!,
 })
 
-const page = await blok.getStory({ slug: 'home', locale: '' })
-const byId = await blok.getStory({ id: page.id, locale: '' })
-const { stories, nextOffset } = await blok.listStories({ locale: '', limit: 50 })
-const locales = await blok.listLocales() // [{ id, name: 'Default', slug: '' }, ...]
+const page = await storypane.getStory({ slug: 'home', locale: '' })
+const byId = await storypane.getStory({ id: page.id, locale: '' })
+const { stories, nextOffset } = await storypane.listStories({ locale: '', limit: 50 })
+const locales = await storypane.listLocales() // [{ id, name: 'Default', slug: '' }, ...]
 ```
 
 These reads use the CMS delivery API, which queries publication snapshots in
 Postgres. Drafts and unpublished locales never appear. No locale fallback is
-implicit. A missing published story throws `BlokError` with `status === 404`.
+implicit. A missing published story throws `StorypaneError` with `status === 404`.
 Each content block includes `_uid` and `component`; nested block fields contain
-arrays. Schema-specific generics are supported: `blok.getStory<MyPage>(...)`.
+arrays. Schema-specific generics are supported: `storypane.getStory<MyPage>(...)`.
 
 `listLocales()` reads the names and prefixes configured in **Space settings →
 Locales** using a published or preview token. It exposes no draft content. Use
@@ -70,54 +77,54 @@ for visitors, and the hook opens a draft connection only in preview mode.
 
 ```tsx
 // app/[slug]/page.tsx — supply generateStaticParams for the routes you build.
-import { createBlokClient } from '@blok/sdk'
+import { createStorypaneClient } from '@storypane/sdk'
 import { Content } from './content'
 
-const blok = createBlokClient({
-  url: process.env.BLOK_URL!, spaceId: process.env.BLOK_SPACE_ID!,
-  token: process.env.BLOK_DELIVERY_TOKEN!,
+const storypane = createStorypaneClient({
+  url: process.env.STORYPANE_URL!, spaceId: process.env.STORYPANE_SPACE_ID!,
+  token: process.env.STORYPANE_DELIVERY_TOKEN!,
 })
 
 export default async function Page({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params
-  const initial = await blok.getStory({ slug }, { cache: 'force-cache' })
-  return <Content initial={initial} cmsUrl={process.env.BLOK_URL!}
-    spaceId={process.env.BLOK_SPACE_ID!} />
+  const initial = await storypane.getStory({ slug }, { cache: 'force-cache' })
+  return <Content initial={initial} cmsUrl={process.env.STORYPANE_URL!}
+    spaceId={process.env.STORYPANE_SPACE_ID!} />
 }
 ```
 
 ```tsx
 // app/[slug]/content.tsx
 'use client'
-import { useBlokStory, editable } from '@blok/sdk/react'
-import type { BlokBlock, BlokStory } from '@blok/sdk'
+import { useStorypaneStory, editable } from '@storypane/sdk/react'
+import type { StorypaneBlock, StorypaneStory } from '@storypane/sdk'
 
-function Block({ blok }: { blok: BlokBlock }) {
+function Block({ block }: { block: StorypaneBlock }) {
   // Replace this with your own component registry and schema-specific types.
-  return <section {...editable(blok)} tabIndex={0}>
-    {typeof blok.title === 'string' && <h1>{blok.title}</h1>}
-    {typeof blok.text === 'string' && <p>{blok.text}</p>}
-    {Array.isArray(blok.body) && (blok.body as BlokBlock[]).map(child =>
-      <Block key={child._uid} blok={child} />)}
+  return <section {...editable(block)} tabIndex={0}>
+    {typeof block.title === 'string' && <h1>{block.title}</h1>}
+    {typeof block.text === 'string' && <p>{block.text}</p>}
+    {Array.isArray(block.body) && (block.body as StorypaneBlock[]).map(child =>
+      <Block key={child._uid} block={child} />)}
   </section>
 }
 
 export function Content({ initial, cmsUrl, spaceId }: {
-  initial: BlokStory; cmsUrl: string; spaceId: string
+  initial: StorypaneStory; cmsUrl: string; spaceId: string
 }) {
-  const { story, error } = useBlokStory(initial, {
+  const { story, error } = useStorypaneStory(initial, {
     cmsUrl, spaceId,
     mode: {
       query: { name: 'blok_preview', value: '1' },
       cookie: { name: 'my_preview', value: '1' },
-      env: process.env.NEXT_PUBLIC_BLOK_PREVIEW,
+      env: process.env.NEXT_PUBLIC_STORYPANE_PREVIEW,
     },
   })
-  return <>{error && <p role="alert">{error.message}</p>}<Block blok={story.content} /></>
+  return <>{error && <p role="alert">{error.message}</p>}<Block block={story.content} /></>
 }
 ```
 
-`editable(blok)` supplies `data-blok-id`; add it to each block's rendered wrapper.
+`editable(block)` supplies `data-blok-id`; add it to each block's rendered wrapper.
 In the editor iframe, clicking it selects the corresponding content editor.
 Selecting a block in the editor outlines it in the app. Focusable wrappers support
 Enter/Space selection. Modifier-clicks retain normal link behavior.
@@ -140,19 +147,19 @@ app), and hydrate it even on static pages:
 
 ```astro
 ---
-import { createBlokClient } from '@blok/sdk'
+import { createStorypaneClient } from '@storypane/sdk'
 import { Content } from '../components/Content'
-const blok = createBlokClient({
-  url: import.meta.env.BLOK_URL, spaceId: import.meta.env.BLOK_SPACE_ID,
-  token: import.meta.env.BLOK_DELIVERY_TOKEN,
+const storypane = createStorypaneClient({
+  url: import.meta.env.STORYPANE_URL, spaceId: import.meta.env.STORYPANE_SPACE_ID,
+  token: import.meta.env.STORYPANE_DELIVERY_TOKEN,
 })
-const initial = await blok.getStory({ slug: 'home', locale: '' })
+const initial = await storypane.getStory({ slug: 'home', locale: '' })
 ---
-<Content client:load initial={initial} cmsUrl={import.meta.env.BLOK_URL}
-  spaceId={import.meta.env.BLOK_SPACE_ID} />
+<Content client:load initial={initial} cmsUrl={import.meta.env.STORYPANE_URL}
+  spaceId={import.meta.env.STORYPANE_SPACE_ID} />
 ```
 
-Use `import.meta.env.PUBLIC_BLOK_PREVIEW` for an Astro browser env flag. Astro
+Use `import.meta.env.PUBLIC_STORYPANE_PREVIEW` for an Astro browser env flag. Astro
 preview/draft state is app-specific; pass the boolean from your authenticated
 server flow into `mode.draft`. Static pages cannot read per-visitor cookies at
 build time, so use the browser detector for them.
@@ -161,7 +168,7 @@ build time, so use the browser detector for them.
 Without React, use a bundled Astro `<script>` and render the subscribed content:
 
 ```ts
-import { connectPreview } from '@blok/sdk/preview'
+import { connectPreview } from '@storypane/sdk/preview'
 const stop = connectPreview({
   cmsUrl: 'https://cms.example', spaceId: 'your-space-id',
   story: { slug: 'home', locale: '' },
@@ -195,16 +202,16 @@ must verify the visitor may preview before using a **Preview · server only** to
 
 ```ts
 // YOUR APP SERVER: only after checking your editor session/authorization.
-const previewClient = createBlokClient({
-  url: process.env.BLOK_URL!, spaceId: process.env.BLOK_SPACE_ID!,
-  token: process.env.BLOK_PREVIEW_TOKEN!,
+const previewClient = createStorypaneClient({
+  url: process.env.STORYPANE_URL!, spaceId: process.env.STORYPANE_SPACE_ID!,
+  token: process.env.STORYPANE_PREVIEW_TOKEN!,
 })
 const session = await previewClient.createPreviewSession({ slug: 'home', locale: '' })
 // Return session as JSON with Cache-Control: no-store.
 ```
 
 ```ts
-// In connectPreview(...) or useBlokStory(...) options:
+// In connectPreview(...) or useStorypaneStory(...) options:
 getSession: async () => {
   const response = await fetch('/api/my-authenticated-preview-session', { method: 'POST' })
   if (!response.ok) throw new Error('Sign in to preview')
@@ -237,18 +244,18 @@ revisions are ignored. Errors are exposed through `onStatus` / the React hook.
 
 ## Generate block types
 
-The package includes a `blok` CLI. Export `BLOK_URL`, `BLOK_SPACE_ID`, and a
-server-only `BLOK_PREVIEW_TOKEN`, then run:
+The package includes a `storypane` CLI. Export `STORYPANE_URL`, `STORYPANE_SPACE_ID`, and a
+server-only `STORYPANE_PREVIEW_TOKEN`, then run:
 
 ```sh
-blok pull-components --out blok/components.json
-blok generate-types --input blok/components.json --out src/types/blok.ts
+storypane pull-components --out storypane/components.json
+storypane generate-types --input storypane/components.json --out src/types/storypane.ts
 ```
 
 The first command reads current schema metadata from the scoped `/api/delivery/schema`
 endpoint. A published-only token cannot read schemas. The second runs offline and
 produces discriminated block interfaces, typed fields, allowed nesting unions,
-inline option unions, and `BlokComponentMap` for component registration. Files are
+inline option unions, and `StorypaneComponentMap` for component registration. Files are
 written atomically; invalid input does not overwrite existing output. `getSchema()`
 also exposes the metadata through a server-side SDK client.
 

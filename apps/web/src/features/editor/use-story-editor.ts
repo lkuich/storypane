@@ -10,7 +10,7 @@ import {
   type Json,
   type Lease,
   type LocaleSnapshot,
-} from "@blok/core";
+} from "@storypane/core";
 import {
   acknowledgeBuffer,
   editBuffer,
@@ -127,7 +127,7 @@ export function useStoryEditor({
         !selectedRef.current ||
         !next.blocks.some((block) => block.id === selectedRef.current)
       ) {
-        // Keep a deleted blok's recovery buffer available until the editor explicitly discards it.
+        // Keep a deleted block's recovery buffer available until the editor explicitly discards it.
         const recoveryId = Object.keys(buffersRef.current)[0];
         selectedRef.current = recoveryId ?? next.locale.rootBlockId;
         setSelectedId(selectedRef.current);

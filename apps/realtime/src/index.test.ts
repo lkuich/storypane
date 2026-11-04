@@ -1,9 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { BlokError, type Actor, type LocaleSnapshot } from '@blok/core'
+import { StorypaneError, type Actor, type LocaleSnapshot } from '@storypane/core'
 
 const mocks = vi.hoisted(() => ({ snapshot: vi.fn(), assertActor: vi.fn(), preview:vi.fn(), end: vi.fn() }))
 vi.mock('cloudflare:workers', () => ({ DurableObject: class { constructor(public ctx: unknown, public env: unknown) {} } }))
-vi.mock('@blok/db', () => ({ BlokStore: class { pool = { end: mocks.end }; getSnapshot = mocks.snapshot; assertActor = mocks.assertActor; previewStory = mocks.preview } }))
+vi.mock('@storypane/db', () => ({ StorypaneStore: class { pool = { end: mocks.end }; getSnapshot = mocks.snapshot; assertActor = mocks.assertActor; previewStory = mocks.preview } }))
 import { StoryRoom } from './index.js'
 
 const actor: Actor = { userId: 'alice', sessionId: 'session', spaceId: 'space', role: 'editor' }
@@ -26,7 +26,7 @@ describe('realtime recovery and authorization', () => {
     expect(mocks.snapshot).not.toHaveBeenCalled()
     await room.webSocketMessage(socket as never,JSON.stringify({ type:'saveBlock' }))
     expect(JSON.parse(socket.send.mock.calls[1][0])).toMatchObject({ type:'error',code:'invalid' })
-    mocks.preview.mockRejectedValue(new BlokError('unauthenticated','Revoked'))
+    mocks.preview.mockRejectedValue(new StorypaneError('unauthenticated','Revoked'))
     await room.webSocketMessage(socket as never,JSON.stringify({ type:'heartbeat' }))
     expect(socket.close).toHaveBeenCalledWith(1008,'Authentication expired')
   })
@@ -46,7 +46,7 @@ describe('realtime recovery and authorization', () => {
     expect(JSON.parse(socket.send.mock.calls[0][0])).toMatchObject({ type: 'error', code: 'unavailable' })
   })
   it('rejects expired sessions and closes their socket', async () => {
-    mocks.snapshot.mockRejectedValue(new BlokError('unauthenticated', 'Expired'))
+    mocks.snapshot.mockRejectedValue(new StorypaneError('unauthenticated', 'Expired'))
     const { socket, room } = fixture()
     await room.webSocketMessage(socket as never, JSON.stringify({ type: 'sync' }))
     expect(socket.close).toHaveBeenCalledWith(1008, 'Authentication expired')
@@ -60,7 +60,7 @@ describe('realtime recovery and authorization', () => {
     expect(JSON.parse(socket.send.mock.calls[0][0])).toMatchObject({ type: 'commit', localeRevision: 7 })
   })
   it('rechecks subscribers before broadcasting content after permissions are revoked', async () => {
-    mocks.assertActor.mockRejectedValue(new BlokError('forbidden', 'Removed from space'))
+    mocks.assertActor.mockRejectedValue(new StorypaneError('forbidden', 'Removed from space'))
     const { socket, room } = fixture()
     await room.fetch(new Request('http://room/notify', { method: 'POST', headers: { 'x-blok-actor': JSON.stringify(actor), 'x-blok-story-id': 'story', 'x-blok-locale-id': 'locale' }, body: JSON.stringify({ type: 'leases' }) }))
     expect(JSON.parse(socket.send.mock.calls[0][0])).toMatchObject({ type: 'error', code: 'forbidden' })

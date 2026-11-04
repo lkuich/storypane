@@ -2,8 +2,8 @@
 
 import { useEffect, useState } from 'react'
 import { ArrowRight, Boxes, Building2, FileText, LogOut, Plus, Search, Settings2, Users } from 'lucide-react'
-import type { Space } from '@blok/core'
-import { Button, EmptyState, ErrorNotice, Loading, Modal } from '@blok/ui'
+import type { Space } from '@storypane/core'
+import { Button, EmptyState, ErrorNotice, Loading, Modal } from '@storypane/ui'
 import type { CMSSession } from '../../components/cms-app'
 import { errorMessage, jsonRequest, requestJson } from '../editor/api'
 import './spaces.css'
@@ -26,7 +26,7 @@ export function SpacesScreen({ user }: { user: CMSSession['user'] }) {
   return <div className="spaces-shell">
     <a className="skip-link" href="#main-content">Skip to content</a>
     <header className="spaces-header">
-      <a className="brand-lockup" href="/" aria-label="Blok home"><span className="brand-mark"><Boxes aria-hidden="true" /></span><span className="brand-name">blok<span className="brand-period">.</span></span></a>
+      <a className="brand-lockup" href="/" aria-label="Storypane home"><span className="brand-mark"><Boxes aria-hidden="true" /></span><span className="brand-name">storypane<span className="brand-period">.</span></span></a>
       <span className="spaces-header-label"><Building2 aria-hidden="true" />Spaces</span>
       <div className="spaces-account"><ThemePicker /><span className="avatar" aria-hidden="true">{user.name.slice(0, 1).toUpperCase()}</span><div><strong>{user.name}</strong><span>{user.email}</span></div><Button variant="ghost" className="icon-button" aria-label="Sign out" onClick={async () => {
         try { await requestJson('/api/auth/sign-out', jsonRequest('POST', {})); window.location.reload() }

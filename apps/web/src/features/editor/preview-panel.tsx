@@ -1,8 +1,8 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
 import { ExternalLink, Monitor, RefreshCw } from 'lucide-react';
-import { Button, ErrorNotice, Loading } from '@blok/ui';
-import type { DeliverySettings, LocaleSnapshot, PreviewSession } from '@blok/core';
+import { Button, ErrorNotice, Loading } from '@storypane/ui';
+import type { DeliverySettings, LocaleSnapshot, PreviewSession } from '@storypane/core';
 import { api, errorMessage, jsonRequest } from './api';
 
 export function PreviewPanel({ settings, onSettings, previewId, onPreviewId, snapshot, spaceId, selectedId, onSelect }: { settings:DeliverySettings | null; onSettings:(settings:DeliverySettings) => void; previewId:string | null; onPreviewId:(id:string) => void; snapshot:LocaleSnapshot; spaceId:string; selectedId:string | null; onSelect:(id:string) => Promise<void> }) {
@@ -53,6 +53,6 @@ export function PreviewPanel({ settings, onSettings, previewId, onPreviewId, sna
   return <section className="panel preview-panel" aria-label="Application preview"><header className="preview-toolbar"><span><Monitor size={16} aria-hidden="true" />{status}</span><div className="button-group"><Button variant="ghost" className="icon-button" aria-label="Reload preview" onClick={() => { setStatus('Waiting for your app'); setGeneration(value => value+1); }}><RefreshCw /></Button>{src && <a className="button button--ghost icon-button" href={src} target="_blank" rel="noreferrer" aria-label="Open preview app"><ExternalLink size={16} /></a>}</div></header>
     {target && <div className="preview-target-switch"><label htmlFor="preview-url">Preview</label><select id="preview-url" aria-label="Preview URL" value={target.id} onChange={event => onPreviewId(event.target.value)}>{settings!.previewUrls.map(item => <option key={item.id} value={item.id}>{item.name}{item.id === settings!.defaultPreviewId ? ' (default)' : ''}</option>)}</select></div>}
     <ErrorNotice message={error} />
-    {!settings && !error ? <Loading label="Loading preview settings…" /> : src ? <><div className="preview-address">{src}</div><iframe ref={iframe} key={`${target?.id}:${src}:${generation}`} src={src} title="Live application preview" referrerPolicy="no-referrer" /></> : <div className="empty-state"><h2>Connect your app</h2><p>Add a preview URL in Space settings → API & preview, and add the Blok SDK to your app.</p></div>}
+    {!settings && !error ? <Loading label="Loading preview settings…" /> : src ? <><div className="preview-address">{src}</div><iframe ref={iframe} key={`${target?.id}:${src}:${generation}`} src={src} title="Live application preview" referrerPolicy="no-referrer" /></> : <div className="empty-state"><h2>Connect your app</h2><p>Add a preview URL in Space settings → API & preview, and add the Storypane SDK to your app.</p></div>}
   </section>;
 }

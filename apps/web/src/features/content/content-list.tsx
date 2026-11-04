@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { FileText, Plus, Search, ArrowUpRight } from "lucide-react";
-import type { BlockDefinition, Story } from "@blok/core";
+import type { BlockDefinition, Story } from "@storypane/core";
 import {
   Button,
   EmptyState,
@@ -10,7 +10,7 @@ import {
   Field,
   Loading,
   Modal,
-} from "@blok/ui";
+} from "@storypane/ui";
 import {
   api,
   dateLabel,

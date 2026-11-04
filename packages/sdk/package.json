@@ -1,10 +1,10 @@
 {
-  "name": "@blok/sdk",
+  "name": "@storypane/sdk",
   "version": "0.1.0",
   "type": "module",
-  "description": "Published content delivery and live visual preview for Blok",
+  "description": "Published content delivery and live visual preview for Storypane",
   "files": ["dist", "bin", "README.md"],
-  "bin": { "blok": "./bin/blok.mjs" },
+  "bin": { "storypane": "./bin/storypane.mjs", "blok": "./bin/storypane.mjs" },
   "sideEffects": false,
   "exports": {
     ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" },

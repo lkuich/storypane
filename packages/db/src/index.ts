@@ -1,1 +1,1 @@
-export { BlokStore, assembleContent } from './store.js'
+export { StorypaneStore, assembleContent } from './store.js'

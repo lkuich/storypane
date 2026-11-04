@@ -1,8 +1,8 @@
 'use client'
 import { useEffect,useState } from 'react'
 import { Globe2,Pencil,Plus,Trash2 } from 'lucide-react'
-import type { SpaceLocale } from '@blok/core'
-import { Button,ErrorNotice,Loading,Modal } from '@blok/ui'
+import type { SpaceLocale } from '@storypane/core'
+import { Button,ErrorNotice,Loading,Modal } from '@storypane/ui'
 import { api,errorMessage,jsonRequest } from '../editor/api'
 
 export function LocaleSettings({ canManage,onDirty,onBusy }:{ canManage:boolean; onDirty:(value:boolean) => void; onBusy:(value:boolean) => void }) {

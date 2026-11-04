@@ -2,8 +2,8 @@
 
 import { useState } from "react";
 import { Boxes, Search, Tags, X } from "lucide-react";
-import { isBlockAllowed, type BlockDefinition, type FieldDefinition } from "@blok/core";
-import { Field } from "@blok/ui";
+import { isBlockAllowed, type BlockDefinition, type FieldDefinition } from "@storypane/core";
+import { Field } from "@storypane/ui";
 
 export function BlockRestrictions({ field, definitions, onChange }: {
   field: Extract<FieldDefinition, { type: "blocks" }>;

@@ -1,17 +1,17 @@
 {
-  "name": "blok",
+  "name": "storypane",
   "private": true,
   "type": "module",
   "packageManager": "pnpm@12.4.2",
   "engines": { "node": ">=24.22.0 <25" },
   "scripts": {
-    "dev": "pnpm --filter @blok/web dev",
-    "dev:example": "pnpm --filter @blok/sdk build && pnpm --filter @blok/example-astro dev",
-    "example:setup": "tsx scripts/setup-astro-example.ts && pnpm --filter @blok/sdk build && pnpm --filter @blok/example-astro blok:generate",
-    "build:example": "pnpm --filter @blok/sdk build && pnpm --filter @blok/example-astro build",
-    "build": "pnpm --filter @blok/sdk build && pnpm --filter @blok/web build",
-    "types": "pnpm --filter @blok/web exec cf workers types",
-    "typecheck": "pnpm --filter @blok/sdk build && pnpm types && tsc --noEmit && pnpm --filter @blok/example-astro typecheck",
+    "dev": "pnpm --filter @storypane/web dev",
+    "dev:example": "pnpm --filter @storypane/sdk build && pnpm --filter @storypane/example-astro dev",
+    "example:setup": "tsx scripts/setup-astro-example.ts && pnpm --filter @storypane/sdk build && pnpm --filter @storypane/example-astro storypane:generate",
+    "build:example": "pnpm --filter @storypane/sdk build && pnpm --filter @storypane/example-astro build",
+    "build": "pnpm --filter @storypane/sdk build && pnpm --filter @storypane/web build",
+    "types": "pnpm --filter @storypane/web exec cf workers types",
+    "typecheck": "pnpm --filter @storypane/sdk build && pnpm types && tsc --noEmit && pnpm --filter @storypane/example-astro typecheck",
     "test": "vitest run",
     "test:e2e": "playwright test",
     "db:start": "docker compose up -d --wait",
@@ -19,8 +19,8 @@
     "db:test": "tsx scripts/test-database.ts"
   },
   "dependencies": {
-    "@blok/core": "workspace:*",
-    "@blok/db": "workspace:*",
+    "@storypane/core": "workspace:*",
+    "@storypane/db": "workspace:*",
     "better-auth": "1.7.15",
     "pg": "^8.16.3"
   },

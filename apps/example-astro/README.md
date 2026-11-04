@@ -1,8 +1,12 @@
 # Fieldwork · Astro example
 
-A complete, statically built website using `@blok/sdk`. It follows the reference
+A complete, statically built website using `@storypane/sdk`. It follows the reference
 Storyblok app's structure: Astro routes, a hydrated React component registry,
 pulled schema JSON, and generated TypeScript block props.
+
+New configuration uses `STORYPANE_*` / `PUBLIC_STORYPANE_*` variables. Existing
+`BLOK_*` / `PUBLIC_BLOK_*` values remain supported, so the rename does not require
+replacing your local `.env` or its tokens.
 
 ## Run it
 
@@ -29,12 +33,12 @@ seeds a local CMS and preserves an existing `.env` and content on subsequent run
 The French hero is translated; the other blocks deliberately start as copies.
 
 Manage locale names and URL prefixes in **Space settings → Locales**. The build
-discovers them with `client.listLocales()`; no `BLOK_LOCALES` environment variable
+discovers them with `client.listLocales()`; no `STORYPANE_LOCALES` environment variable
 is needed. A locale gets a public route only when that story locale is published.
 After adding or renaming locales, rebuild the site (or restart the dev server).
 
 To use an existing space instead, copy `.env.example` to `.env`, configure its
-URL/space/tokens, and run `pnpm --filter @blok/example-astro blok:generate`.
+URL/space/tokens, and run `pnpm --filter @storypane/example-astro storypane:generate`.
 Adjust the component registry to match that space's schemas. Do not put either
 token in a `PUBLIC_` variable. Preview tokens are used only by schema tooling;
 published tokens are used only by the Astro build/server.
@@ -59,7 +63,7 @@ to try it. Opening `/preview` outside the CMS shows instructions, not draft data
 To test preview on the built page itself, change **Settings → API & preview →
 Application preview URL** to `http://127.0.0.1:3132/{locale}/{slug}`. Default locale
 has no prefix; French uses `/fr/home`. The query parameter, a `blok_preview=1`
-cookie, or `PUBLIC_BLOK_PREVIEW=true` activates the SDK in `Story.tsx`; the parent
+cookie, or `PUBLIC_STORYPANE_PREVIEW=true` activates the SDK in `Story.tsx`; the parent
 editor still supplies authorization. Standalone preview needs your own
 authenticated session endpoint (see the SDK guide).
 
@@ -67,7 +71,7 @@ To prove preview works after a static build, stop the dev server and run:
 
 ```sh
 pnpm build:example
-pnpm --filter @blok/example-astro preview
+pnpm --filter @storypane/example-astro preview
 ```
 
 Now edit in the CMS again. The public HTML remains the published snapshot; preview
@@ -78,31 +82,31 @@ hydrates the same component tree that produced the build-time HTML.
 ## Pull schemas and generate TypeScript
 
 ```sh
-pnpm --filter @blok/example-astro blok:pull     # CMS → blok/components.json
-pnpm --filter @blok/example-astro blok:types    # local JSON → src/types/blok.ts
-pnpm --filter @blok/example-astro blok:generate # both steps
+pnpm --filter @storypane/example-astro storypane:pull     # CMS → storypane/components.json
+pnpm --filter @storypane/example-astro storypane:types    # local JSON → src/types/storypane.ts
+pnpm --filter @storypane/example-astro storypane:generate # both steps
 ```
 
-`blok:pull` loads this app's `.env` and uses a **Preview · server only** token.
+`storypane:pull` loads this app's `.env` and uses a **Preview · server only** token.
 The schema endpoint is space-scoped, rejects published-only/revoked tokens, and
 exports current schema metadata without defaults, draft values, or data-source
-URLs. `blok:types` works offline. Commit both files; regenerate after changing
+URLs. `storypane:types` works offline. Commit both files; regenerate after changing
 schemas. The checked-in schema is a sample; setup replaces its IDs with those in
 your own local space.
 
-The SDK's `blok` executable can be used in other projects too:
+The SDK's `storypane` executable can be used in other projects too:
 
 ```sh
-blok pull-components --out blok/components.json
-blok generate-types --input blok/components.json --out src/types/blok.ts
+storypane pull-components --out storypane/components.json
+storypane generate-types --input storypane/components.json --out src/types/storypane.ts
 ```
 
-Pull reads `BLOK_URL`, `BLOK_SPACE_ID`, and `BLOK_PREVIEW_TOKEN` from the process
+Pull reads `STORYPANE_URL`, `STORYPANE_SPACE_ID`, and `STORYPANE_PREVIEW_TOKEN` from the process
 environment. With Node 24 you can load a file explicitly using
-`node --env-file=.env node_modules/@blok/sdk/bin/blok.mjs pull-components --out blok/components.json`.
+`node --env-file=.env node_modules/@storypane/sdk/bin/storypane.mjs pull-components --out storypane/components.json`.
 Invalid input leaves the previous output untouched.
 
-Generated types include `HeroBlok`, `PageBlok`, `BlokComponentMap`, and unions for
+Generated types include `HeroBlock`, `PageBlock`, `StorypaneComponentMap`, and unions for
 all blocks, nestable blocks, and content types. Each interface has a literal
 `component` discriminant and `_uid`. Nested fields honor allowed definitions;
 inline choices become literal unions; dynamic choices remain string IDs. Asset,
@@ -114,18 +118,18 @@ remain IDs—the SDK does not silently resolve references.
 For example:
 
 ```tsx
-import { editable } from '@blok/sdk';
-import type { HeroBlok } from '../types/blok';
+import { editable } from '@storypane/sdk';
+import type { HeroBlock } from '../types/storypane';
 
-function Hero({ blok }: { blok: HeroBlok }) {
-  return <section {...editable(blok)} tabIndex={0}>
-    <h1>{blok.title || 'Untitled'}</h1>
-    <p>{blok.description}</p>
+function Hero({ block }: { block: HeroBlock }) {
+  return <section {...editable(block)} tabIndex={0}>
+    <h1>{block.title || 'Untitled'}</h1>
+    <p>{block.description}</p>
   </section>;
 }
 ```
 
-The registry in `src/components/blocks.tsx` uses `satisfies BlokComponentMap`'s
+The registry in `src/components/blocks.tsx` uses `satisfies StorypaneComponentMap`'s
 mapped props, so missing registrations or incompatible props fail type checking.
 Drafts can be incomplete; renderers should tolerate missing required content.
 Generated types are compile-time contracts, not runtime validators. They describe
@@ -140,7 +144,7 @@ the current schema; older publications keep their original schema until migrated
 | `src/components/Story.tsx` | Published-first rendering and live preview hook |
 | `src/components/PreviewShell.tsx` | Preview of unpublished stories/locales |
 | `src/components/blocks.tsx` | Typed component registry and editable markers |
-| `blok/components.json`, `src/types/blok.ts` | Pulled schema and generated types |
+| `storypane/components.json`, `src/types/storypane.ts` | Pulled schema and generated types |
 
 `pnpm typecheck` includes Astro checking. `pnpm build:example` checks and builds
 this site; root `pnpm build` builds the CMS/SDK independently of a configured CMS

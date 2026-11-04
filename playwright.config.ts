@@ -10,7 +10,7 @@ export default defineConfig({
   use: { baseURL: 'http://127.0.0.1:3130', channel: 'chrome', trace: 'retain-on-failure' },
   reporter: 'list',
   webServer: existsSync('apps/example-astro/.env') ? {
-    command:'pnpm --filter @blok/example-astro preview --ignore-lock',
+    command:'pnpm --filter @storypane/example-astro preview --ignore-lock',
     url:'http://127.0.0.1:3132/home',
     reuseExistingServer:!process.env.CI,
     timeout:30000,

@@ -2,8 +2,8 @@
 
 import { useEffect, useState } from 'react'
 import { Building2, Check, Copy, ShieldCheck, Users } from 'lucide-react'
-import type { Space, SpaceDetails } from '@blok/core'
-import { Button, ErrorNotice, Loading } from '@blok/ui'
+import type { Space, SpaceDetails } from '@storypane/core'
+import { Button, ErrorNotice, Loading } from '@storypane/ui'
 import { api, errorMessage, jsonRequest } from '../editor/api'
 import type { RegisterGuard } from '../editor/navigation'
 import './spaces.css'

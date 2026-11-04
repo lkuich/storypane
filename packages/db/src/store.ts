@@ -1,10 +1,10 @@
 import { createHash, randomUUID, randomBytes } from 'node:crypto'
 import { Pool, type PoolClient } from 'pg'
 import { z } from 'zod'
-import { BlokError, LEASE_SECONDS, commandSchema, datasourceInputSchema, defaultFields, definitionInputSchema, localeInputSchema, optionSourceSchema, parseInput, storyInputSchema, validateFields, type Actor, type BlockDefinition, type BlockDraft, type Checkpoint, type CheckpointDetail, type Command, type CommitResult, type Datasource, type DefinitionInput, type FieldDefinition, type Json, type Lease, type LocaleSnapshot, type OptionPage, type Publication, type Story, type StoryLocale } from '@blok/core'
+import { StorypaneError, LEASE_SECONDS, commandSchema, datasourceInputSchema, defaultFields, definitionInputSchema, localeInputSchema, optionSourceSchema, parseInput, storyInputSchema, validateFields, type Actor, type BlockDefinition, type BlockDraft, type Checkpoint, type CheckpointDetail, type Command, type CommitResult, type Datasource, type DefinitionInput, type FieldDefinition, type Json, type Lease, type LocaleSnapshot, type OptionPage, type Publication, type Story, type StoryLocale } from '@storypane/core'
 import { fetchExternalOptions } from './external-options.js'
-import { spaceInputSchema, spaceLocaleInputSchema, type Space, type SpaceDetails, type SpaceLocale } from '@blok/core'
-import { deliverySettingsSchema, isBlockAllowed, type DeliveredStory, type DeliverySettings, type DeliveryToken, type PreviewSession } from '@blok/core'
+import { spaceInputSchema, spaceLocaleInputSchema, type Space, type SpaceDetails, type SpaceLocale } from '@storypane/core'
+import { deliverySettingsSchema, isBlockAllowed, type DeliveredStory, type DeliverySettings, type DeliveryToken, type PreviewSession } from '@storypane/core'
 
 const tokenHash = (token: string) => createHash('sha256').update(token).digest('hex')
 const secretToken = (prefix: string) => `${prefix}_${randomBytes(32).toString('base64url')}`
@@ -30,21 +30,21 @@ const definitionRow = (r: Row): BlockDefinition => ({ ...r.schema, id: r.definit
 const checkpointRow = (r: Row): Checkpoint => ({ id: r.id, revision: Number(r.revision), reason: r.reason, actorId: r.actor_id, createdAt: iso(r.created_at) })
 const canonical = (value: unknown): string => JSON.stringify(value, (_key, item) => item && typeof item === 'object' && !Array.isArray(item) ? Object.fromEntries(Object.entries(item).sort(([a], [b]) => a.localeCompare(b))) : item)
 function dbError(error: unknown): never {
-  if (error instanceof BlokError) throw error
+  if (error instanceof StorypaneError) throw error
   const code = (error as { code?: string })?.code
-  if (code === '23505') throw new BlokError('invalid', 'That name or slug already exists')
-  if (['23503', '23514', '22P02'].includes(code ?? '')) throw new BlokError('invalid', 'Invalid reference or value')
+  if (code === '23505') throw new StorypaneError('invalid', 'That name or slug already exists')
+  if (['23503', '23514', '22P02'].includes(code ?? '')) throw new StorypaneError('invalid', 'Invalid reference or value')
   throw error
 }
 function requireBlock(snapshot: LocaleSnapshot, id: string): BlockDraft {
   const block = snapshot.blocks.find(b => b.id === id)
-  if (!block) throw new BlokError('not_found', 'Blok not found')
+  if (!block) throw new StorypaneError('not_found', 'Block not found')
   return block
 }
 function subtree(snapshot: LocaleSnapshot, id: string): BlockDraft[] {
   const result: BlockDraft[] = []
   const visit = (blockId: string) => {
-    if (result.some(b => b.id === blockId)) throw new BlokError('invalid', 'Cyclic blok structure')
+    if (result.some(b => b.id === blockId)) throw new StorypaneError('invalid', 'Cyclic block structure')
     result.push(requireBlock(snapshot, blockId))
     snapshot.blocks.filter(b => b.parentId === blockId).forEach(b => visit(b.id))
   }
@@ -55,10 +55,10 @@ export function assembleContent(snapshot: LocaleSnapshot): Json {
   const definitions = new Map(snapshot.definitions.map(d => [d.versionId, d]))
   const visiting = new Set<string>()
   const visit = (id: string, depth: number): Json => {
-    if (depth > 30 || visiting.has(id)) throw new BlokError('invalid', 'Blok nesting exceeds the supported depth')
+    if (depth > 30 || visiting.has(id)) throw new StorypaneError('invalid', 'Block nesting exceeds the supported depth')
     const block = requireBlock(snapshot, id)
     const definition = definitions.get(block.schemaVersionId)
-    if (!definition) throw new BlokError('invalid', 'Missing schema version')
+    if (!definition) throw new StorypaneError('invalid', 'Missing schema version')
     visiting.add(id)
     const result: Record<string, Json> = { ...block.fields, _uid: block.id, component: definition.name }
     for (const field of definition.fields.filter(f => f.type === 'blocks')) result[field.name] = snapshot.blocks.filter(b => b.parentId === id && b.parentField === field.name).sort((a, b) => a.position - b.position || a.id.localeCompare(b.id)).map(b => visit(b.id, depth + 1))
@@ -68,19 +68,19 @@ export function assembleContent(snapshot: LocaleSnapshot): Json {
   return visit(snapshot.locale.rootBlockId, 0)
 }
 
-export class BlokStore {
+export class StorypaneStore {
   readonly pool: Pool
   constructor(connection: Pool | string, private options: { externalOptionHosts?: string[] } = {}) { this.pool = typeof connection === 'string' ? new Pool({ connectionString: connection, max: 5 }) : connection }
 
   private async authorizeSession(client: PoolClient, actor: AccountActor): Promise<void> {
-    if (!actor.userId || !actor.sessionId) throw new BlokError('unauthenticated', 'Sign in to continue')
+    if (!actor.userId || !actor.sessionId) throw new StorypaneError('unauthenticated', 'Sign in to continue')
     const session = await client.query('SELECT id FROM "session" WHERE id=$1 AND "userId"=$2 AND "expiresAt">clock_timestamp()', [actor.sessionId, actor.userId])
-    if (!session.rowCount) throw new BlokError('unauthenticated', 'Your session has expired')
+    if (!session.rowCount) throw new StorypaneError('unauthenticated', 'Your session has expired')
   }
   private async authorize(client: PoolClient, actor: Actor, admin = false): Promise<void> {
     await this.authorizeSession(client, actor)
     const membership = await client.query('SELECT role FROM memberships WHERE space_id=$1 AND user_id=$2', [actor.spaceId, actor.userId])
-    if (!membership.rowCount || (admin && membership.rows[0].role !== 'admin')) throw new BlokError('forbidden', admin ? 'Administrator access required' : 'You do not have access to this space')
+    if (!membership.rowCount || (admin && membership.rows[0].role !== 'admin')) throw new StorypaneError('forbidden', admin ? 'Administrator access required' : 'You do not have access to this space')
   }
   async assertActor(actor: Actor, admin = false): Promise<void> { await this.tx(actor, async () => undefined, admin) }
   async listSpaces(actor: AccountActor): Promise<Space[]> {
@@ -132,8 +132,8 @@ export class BlokStore {
     parseInput(z.uuid(), id)
     return this.tx(actor, async client => {
       const { rows } = await client.query('SELECT * FROM space_locales WHERE id=$1 AND space_id=$2 FOR UPDATE', [id,actor.spaceId])
-      if (!rows[0]) throw new BlokError('not_found', 'Locale not found')
-      if (rows[0].slug === '') throw new BlokError('invalid', 'Default always uses an empty slug and cannot be changed')
+      if (!rows[0]) throw new StorypaneError('not_found', 'Locale not found')
+      if (rows[0].slug === '') throw new StorypaneError('invalid', 'Default always uses an empty slug and cannot be changed')
       const input = parseInput(spaceLocaleInputSchema, raw)
       await client.query('UPDATE space_locales SET name=$2,slug=$3 WHERE id=$1', [id,input.name,input.slug])
       const count = await client.query('SELECT count(*)::integer AS count FROM story_locales WHERE space_locale_id=$1', [id])
@@ -144,9 +144,9 @@ export class BlokStore {
     parseInput(z.uuid(), id)
     await this.tx(actor, async client => {
       const { rows } = await client.query('SELECT * FROM space_locales WHERE id=$1 AND space_id=$2 FOR UPDATE', [id,actor.spaceId])
-      if (!rows[0]) throw new BlokError('not_found', 'Locale not found')
-      if (rows[0].slug === '') throw new BlokError('invalid', 'Default cannot be removed')
-      if ((await client.query('SELECT id FROM story_locales WHERE space_locale_id=$1 LIMIT 1', [id])).rowCount) throw new BlokError('invalid', 'This locale has story content and cannot be removed')
+      if (!rows[0]) throw new StorypaneError('not_found', 'Locale not found')
+      if (rows[0].slug === '') throw new StorypaneError('invalid', 'Default cannot be removed')
+      if ((await client.query('SELECT id FROM story_locales WHERE space_locale_id=$1 LIMIT 1', [id])).rowCount) throw new StorypaneError('invalid', 'This locale has story content and cannot be removed')
       await client.query('DELETE FROM space_locales WHERE id=$1', [id])
     }, true)
   }
@@ -182,9 +182,9 @@ export class BlokStore {
   }
   async authenticateDelivery(token: string, spaceId: string, preview = false): Promise<{ id:string; spaceId:string }> {
     parseInput(z.uuid(), spaceId)
-    if (!token || token.length > 128) throw new BlokError('unauthenticated', 'A delivery token is required')
+    if (!token || token.length > 128) throw new StorypaneError('unauthenticated', 'A delivery token is required')
     const { rows } = await this.pool.query('SELECT id,space_id AS "spaceId",scope FROM delivery_tokens WHERE token_hash=$1 AND space_id=$2 AND revoked_at IS NULL', [tokenHash(token), spaceId])
-    if (!rows[0] || (preview && rows[0].scope !== 'preview')) throw new BlokError('unauthenticated', 'Invalid or revoked delivery token')
+    if (!rows[0] || (preview && rows[0].scope !== 'preview')) throw new StorypaneError('unauthenticated', 'Invalid or revoked delivery token')
     return rows[0]
   }
   async deliverySchema(token: string, spaceId: string) {
@@ -222,14 +222,14 @@ export class BlokStore {
     const client = await this.pool.connect()
     try {
       const { rows } = await client.query('SELECT s.id AS story_id,l.id AS locale_id FROM stories s JOIN story_locales l ON l.story_id=s.id WHERE s.space_id=$1 AND l.slug=$2 AND ($3::uuid IS NULL OR s.id=$3) AND ($4::text IS NULL OR l.url_slug=$4)', [spaceId, input.locale, input.id ?? null, input.slug ?? null])
-      if (!rows[0]) throw new BlokError('not_found', 'Story locale not found')
+      if (!rows[0]) throw new StorypaneError('not_found', 'Story locale not found')
       return await this.insertPreview(client, spaceId, rows[0].story_id, rows[0].locale_id, { tokenId:credential.id }, input.previewId)
     } finally { client.release() }
   }
   private async insertPreview(client: PoolClient, spaceId: string, storyId: string, localeId: string, owner: { userId?:string; sessionId?:string; tokenId?:string }, previewId?: string): Promise<PreviewSession> {
     const { rows } = await client.query('SELECT s.preview_urls,s.default_preview_id,l.url_slug AS slug,l.slug AS locale FROM spaces s JOIN stories st ON st.space_id=s.id JOIN story_locales l ON l.story_id=st.id WHERE s.id=$1 AND st.id=$2 AND l.id=$3', [spaceId, storyId, localeId])
     const target = (rows[0]?.preview_urls as DeliverySettings['previewUrls'] | undefined)?.find(item => item.id === (previewId ?? rows[0].default_preview_id))
-    if (!target) throw new BlokError('invalid', 'Choose a configured preview URL in Space settings')
+    if (!target) throw new StorypaneError('invalid', 'Choose a configured preview URL in Space settings')
     const origin = new URL(target.url).origin
     const token = secretToken('bp')
     await client.query('DELETE FROM preview_sessions WHERE space_id=$1 AND expires_at<now()', [spaceId])
@@ -237,9 +237,9 @@ export class BlokStore {
     return { token, expiresAt:iso(session.rows[0].expires_at), spaceId, storyId, localeId, slug:rows[0].slug, locale:rows[0].locale }
   }
   async authenticatePreview(token: string, origin: string): Promise<{ id:string; spaceId:string; storyId:string; localeId:string }> {
-    if (!/^bp_[\w-]{43}$/.test(token)) throw new BlokError('unauthenticated', 'Invalid preview session')
+    if (!/^bp_[\w-]{43}$/.test(token)) throw new StorypaneError('unauthenticated', 'Invalid preview session')
     const { rows } = await this.pool.query('SELECT p.id,p.space_id AS "spaceId",p.story_id AS "storyId",p.locale_id AS "localeId",s.preview_urls FROM preview_sessions p JOIN spaces s ON s.id=p.space_id WHERE p.token_hash=$1 AND p.origin=$2 AND p.expires_at>clock_timestamp()', [tokenHash(token), origin])
-    if (!rows[0] || !(rows[0].preview_urls as DeliverySettings['previewUrls']).some(item => new URL(item.url).origin === origin)) throw new BlokError('unauthenticated', 'Preview session expired or origin is not allowed')
+    if (!rows[0] || !(rows[0].preview_urls as DeliverySettings['previewUrls']).some(item => new URL(item.url).origin === origin)) throw new StorypaneError('unauthenticated', 'Preview session expired or origin is not allowed')
     await this.previewStory(rows[0].id)
     const { preview_urls: _urls, ...session } = rows[0]
     return session as { id:string; spaceId:string; storyId:string; localeId:string }
@@ -251,7 +251,7 @@ export class BlokStore {
       WHERE p.id=$1 AND p.expires_at>clock_timestamp() AND (
         EXISTS(SELECT 1 FROM "session" se JOIN memberships m ON m.user_id=se."userId" AND m.space_id=p.space_id WHERE se.id=p.session_id AND se."userId"=p.user_id AND se."expiresAt">clock_timestamp())
         OR EXISTS(SELECT 1 FROM delivery_tokens t WHERE t.id=p.delivery_token_id AND t.space_id=p.space_id AND t.scope='preview' AND t.revoked_at IS NULL))`, [previewId])
-    if (!rows[0]) throw new BlokError('unauthenticated', 'Preview access expired or was revoked')
+    if (!rows[0]) throw new StorypaneError('unauthenticated', 'Preview access expired or was revoked')
     return deliveredRow(rows[0])
   }
   private async tx<T>(actor: Actor, fn: (client: PoolClient) => Promise<T>, admin = false): Promise<T> {
@@ -262,12 +262,12 @@ export class BlokStore {
   }
   private async lockLocale(client: PoolClient, actor: Actor, storyId: string, localeId: string): Promise<void> {
     const result = await client.query('SELECT l.id FROM story_locales l JOIN stories s ON s.id=l.story_id WHERE l.id=$1 AND s.id=$2 AND s.space_id=$3 FOR UPDATE OF l', [localeId, storyId, actor.spaceId])
-    if (!result.rowCount) throw new BlokError('not_found', 'Story locale not found')
+    if (!result.rowCount) throw new StorypaneError('not_found', 'Story locale not found')
   }
   private async snapshot(client: PoolClient, actor: Actor, storyId: string, localeId: string): Promise<LocaleSnapshot> {
     const story = await client.query('SELECT * FROM stories WHERE id=$1 AND space_id=$2', [storyId, actor.spaceId])
     const locale = await client.query('SELECT * FROM story_locales WHERE id=$1 AND story_id=$2', [localeId, storyId])
-    if (!story.rowCount || !locale.rowCount) throw new BlokError('not_found', 'Story locale not found')
+    if (!story.rowCount || !locale.rowCount) throw new StorypaneError('not_found', 'Story locale not found')
     const blocks = await client.query('SELECT b.*, v.definition_id FROM block_drafts b JOIN definition_versions v ON v.id=b.schema_version_id WHERE b.locale_id=$1 ORDER BY b.position,b.id', [localeId])
     const versions = await client.query('SELECT DISTINCT v.* FROM definition_versions v JOIN block_drafts b ON b.schema_version_id=v.id WHERE b.locale_id=$1', [localeId])
     const leases = await client.query('SELECT * FROM edit_leases WHERE locale_id=$1 AND expires_at>clock_timestamp()', [localeId])
@@ -285,15 +285,15 @@ export class BlokStore {
   async listDefinitions(actor: Actor): Promise<BlockDefinition[]> { return this.tx(actor, async client => (await client.query('SELECT v.* FROM definitions d JOIN definition_versions v ON v.definition_id=d.id AND v.version=d.current_version WHERE d.space_id=$1 ORDER BY d.name', [actor.spaceId])).rows.map(definitionRow)) }
   private async validateDefinition(client: PoolClient, actor: Actor, input: DefinitionInput): Promise<void> {
     const issues = validateFields(input, defaultFields(input))
-    if (issues.length) throw new BlokError('invalid', 'Invalid default values', issues)
+    if (issues.length) throw new StorypaneError('invalid', 'Invalid default values', issues)
     await this.validateReferences(client, actor, input, defaultFields(input))
     for (const field of input.fields) {
       if ((field.type === 'option' || field.type === 'options') && field.source.type === 'datasource') {
-        if (!(await client.query('SELECT id FROM datasources WHERE id=$1 AND space_id=$2', [field.source.datasourceId, actor.spaceId])).rowCount) throw new BlokError('invalid', 'Datasource must belong to this space')
+        if (!(await client.query('SELECT id FROM datasources WHERE id=$1 AND space_id=$2', [field.source.datasourceId, actor.spaceId])).rowCount) throw new StorypaneError('invalid', 'Datasource must belong to this space')
       }
       if (field.type === 'blocks' && field.allowedDefinitionIds?.length) {
         const found = await client.query('SELECT id FROM definitions WHERE id=ANY($1::uuid[]) AND space_id=$2', [field.allowedDefinitionIds, actor.spaceId])
-        if (found.rowCount !== new Set(field.allowedDefinitionIds).size) throw new BlokError('invalid', 'Allowed block definitions must belong to this space')
+        if (found.rowCount !== new Set(field.allowedDefinitionIds).size) throw new StorypaneError('invalid', 'Allowed block definitions must belong to this space')
       }
     }
   }
@@ -305,8 +305,8 @@ export class BlokStore {
     const input = parseInput(definitionInputSchema, value)
     return this.tx(actor, async client => {
       const definition = await client.query('SELECT * FROM definitions WHERE id=$1 AND space_id=$2 FOR UPDATE', [definitionId, actor.spaceId])
-      if (!definition.rowCount) throw new BlokError('not_found', 'Definition not found')
-      if (input.name !== definition.rows[0].name) throw new BlokError('invalid', 'Definition API names cannot be renamed')
+      if (!definition.rowCount) throw new StorypaneError('not_found', 'Definition not found')
+      if (input.name !== definition.rows[0].name) throw new StorypaneError('invalid', 'Definition API names cannot be renamed')
       await this.validateDefinition(client, actor, input)
       const version = definition.rows[0].current_version + 1
       const result = await client.query('INSERT INTO definition_versions(definition_id,version,schema) VALUES($1,$2,$3) RETURNING *', [definitionId, version, JSON.stringify(input)])
@@ -316,7 +316,7 @@ export class BlokStore {
   }
   private async currentDefinition(client: PoolClient, actor: Actor, definitionId: string): Promise<BlockDefinition> {
     const result = await client.query('SELECT v.* FROM definitions d JOIN definition_versions v ON v.definition_id=d.id AND v.version=d.current_version WHERE d.id=$1 AND d.space_id=$2', [definitionId, actor.spaceId])
-    if (!result.rowCount) throw new BlokError('not_found', 'Definition not found')
+    if (!result.rowCount) throw new StorypaneError('not_found', 'Definition not found')
     return definitionRow(result.rows[0])
   }
   async listStories(actor: Actor): Promise<Story[]> { return this.tx(actor, async client => (await client.query('SELECT * FROM stories WHERE space_id=$1 ORDER BY updated_at DESC,id', [actor.spaceId])).rows.map(storyRow)) }
@@ -324,7 +324,7 @@ export class BlokStore {
     const id = parseInput(z.uuid(), storyId)
     return this.tx(actor, async client => {
       const result = await client.query('SELECT * FROM stories WHERE id=$1 AND space_id=$2', [id, actor.spaceId])
-      if (!result.rowCount) throw new BlokError('not_found', 'Story not found in this space')
+      if (!result.rowCount) throw new StorypaneError('not_found', 'Story not found in this space')
       return storyRow(result.rows[0])
     })
   }
@@ -332,7 +332,7 @@ export class BlokStore {
     const input = parseInput(storyInputSchema, value)
     return this.tx(actor, async client => {
       const definition = await this.currentDefinition(client, actor, input.definitionId)
-      if (definition.kind === 'nestable') throw new BlokError('invalid', 'A story requires a content-type or universal block')
+      if (definition.kind === 'nestable') throw new StorypaneError('invalid', 'A story requires a content-type or universal block')
       const story = await client.query('INSERT INTO stories(space_id,name,slug) VALUES($1,$2,$3) RETURNING id', [actor.spaceId, input.name, input.slug])
       const rootId = randomUUID()
       const locale = await client.query("INSERT INTO story_locales(story_id,slug,name,url_slug,root_block_id,space_locale_id) SELECT $1,c.slug,c.name,$2,$3,c.id FROM space_locales c WHERE c.space_id=$4 AND c.slug='' RETURNING id", [story.rows[0].id, input.slug, rootId, actor.spaceId])
@@ -341,19 +341,19 @@ export class BlokStore {
     })
   }
   async listLocales(actor: Actor, storyId: string): Promise<StoryLocale[]> { return this.tx(actor, async client => {
-    const story = await client.query('SELECT id FROM stories WHERE id=$1 AND space_id=$2', [storyId, actor.spaceId]); if (!story.rowCount) throw new BlokError('not_found', 'Story not found')
+    const story = await client.query('SELECT id FROM stories WHERE id=$1 AND space_id=$2', [storyId, actor.spaceId]); if (!story.rowCount) throw new StorypaneError('not_found', 'Story not found')
     return (await client.query("SELECT * FROM story_locales WHERE story_id=$1 ORDER BY (slug='') DESC,name", [storyId])).rows.map(localeRow)
   }) }
   async createLocale(actor: Actor, storyId: string, value: unknown): Promise<LocaleSnapshot> {
     const input = parseInput(localeInputSchema, value)
     return this.tx(actor, async client => {
       const configured = await client.query('SELECT * FROM space_locales WHERE id=$1 AND space_id=$2 FOR UPDATE', [input.spaceLocaleId,actor.spaceId])
-      if (!configured.rows[0]) throw new BlokError('not_found', 'Configure this locale in Space settings first')
-      if (!(await client.query('SELECT id FROM stories WHERE id=$1 AND space_id=$2', [storyId,actor.spaceId])).rowCount) throw new BlokError('not_found', 'Story not found')
+      if (!configured.rows[0]) throw new StorypaneError('not_found', 'Configure this locale in Space settings first')
+      if (!(await client.query('SELECT id FROM stories WHERE id=$1 AND space_id=$2', [storyId,actor.spaceId])).rowCount) throw new StorypaneError('not_found', 'Story not found')
       const existing = await client.query('SELECT id FROM story_locales WHERE story_id=$1 AND space_locale_id=$2', [storyId,input.spaceLocaleId])
       if (existing.rows[0]) { await this.lockLocale(client,actor,storyId,existing.rows[0].id); return this.snapshot(client,actor,storyId,existing.rows[0].id) }
       const original = await client.query("SELECT l.*,b.schema_version_id FROM story_locales l JOIN stories s ON s.id=l.story_id JOIN block_drafts b ON b.id=l.root_block_id AND b.locale_id=l.id WHERE s.id=$1 AND s.space_id=$2 AND l.slug=''", [storyId, actor.spaceId])
-      if (!original.rowCount) throw new BlokError('not_found', 'Story not found')
+      if (!original.rowCount) throw new StorypaneError('not_found', 'Story not found')
       const rootId = randomUUID()
       const locale = await client.query('INSERT INTO story_locales(story_id,slug,name,url_slug,root_block_id,space_locale_id) VALUES($1,$2,$3,$4,$5,$6) RETURNING id', [storyId, configured.rows[0].slug, configured.rows[0].name, input.urlSlug ?? original.rows[0].url_slug, rootId,input.spaceLocaleId])
       const version = await client.query('SELECT schema FROM definition_versions WHERE id=$1', [original.rows[0].schema_version_id])
@@ -365,16 +365,16 @@ export class BlokStore {
   async listCheckpoints(actor: Actor, storyId: string, localeId: string): Promise<Checkpoint[]> { return this.tx(actor, async client => { await this.lockLocale(client, actor, storyId, localeId); return (await client.query('SELECT id,revision,reason,actor_id,created_at FROM checkpoints WHERE locale_id=$1 ORDER BY revision DESC LIMIT 100', [localeId])).rows.map(checkpointRow) }) }
   async getCheckpoint(actor: Actor, storyId: string, localeId: string, checkpointId: string): Promise<CheckpointDetail> { return this.tx(actor, async client => { await this.lockLocale(client, actor, storyId, localeId); return this.readCheckpoint(client, localeId, checkpointId) }) }
   private async readCheckpoint(client: PoolClient, localeId: string, checkpointId: string): Promise<CheckpointDetail> {
-    const result = await client.query('SELECT * FROM checkpoints WHERE id=$1 AND locale_id=$2', [checkpointId, localeId]); if (!result.rowCount) throw new BlokError('not_found', 'Checkpoint not found')
+    const result = await client.query('SELECT * FROM checkpoints WHERE id=$1 AND locale_id=$2', [checkpointId, localeId]); if (!result.rowCount) throw new StorypaneError('not_found', 'Checkpoint not found')
     return { ...checkpointRow(result.rows[0]), snapshot: result.rows[0].snapshot, content: result.rows[0].content }
   }
   async acquireLease(actor: Actor, storyId: string, localeId: string, blockId: string): Promise<Lease> {
     return this.tx(actor, async client => {
       await this.lockLocale(client, actor, storyId, localeId)
-      if (!(await client.query('SELECT id FROM block_drafts WHERE id=$1 AND locale_id=$2', [blockId, localeId])).rowCount) throw new BlokError('not_found', 'Blok not found')
+      if (!(await client.query('SELECT id FROM block_drafts WHERE id=$1 AND locale_id=$2', [blockId, localeId])).rowCount) throw new StorypaneError('not_found', 'Block not found')
       const lease = await client.query('SELECT *,expires_at>clock_timestamp() AS active FROM edit_leases WHERE locale_id=$1 AND block_id=$2 FOR UPDATE', [localeId, blockId])
       const old = lease.rows[0]
-      if (old?.active && (old.user_id !== actor.userId || old.session_id !== actor.sessionId)) throw new BlokError('locked', 'This blok is being edited by someone else')
+      if (old?.active && (old.user_id !== actor.userId || old.session_id !== actor.sessionId)) throw new StorypaneError('locked', 'This block is being edited by someone else')
       const token = old?.active ? old.token : randomUUID()
       const updated = await client.query(`INSERT INTO edit_leases(locale_id,block_id,user_id,session_id,token,expires_at) VALUES($1,$2,$3,$4,$5,clock_timestamp()+interval '${LEASE_SECONDS} seconds') ON CONFLICT(locale_id,block_id) DO UPDATE SET user_id=EXCLUDED.user_id,session_id=EXCLUDED.session_id,token=EXCLUDED.token,expires_at=EXCLUDED.expires_at RETURNING *`, [localeId, blockId, actor.userId, actor.sessionId, token])
       return { blockId, userId: actor.userId, sessionId: actor.sessionId, token, expiresAt: iso(updated.rows[0].expires_at) }
@@ -384,28 +384,28 @@ export class BlokStore {
     return this.tx(actor, async client => {
       await this.lockLocale(client, actor, storyId, localeId)
       const result = await client.query(`UPDATE edit_leases SET expires_at=clock_timestamp()+interval '${LEASE_SECONDS} seconds' WHERE locale_id=$1 AND block_id=$2 AND user_id=$3 AND session_id=$4 AND token=$5 AND expires_at>clock_timestamp() RETURNING *`, [localeId, blockId, actor.userId, actor.sessionId, token])
-      if (!result.rowCount) throw new BlokError('locked', 'Your editing lease expired; reconnect before editing')
+      if (!result.rowCount) throw new StorypaneError('locked', 'Your editing lease expired; reconnect before editing')
       return { blockId, userId: actor.userId, sessionId: actor.sessionId, token, expiresAt: iso(result.rows[0].expires_at) }
     })
   }
   async releaseLease(actor: Actor, storyId: string, localeId: string, blockId: string, token: string): Promise<void> { await this.tx(actor, async client => { await this.lockLocale(client, actor, storyId, localeId); await client.query('DELETE FROM edit_leases WHERE locale_id=$1 AND block_id=$2 AND user_id=$3 AND session_id=$4 AND token=$5', [localeId, blockId, actor.userId, actor.sessionId, token]) }) }
 
   private async requireLease(client: PoolClient, actor: Actor, localeId: string, block: BlockDraft, command: Command): Promise<void> {
-    if (command.expectedRevisions[block.id] !== block.revision) throw new BlokError('stale_revision', 'This blok changed; review the latest version before retrying')
+    if (command.expectedRevisions[block.id] !== block.revision) throw new StorypaneError('stale_revision', 'This block changed; review the latest version before retrying')
     const token = command.leaseTokens[block.id]
-    if (!token || !z.uuid().safeParse(token).success) throw new BlokError('locked', 'Acquire this blok before editing')
+    if (!token || !z.uuid().safeParse(token).success) throw new StorypaneError('locked', 'Acquire this block before editing')
     const lease = await client.query('SELECT block_id FROM edit_leases WHERE locale_id=$1 AND block_id=$2 AND user_id=$3 AND session_id=$4 AND token=$5 AND expires_at>clock_timestamp()', [localeId, block.id, actor.userId, actor.sessionId, token])
-    if (!lease.rowCount) throw new BlokError('locked', 'Your editing lease expired; reconnect before editing')
+    if (!lease.rowCount) throw new StorypaneError('locked', 'Your editing lease expired; reconnect before editing')
   }
   private async noCompetingLeases(client: PoolClient, actor: Actor, localeId: string, blockIds: string[]): Promise<void> {
     const result = await client.query('SELECT block_id FROM edit_leases WHERE locale_id=$1 AND block_id=ANY($2::uuid[]) AND expires_at>clock_timestamp() AND (user_id<>$3 OR session_id<>$4)', [localeId, blockIds, actor.userId, actor.sessionId])
-    if (result.rowCount) throw new BlokError('locked', 'Another editor is working in the affected subtree')
+    if (result.rowCount) throw new StorypaneError('locked', 'Another editor is working in the affected subtree')
   }
   private nestingField(snapshot: LocaleSnapshot, parent: BlockDraft, fieldName: string, definition: BlockDefinition): Extract<FieldDefinition, { type: 'blocks' }> {
     const parentDefinition = snapshot.definitions.find(d => d.versionId === parent.schemaVersionId)!
     const field = parentDefinition.fields.find(f => f.name === fieldName)
-    if (!field || field.type !== 'blocks') throw new BlokError('invalid', 'Select a Blocks field')
-    if (!isBlockAllowed(field, definition)) throw new BlokError('invalid', 'This blok type is not allowed here')
+    if (!field || field.type !== 'blocks') throw new StorypaneError('invalid', 'Select a Blocks field')
+    if (!isBlockAllowed(field, definition)) throw new StorypaneError('invalid', 'This block type is not allowed here')
     return field
   }
   private async validateReferences(client: PoolClient, actor: Actor, schema: DefinitionInput, fields: Record<string, Json>): Promise<void> {
@@ -415,18 +415,18 @@ export class BlokStore {
       const assetId = field.type === 'asset' ? (value as { assetId: string }).assetId : field.type === 'link' && (value as { type: string }).type === 'asset' ? (value as { assetId: string }).assetId : undefined
       if (assetId) {
         const asset = (await client.query('SELECT mime_type FROM assets WHERE id=$1 AND space_id=$2', [assetId, actor.spaceId])).rows[0]
-        if (!asset) throw new BlokError('invalid', 'Asset must belong to this space')
+        if (!asset) throw new StorypaneError('invalid', 'Asset must belong to this space')
         if (field.type === 'asset' && field.mimeTypes?.length && !field.mimeTypes.some(allowed => {
           const mime = String(asset.mime_type).toLowerCase()
           const restriction = allowed.toLowerCase()
           return restriction.endsWith('/*') ? mime.startsWith(restriction.slice(0, -1)) : mime === restriction
-        })) throw new BlokError('invalid', `${field.label} does not allow this asset type`)
+        })) throw new StorypaneError('invalid', `${field.label} does not allow this asset type`)
       }
       const storyIds = field.type === 'link' && (value as { type: string }).type === 'story' ? [(value as { storyId: string }).storyId] : (field.type === 'option' || field.type === 'options') && field.source.type === 'stories' ? (Array.isArray(value) ? value : [value]) : []
       if (storyIds.length) {
-        if (!storyIds.every(v => typeof v === 'string' && z.uuid().safeParse(v).success)) throw new BlokError('invalid', 'Expected story IDs')
+        if (!storyIds.every(v => typeof v === 'string' && z.uuid().safeParse(v).success)) throw new StorypaneError('invalid', 'Expected story IDs')
         const stories = await client.query('SELECT id FROM stories WHERE space_id=$1 AND id=ANY($2::uuid[])', [actor.spaceId, storyIds])
-        if (stories.rowCount !== new Set(storyIds).size) throw new BlokError('invalid', 'Story references must belong to this space')
+        if (stories.rowCount !== new Set(storyIds).size) throw new StorypaneError('invalid', 'Story references must belong to this space')
       }
     }
   }
@@ -437,13 +437,13 @@ export class BlokStore {
       issues.push(...validateFields(definition, block.fields, publish).map(i => ({ ...i, path: `${block.id}.${i.path}` })))
       for (const field of definition.fields.filter(f => f.type === 'blocks')) {
         const children = snapshot.blocks.filter(b => b.parentId === block.id && b.parentField === field.name)
-        if (publish && (field.required || field.minItems) && children.length < Math.max(field.required ? 1 : 0, field.minItems ?? 0)) issues.push({ path: `${block.id}.${field.name}`, message: `Requires at least ${Math.max(field.required ? 1 : 0, field.minItems ?? 0)} bloks` })
-        if (field.maxItems !== undefined && children.length > field.maxItems) issues.push({ path: `${block.id}.${field.name}`, message: `Allows at most ${field.maxItems} bloks` })
+        if (publish && (field.required || field.minItems) && children.length < Math.max(field.required ? 1 : 0, field.minItems ?? 0)) issues.push({ path: `${block.id}.${field.name}`, message: `Requires at least ${Math.max(field.required ? 1 : 0, field.minItems ?? 0)} blocks` })
+        if (field.maxItems !== undefined && children.length > field.maxItems) issues.push({ path: `${block.id}.${field.name}`, message: `Allows at most ${field.maxItems} blocks` })
         for (const child of children) this.nestingField(snapshot, block, field.name, snapshot.definitions.find(d => d.versionId === child.schemaVersionId)!)
       }
       await this.validateReferences(client, actor, definition, block.fields)
     }
-    if (issues.length) throw new BlokError('invalid', publish ? 'Resolve validation errors before publishing' : 'Invalid field values', issues)
+    if (issues.length) throw new StorypaneError('invalid', publish ? 'Resolve validation errors before publishing' : 'Invalid field values', issues)
     assembleContent(snapshot)
   }
   private async normalizePositions(client: PoolClient, localeId: string, parentId: string, field: string, orderedIds?: string[]): Promise<void> {
@@ -459,7 +459,7 @@ export class BlokStore {
       const receipt = await client.query('SELECT * FROM mutation_receipts WHERE locale_id=$1 AND mutation_id=$2', [localeId, command.mutationId])
       if (receipt.rowCount) {
         const previous = receipt.rows[0]
-        if (previous.actor_id !== actor.userId || previous.request_hash !== hash) throw new BlokError('invalid', 'Mutation ID was already used for a different request')
+        if (previous.actor_id !== actor.userId || previous.request_hash !== hash) throw new StorypaneError('invalid', 'Mutation ID was already used for a different request')
         const checkpoint = await this.readCheckpoint(client, localeId, previous.checkpoint_id)
         return { mutationId: command.mutationId, localeRevision: checkpoint.revision, changedBlockIds: previous.changed_block_ids, checkpointId: checkpoint.id, snapshot: checkpoint.snapshot, ...(previous.publication_id ? { publicationId: previous.publication_id } : {}) }
       }
@@ -472,7 +472,7 @@ export class BlokStore {
         await requireOwned(block)
         const definition = before.definitions.find(d => d.versionId === block.schemaVersionId)!
         const issues = validateFields(definition, command.payload.fields)
-        if (issues.length) throw new BlokError('invalid', 'Invalid field values', issues)
+        if (issues.length) throw new StorypaneError('invalid', 'Invalid field values', issues)
         await this.validateReferences(client, actor, definition, command.payload.fields)
         await client.query('UPDATE block_drafts SET fields=$3,revision=revision+1 WHERE locale_id=$1 AND id=$2', [localeId, block.id, JSON.stringify(command.payload.fields)])
         changed.add(block.id)
@@ -484,23 +484,23 @@ export class BlokStore {
         const id = randomUUID()
         const siblings = before.blocks.filter(b => b.parentId === parent.id && b.parentField === command.payload.parentField).sort((a, b) => a.position - b.position).map(b => b.id)
         const position = command.payload.position ?? siblings.length
-        if (position > siblings.length) throw new BlokError('invalid', 'Invalid insertion position')
+        if (position > siblings.length) throw new StorypaneError('invalid', 'Invalid insertion position')
         siblings.splice(position, 0, id)
         await client.query('INSERT INTO block_drafts(id,locale_id,schema_version_id,parent_id,parent_field,fields) VALUES($1,$2,$3,$4,$5,$6)', [id, localeId, definition.versionId, parent.id, command.payload.parentField, JSON.stringify(defaultFields(definition))])
         await this.normalizePositions(client, localeId, parent.id, command.payload.parentField, siblings)
         changed.add(parent.id); changed.add(id)
       } else if (command.type === 'moveBlock') {
         const block = requireBlock(before, command.payload.blockId)
-        if (!block.parentId || !block.parentField) throw new BlokError('invalid', 'The root blok cannot be moved')
+        if (!block.parentId || !block.parentField) throw new StorypaneError('invalid', 'The root block cannot be moved')
         const oldParent = requireBlock(before, block.parentId)
         const parent = requireBlock(before, command.payload.parentId)
         await requireOwned(block); await requireOwned(oldParent); if (parent.id !== oldParent.id) await requireOwned(parent)
         const affected = subtree(before, block.id)
         await this.noCompetingLeases(client, actor, localeId, affected.map(b => b.id))
-        if (affected.some(b => b.id === parent.id)) throw new BlokError('invalid', 'A blok cannot contain itself')
+        if (affected.some(b => b.id === parent.id)) throw new StorypaneError('invalid', 'A block cannot contain itself')
         this.nestingField(before, parent, command.payload.parentField, before.definitions.find(d => d.versionId === block.schemaVersionId)!)
         const siblings = before.blocks.filter(b => b.parentId === parent.id && b.parentField === command.payload.parentField && b.id !== block.id).sort((a, b) => a.position - b.position).map(b => b.id)
-        if (command.payload.position > siblings.length) throw new BlokError('invalid', 'Invalid move position')
+        if (command.payload.position > siblings.length) throw new StorypaneError('invalid', 'Invalid move position')
         siblings.splice(command.payload.position, 0, block.id)
         await client.query('UPDATE block_drafts SET parent_id=$3,parent_field=$4,revision=revision+1 WHERE locale_id=$1 AND id=$2', [localeId, block.id, parent.id, command.payload.parentField])
         if (oldParent.id !== parent.id || block.parentField !== command.payload.parentField) await this.normalizePositions(client, localeId, oldParent.id, block.parentField)
@@ -508,7 +508,7 @@ export class BlokStore {
         changed.add(block.id); changed.add(parent.id); changed.add(oldParent.id)
       } else if (command.type === 'deleteBlock') {
         const block = requireBlock(before, command.payload.blockId)
-        if (!block.parentId || !block.parentField) throw new BlokError('invalid', 'The root blok cannot be deleted')
+        if (!block.parentId || !block.parentField) throw new StorypaneError('invalid', 'The root block cannot be deleted')
         await requireOwned(block); await requireOwned(requireBlock(before, block.parentId))
         const affected = subtree(before, block.id)
         await this.noCompetingLeases(client, actor, localeId, affected.map(b => b.id))
@@ -518,10 +518,10 @@ export class BlokStore {
       } else if (command.type === 'importBlocks') {
         const parent = requireBlock(before, command.payload.parentId)
         await requireOwned(parent)
-        if (command.payload.sourceLocaleId === localeId || before.locale.slug === '') throw new BlokError('invalid', 'Import from Default into another locale')
+        if (command.payload.sourceLocaleId === localeId || before.locale.slug === '') throw new StorypaneError('invalid', 'Import from Default into another locale')
         await this.lockLocale(client, actor, storyId, command.payload.sourceLocaleId)
         const source = await this.snapshot(client, actor, storyId, command.payload.sourceLocaleId)
-        if (source.locale.slug !== '') throw new BlokError('invalid', 'Only Default can be used as an import source')
+        if (source.locale.slug !== '') throw new StorypaneError('invalid', 'Only Default can be used as an import source')
         const selected = new Set(command.payload.blockIds)
         const roots = command.payload.blockIds.filter(id => { let current = requireBlock(source, id); while (current.parentId) { if (selected.has(current.parentId)) return false; current = requireBlock(source, current.parentId) } return true })
         let position = before.blocks.filter(b => b.parentId === parent.id && b.parentField === command.payload.parentField).length
@@ -540,7 +540,7 @@ export class BlokStore {
         changed.add(parent.id)
       } else if (command.type === 'restoreBlock') {
         const block = requireBlock(before, command.payload.blockId)
-        if (!block.parentId) throw new BlokError('invalid', 'Use page restore to restore the root blok and its descendants')
+        if (!block.parentId) throw new StorypaneError('invalid', 'Use page restore to restore the root block and its descendants')
         await requireOwned(block)
         const current = subtree(before, block.id)
         await this.noCompetingLeases(client, actor, localeId, current.map(b => b.id))
@@ -562,7 +562,7 @@ export class BlokStore {
         current.forEach(b => changed.add(b.id))
       } else if (command.type === 'restorePage') {
         await requireOwned(requireBlock(before, before.locale.rootBlockId))
-        if (command.expectedRevisions.$locale !== before.revision) throw new BlokError('stale_revision', 'The page changed; review it before restoring')
+        if (command.expectedRevisions.$locale !== before.revision) throw new StorypaneError('stale_revision', 'The page changed; review it before restoring')
         await this.noCompetingLeases(client, actor, localeId, before.blocks.map(b => b.id))
         const historical = await this.readCheckpoint(client, localeId, command.payload.checkpointId)
         await client.query('DELETE FROM block_drafts WHERE locale_id=$1', [localeId])
@@ -581,7 +581,7 @@ export class BlokStore {
       }
       const after = await this.snapshot(client, actor, storyId, localeId)
       await this.validateSnapshot(client, actor, after, false)
-      if (after.blocks.length > 1000) throw new BlokError('invalid', 'A locale supports at most 1,000 bloks')
+      if (after.blocks.length > 1000) throw new StorypaneError('invalid', 'A locale supports at most 1,000 blocks')
       const snapshot = await this.checkpoint(client, actor, storyId, localeId, command.type)
       await client.query('INSERT INTO mutation_receipts(locale_id,mutation_id,actor_id,request_hash,checkpoint_id,changed_block_ids,publication_id) VALUES($1,$2,$3,$4,$5,$6,$7)', [localeId, command.mutationId, actor.userId, hash, snapshot.checkpointId, JSON.stringify([...changed]), publicationId ?? null])
       return { mutationId: command.mutationId, localeRevision: snapshot.revision, changedBlockIds: [...changed], checkpointId: snapshot.checkpointId!, snapshot, ...(publicationId ? { publicationId } : {}) }
@@ -602,7 +602,7 @@ export class BlokStore {
     const input = parseInput(datasourceInputSchema, value)
     return this.tx(actor, async client => {
       const result = datasourceId ? await client.query('UPDATE datasources SET name=$3,slug=$4,items=$5 WHERE id=$1 AND space_id=$2 RETURNING id,name,slug,items', [datasourceId, actor.spaceId, input.name, input.slug, JSON.stringify(input.items)]) : await client.query('INSERT INTO datasources(space_id,name,slug,items) VALUES($1,$2,$3,$4) RETURNING id,name,slug,items', [actor.spaceId, input.name, input.slug, JSON.stringify(input.items)])
-      if (!result.rowCount) throw new BlokError('not_found', 'Datasource not found')
+      if (!result.rowCount) throw new StorypaneError('not_found', 'Datasource not found')
       return result.rows[0]
     }, true)
   }
@@ -622,7 +622,7 @@ export class BlokStore {
         return { items: result.rows.slice(0, 50), ...(result.rows.length > 50 ? { nextCursor: String(start + 50) } : {}) }
       }
       let items = input.source.type === 'inline' ? input.source.items : []
-      if (input.source.type === 'datasource') { const source = await client.query('SELECT items FROM datasources WHERE id=$1 AND space_id=$2', [input.source.datasourceId, actor.spaceId]); if (!source.rowCount) throw new BlokError('not_found', 'Datasource not found'); items = source.rows[0].items }
+      if (input.source.type === 'datasource') { const source = await client.query('SELECT items FROM datasources WHERE id=$1 AND space_id=$2', [input.source.datasourceId, actor.spaceId]); if (!source.rowCount) throw new StorypaneError('not_found', 'Datasource not found'); items = source.rows[0].items }
       const filtered = items.filter(i => i.label.toLocaleLowerCase().includes(search) || i.value.toLocaleLowerCase().includes(search))
       return { items: filtered.slice(start, start + 50), ...(filtered.length > start + 50 ? { nextCursor: String(start + 50) } : {}) }
     })
@@ -638,7 +638,7 @@ export class BlokStore {
       await client.query("INSERT INTO memberships(space_id,user_id,role) VALUES($1,$2,'admin') ON CONFLICT(space_id,user_id) DO NOTHING", [actor.spaceId, actor.userId])
       const definitions: DefinitionInput[] = [
         { name: 'hero', displayName: 'Hero', kind: 'nestable', fields: [{ name: 'title', label: 'Title', type: 'text', format: 'singleline', required: true, defaultValue: 'Build something worth sharing.' }, { name: 'description', label: 'Description', type: 'text', format: 'textarea', defaultValue: 'Your next story starts here.' }, { name: 'image', label: 'Image', type: 'asset' }] },
-        { name: 'footer', displayName: 'Footer', kind: 'nestable', fields: [{ name: 'text', label: 'Footer text', type: 'text', format: 'singleline', defaultValue: 'Made with Blok.' }, { name: 'link', label: 'Link', type: 'link' }] },
+        { name: 'footer', displayName: 'Footer', kind: 'nestable', fields: [{ name: 'text', label: 'Footer text', type: 'text', format: 'singleline', defaultValue: 'Made with Storypane.' }, { name: 'link', label: 'Link', type: 'link' }] },
         { name: 'page', displayName: 'Page', kind: 'content-type', fields: [{ name: 'title', label: 'Page title', type: 'text', format: 'singleline', required: true, defaultValue: 'Home' }, { name: 'body', label: 'Body', type: 'blocks' }] },
       ]
       const versions = new Map<string, string>()

@@ -1,6 +1,6 @@
 import { signInPage } from './auth'
 import { expect, test, type APIRequestContext } from '@playwright/test'
-import type { BlockDefinition, Command, CommitResult, Lease, LocaleSnapshot, Story, StoryLocale, SpaceLocale } from '@blok/core'
+import type { BlockDefinition, Command, CommitResult, Lease, LocaleSnapshot, Story, StoryLocale, SpaceLocale } from '@storypane/core'
 
 const origin = 'http://127.0.0.1:3130'
 async function json<T>(request: APIRequestContext, path: string, body?: unknown): Promise<T> {

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { Boxes, ArrowRight, Layers3, Globe2, History } from 'lucide-react'
-import { Button } from '@blok/ui'
+import { Button } from '@storypane/ui'
 import { CMSApp, type CMSSession } from './cms-app'
 import { UploadProvider } from '../features/assets/upload'
 import { SpacesScreen } from '../features/spaces/spaces-screen'
@@ -33,7 +33,7 @@ export function AppRoot() {
   return <main className="login-shell">
     <div className="login-appearance"><ThemePicker /></div>
     <div className="login-intro">
-      <div className="brand-lockup"><span className="brand-mark"><Boxes aria-hidden="true" /></span><span className="brand-name">blok<span className="brand-period">.</span></span></div>
+      <div className="brand-lockup"><span className="brand-mark"><Boxes aria-hidden="true" /></span><span className="brand-name">storypane<span className="brand-period">.</span></span></div>
       <div className="login-story"><span className="eyebrow">Your content, connected</span><h1>A space for<br /> every story.</h1><p>Build with blocks. Create in any language.<br />Bring your next idea to life, together.</p><div className="login-features"><span><Layers3 />Flexible blocks</span><span><Globe2 />Every locale</span><span><History />Every version</span></div></div>
       <span className="login-caption">The workspace behind what’s next.</span>
     </div>

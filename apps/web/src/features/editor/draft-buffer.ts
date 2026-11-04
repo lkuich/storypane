@@ -3,7 +3,7 @@ import {
   type BlockDraft,
   type Command,
   type Json,
-} from "@blok/core";
+} from "@storypane/core";
 
 export type SaveAttempt = {
   mutationId: string;

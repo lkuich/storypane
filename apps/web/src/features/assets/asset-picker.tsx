@@ -1,8 +1,8 @@
 'use client';
 
 import { useEffect, useId, useRef, useState } from 'react';
-import type { AssetReference } from '@blok/core';
-import type { AssetRecord } from '@blok/assets';
+import type { AssetReference } from '@storypane/core';
+import type { AssetRecord } from '@storypane/assets';
 import { AssetLibrary, AssetPreview } from './asset-library';
 import { assetApi } from './api';
 

@@ -1,11 +1,11 @@
 import { existsSync,writeFileSync } from 'node:fs';
-import type { BlockDefinition,Command,DefinitionInput,Json,Lease,LocaleSnapshot,Story,StoryLocale,SpaceLocale } from '@blok/core';
+import type { BlockDefinition,Command,DefinitionInput,Json,Lease,LocaleSnapshot,Story,StoryLocale,SpaceLocale } from '@storypane/core';
 
 const envPath = 'apps/example-astro/.env';
 if (existsSync(envPath)) {
   console.log('Keeping the existing Astro configuration and content. Schema generation will use its configured space.');
 } else {
-  const url = process.env.BLOK_URL || 'http://127.0.0.1:3130';
+  const url = (process.env.STORYPANE_URL ?? process.env.BLOK_URL) || 'http://127.0.0.1:3130';
   if (!['127.0.0.1','localhost'].includes(new URL(url).hostname)) throw new Error('Example seeding is restricted to the local CMS. Configure .env manually for a deployed space.');
   let cookies = '', spaceId = '';
   async function request<T>(path:string,method = 'GET',body?:unknown):Promise<T> {
@@ -16,7 +16,7 @@ if (existsSync(envPath)) {
     if (sessionCookies.length) cookies = sessionCookies.map(value => value.split(';')[0]).join('; ');
     return result;
   }
-  await request('/api/auth/sign-in/email','POST',{ email:'admin@blok.local',password:process.env.BLOK_ADMIN_PASSWORD || 'blok-local-admin' });
+  await request('/api/auth/sign-in/email','POST',{ email:'admin@blok.local',password:(process.env.STORYPANE_ADMIN_PASSWORD ?? process.env.BLOK_ADMIN_PASSWORD) || 'blok-local-admin' });
   const space = await request<{ id:string }>('/api/spaces','POST',{ name:'Fieldwork · Astro example',description:'A static Astro site with generated block types and live visual preview.' });
   spaceId = space.id;
   const definitions = new Map<string,BlockDefinition>();
@@ -83,6 +83,6 @@ if (existsSync(envPath)) {
   await request('/api/cms/delivery-settings','PUT',{ previewUrls:[{ id:previewId,name:'Local Astro',url:'http://127.0.0.1:3132/preview?slug={slug}&locale={locale}' }],defaultPreviewId:previewId,previewParameter:'blok_preview' });
   const published = await request<{ token:string }>('/api/cms/delivery-tokens','POST',{ name:'Astro build',scope:'published' });
   const schema = await request<{ token:string }>('/api/cms/delivery-tokens','POST',{ name:'Astro schema tooling',scope:'preview' });
-  writeFileSync(envPath,`BLOK_URL=${url}\nBLOK_SPACE_ID=${spaceId}\nBLOK_DELIVERY_TOKEN=${published.token}\nBLOK_PREVIEW_TOKEN=${schema.token}\nPUBLIC_BLOK_PREVIEW_PARAMETER=blok_preview\nPUBLIC_BLOK_PREVIEW=false\n`,{ mode:0o600,flag:'wx' });
+  writeFileSync(envPath,`STORYPANE_URL=${url}\nSTORYPANE_SPACE_ID=${spaceId}\nSTORYPANE_DELIVERY_TOKEN=${published.token}\nSTORYPANE_PREVIEW_TOKEN=${schema.token}\nPUBLIC_STORYPANE_PREVIEW_PARAMETER=blok_preview\nPUBLIC_STORYPANE_PREVIEW=false\n`,{ mode:0o600,flag:'wx' });
   console.log(`Created Fieldwork example space. Open ${url}/?space=${spaceId}\nCredentials saved privately to ${envPath}. Run pnpm dev:example.`);
 }

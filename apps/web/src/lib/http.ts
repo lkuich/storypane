@@ -1,15 +1,15 @@
-import { BlokError } from '@blok/core'
+import { StorypaneError } from '@storypane/core'
 
 export function assertOrigin(request: Request, appURL: string) {
   if (request.headers.get('origin') !== new URL(appURL).origin) {
-    throw new BlokError('forbidden', 'This request must come from the editor.')
+    throw new StorypaneError('forbidden', 'This request must come from the editor.')
   }
 }
 
 export async function readJson(request: Request): Promise<unknown> {
   const limit = 2 * 1024 * 1024
-  if (!request.headers.get('content-type')?.includes('application/json')) throw new BlokError('invalid', 'Expected JSON')
-  if (!request.body) throw new BlokError('invalid', 'Missing request body')
+  if (!request.headers.get('content-type')?.includes('application/json')) throw new StorypaneError('invalid', 'Expected JSON')
+  if (!request.body) throw new StorypaneError('invalid', 'Missing request body')
   const reader = request.body.getReader()
   const chunks: Uint8Array[] = []
   let length = 0
@@ -18,18 +18,18 @@ export async function readJson(request: Request): Promise<unknown> {
       const { value, done } = await reader.read()
       if (done) break
       length += value.byteLength
-      if (length > limit) { await reader.cancel(); throw new BlokError('invalid', 'Request exceeds 2 MiB') }
+      if (length > limit) { await reader.cancel(); throw new StorypaneError('invalid', 'Request exceeds 2 MiB') }
       chunks.push(value)
     }
   } finally { reader.releaseLock() }
   const body = new Uint8Array(length)
   let offset = 0
   for (const chunk of chunks) { body.set(chunk, offset); offset += chunk.byteLength }
-  try { return JSON.parse(new TextDecoder().decode(body)) } catch { throw new BlokError('invalid', 'Malformed JSON') }
+  try { return JSON.parse(new TextDecoder().decode(body)) } catch { throw new StorypaneError('invalid', 'Malformed JSON') }
 }
 
 export function errorResponse(error: unknown): Response {
-  if (error instanceof BlokError) {
+  if (error instanceof StorypaneError) {
     const statuses = { unauthenticated: 401, forbidden: 403, not_found: 404, locked: 423, stale_revision: 409, invalid: 400, unavailable: 503 }
     return Response.json({ error: { code: error.code, message: error.message, details: error.details } }, { status: statuses[error.code], headers: { 'Cache-Control': 'no-store' } })
   }

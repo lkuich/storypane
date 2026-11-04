@@ -2,10 +2,10 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Box, Boxes, Building2, ChevronsUpDown, ChevronRight, Database, FileText, ImageIcon, LogOut, PanelLeftClose, PanelLeftOpen, Pin, PinOff, Settings2 } from "lucide-react";
-import { Button, ErrorNotice, Loading } from "@blok/ui";
+import { Button, ErrorNotice, Loading } from "@storypane/ui";
 import { api, errorMessage } from "../features/editor/api";
 import { setStoryLocation } from "../lib/space-url";
-import type { Story } from "@blok/core";
+import type { Story } from "@storypane/core";
 import { ContentList } from "../features/content/content-list";
 import { SchemaLibrary } from "../features/schema/schema-library";
 import { DatasourceList } from "../features/datasources/datasource-list";
@@ -130,9 +130,9 @@ export function CMSApp({ session: initialSession }: { session: CMSSession }) {
           }
         }}
       >
-        <button className="sidebar-brand brand-lockup" onClick={() => void allSpaces()} aria-label="Blok home">
+        <button className="sidebar-brand brand-lockup" onClick={() => void allSpaces()} aria-label="Storypane home">
           <span className="brand-mark" aria-hidden="true"><Boxes /></span>
-          <span className="brand-name">blok<span className="brand-period">.</span></span>
+          <span className="brand-name">storypane<span className="brand-period">.</span></span>
         </button>
         {editingStory && <div className="sidebar-controls">
           <button ref={sidebarToggle} className="button button--ghost icon-button sidebar-toggle" aria-label="Toggle navigation" aria-expanded={sidebarExpanded} aria-controls="workspace-navigation" onClick={() => { setSidebarPinned(false); setSidebarOpen(!sidebarExpanded); }} title={sidebarExpanded ? "Collapse navigation" : "Expand navigation"}>

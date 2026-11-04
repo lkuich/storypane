@@ -1,6 +1,6 @@
 import { signInPage as login } from './auth'
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test'
-import type { BlockDefinition, CommitResult, Lease, LocaleSnapshot, Story, StoryLocale, SpaceLocale } from '@blok/core'
+import type { BlockDefinition, CommitResult, Lease, LocaleSnapshot, Story, StoryLocale, SpaceLocale } from '@storypane/core'
 
 const origin = 'http://127.0.0.1:3130'
 async function json<T>(request: APIRequestContext, path: string, body?: unknown): Promise<T> {
@@ -224,7 +224,7 @@ test.describe('editor navigation', () => {
     await page.locator('#main-content').tap({ position: { x: 300, y: 10 } })
     await expect(sidebar).toHaveAttribute('data-expanded', 'false')
     await expect.poll(async () => (await sidebar.boundingBox())!.width).toBe(64)
-    await page.screenshot({ path: '/tmp/blok-editor-mobile.png', fullPage: true })
+    await page.screenshot({ path: '/tmp/storypane-editor-mobile.png', fullPage: true })
     await page.getByRole('button', { name: 'Outline', exact: true }).click()
     await expect(drawer).toBeVisible()
     await drawer.getByRole('button', { name: 'Hero', exact: true }).click()

@@ -1,23 +1,23 @@
 import { DurableObject } from 'cloudflare:workers'
-import { BlokError, type Actor, type CommitResult, type LocaleSnapshot } from '@blok/core'
-import { BlokStore } from '@blok/db'
+import { StorypaneError, type Actor, type CommitResult, type LocaleSnapshot } from '@storypane/core'
+import { StorypaneStore } from '@storypane/db'
 
 export interface Env { HYPERDRIVE: { connectionString: string } }
 type Connection = { actor: Actor; storyId: string; localeId: string; previewSessionId?:string }
 const cleanSnapshot = (snapshot: LocaleSnapshot): LocaleSnapshot => ({ ...snapshot, leases: snapshot.leases.map(({ token: _token, ...lease }) => lease) })
-const errorMessage = (error: unknown) => error instanceof BlokError ? { type: 'error', code: error.code, message: error.message, details: error.details } : { type: 'error', code: 'unavailable', message: 'The collaboration service is unavailable. Your unsent edits are preserved.' }
+const errorMessage = (error: unknown) => error instanceof StorypaneError ? { type: 'error', code: error.code, message: error.message, details: error.details } : { type: 'error', code: 'unavailable', message: 'The collaboration service is unavailable. Your unsent edits are preserved.' }
 
 export class StoryRoom extends DurableObject<Env> {
-  private async withStore<T>(run: (store: BlokStore) => Promise<T>): Promise<T> {
-    const store = new BlokStore(this.env.HYPERDRIVE.connectionString)
+  private async withStore<T>(run: (store: StorypaneStore) => Promise<T>): Promise<T> {
+    const store = new StorypaneStore(this.env.HYPERDRIVE.connectionString)
     try { return await run(store) } finally { await store.pool.end() }
   }
   private connection(request: Request): Connection {
     let actor: Actor
-    try { actor = JSON.parse(request.headers.get('x-blok-actor') ?? '') as Actor } catch { throw new BlokError('unauthenticated', 'Authentication is required') }
+    try { actor = JSON.parse(request.headers.get('x-blok-actor') ?? '') as Actor } catch { throw new StorypaneError('unauthenticated', 'Authentication is required') }
     const storyId = request.headers.get('x-blok-story-id')
     const localeId = request.headers.get('x-blok-locale-id')
-    if (!actor.userId || !actor.sessionId || !actor.spaceId || !storyId || !localeId) throw new BlokError('unauthenticated', 'Authentication is required')
+    if (!actor.userId || !actor.sessionId || !actor.spaceId || !storyId || !localeId) throw new StorypaneError('unauthenticated', 'Authentication is required')
     return { actor, storyId, localeId, ...(request.headers.get('x-blok-preview-id') ? { previewSessionId:request.headers.get('x-blok-preview-id')! } : {}) }
   }
   private send(socket: WebSocket, message: unknown): void { try { socket.send(JSON.stringify(message)) } catch { /* A disconnected client recovers committed state on reconnect. */ } }
@@ -32,7 +32,7 @@ export class StoryRoom extends DurableObject<Env> {
             if ((message as { type?:string }).type === 'commit') this.send(socket, { type:'content', story })
           } else { await store.assertActor(current.actor); this.send(socket, message) }
         }
-        catch (error) { this.send(socket, errorMessage(error)); if (error instanceof BlokError && ['unauthenticated', 'forbidden'].includes(error.code)) socket.close(1008, 'Authentication expired') }
+        catch (error) { this.send(socket, errorMessage(error)); if (error instanceof StorypaneError && ['unauthenticated', 'forbidden'].includes(error.code)) socket.close(1008, 'Authentication expired') }
       }))
     })
   }
@@ -50,7 +50,7 @@ export class StoryRoom extends DurableObject<Env> {
       const url = new URL(request.url)
       if (url.pathname === '/preview-live' && connection.previewSessionId && request.headers.get('Upgrade')?.toLowerCase() === 'websocket') {
         const story = await this.withStore(store => store.previewStory(connection.previewSessionId!))
-        if (story.id !== connection.storyId || story.localeId !== connection.localeId) throw new BlokError('forbidden', 'Preview scope mismatch')
+        if (story.id !== connection.storyId || story.localeId !== connection.localeId) throw new StorypaneError('forbidden', 'Preview scope mismatch')
         const pair = new WebSocketPair()
         this.ctx.acceptWebSocket(pair[1]); pair[1].serializeAttachment(connection)
         this.send(pair[1], { type:'content', story })
@@ -71,7 +71,7 @@ export class StoryRoom extends DurableObject<Env> {
         if ('type' in body && body.type === 'leases') await this.broadcast(connection, { type: 'heartbeat', revision: snapshot.revision, checkpointId: snapshot.checkpointId, leases: cleanSnapshot(snapshot).leases })
         else {
           const result = body as CommitResult
-          if (!result.snapshot || result.snapshot.locale.id !== connection.localeId || result.snapshot.story.id !== connection.storyId || typeof result.localeRevision !== 'number') throw new BlokError('invalid', 'Invalid commit notification')
+          if (!result.snapshot || result.snapshot.locale.id !== connection.localeId || result.snapshot.story.id !== connection.storyId || typeof result.localeRevision !== 'number') throw new StorypaneError('invalid', 'Invalid commit notification')
           await this.broadcast(connection, { type: 'commit', ...result, snapshot: cleanSnapshot(result.snapshot) })
         }
         return Response.json({ ok: true })
@@ -86,9 +86,9 @@ export class StoryRoom extends DurableObject<Env> {
   async webSocketMessage(socket: WebSocket, raw: string | ArrayBuffer): Promise<void> {
     const connection = socket.deserializeAttachment() as Connection
     try {
-      if (typeof raw !== 'string' || raw.length > 4096) throw new BlokError('invalid', 'Invalid collaboration message')
+      if (typeof raw !== 'string' || raw.length > 4096) throw new StorypaneError('invalid', 'Invalid collaboration message')
       const message = JSON.parse(raw) as { type: string; revision?: number }
-      if (!['heartbeat', 'sync'].includes(message.type)) throw new BlokError('invalid', 'Unsupported collaboration message')
+      if (!['heartbeat', 'sync'].includes(message.type)) throw new StorypaneError('invalid', 'Unsupported collaboration message')
       if (connection.previewSessionId) {
         const story = await this.withStore(store => store.previewStory(connection.previewSessionId!))
         this.send(socket, message.type === 'sync' || message.revision !== story.revision ? { type:'content', story } : { type:'heartbeat', revision:story.revision })
@@ -99,7 +99,7 @@ export class StoryRoom extends DurableObject<Env> {
       else this.send(socket, { type: 'heartbeat', revision: snapshot.revision, checkpointId: snapshot.checkpointId, leases: snapshot.leases })
     } catch (error) {
       this.send(socket, errorMessage(error))
-      if (error instanceof BlokError && (error.code === 'unauthenticated' || error.code === 'forbidden')) socket.close(1008, 'Authentication expired')
+      if (error instanceof StorypaneError && (error.code === 'unauthenticated' || error.code === 'forbidden')) socket.close(1008, 'Authentication expired')
     }
   }
   async webSocketClose(socket: WebSocket): Promise<void> {

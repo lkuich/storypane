@@ -2,8 +2,8 @@
 
 import { useEffect, useRef, useState, type DragEvent, type FormEvent } from "react";
 import { ArrowDown, ArrowUp, ChevronDown, GripVertical, Trash2 } from "lucide-react";
-import { definitionInputSchema, fieldDefinitionSchema, type BlockDefinition, type Datasource, type DefinitionInput } from "@blok/core";
-import { Button, EmptyState, ErrorNotice, Field, Modal } from "@blok/ui";
+import { definitionInputSchema, fieldDefinitionSchema, type BlockDefinition, type Datasource, type DefinitionInput } from "@storypane/core";
+import { Button, EmptyState, ErrorNotice, Field, Modal } from "@storypane/ui";
 import { api, errorMessage, fieldName, jsonRequest } from "../editor/api";
 import type { RegisterGuard } from "../editor/navigation";
 import { FieldSettings, newField } from "./field-settings";
@@ -95,7 +95,7 @@ export function SchemaDrawer({ initialDefinition, definitions, datasources, canM
   }
   const duplicate = draft.fields.some(field => field.name === newName);
   return (
-      <Modal open onClose={close} title={original ? `Edit '${original.name}'` : "New block"} className="schema-drawer" description={description}>
+      <Modal open closeOnBackdrop onClose={close} title={original ? `Edit '${original.name}'` : "New block"} className="schema-drawer" description={description}>
         {draft && <div className="schema-editor" onKeyDown={event => {
           if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "s") { event.preventDefault(); void save(); }
         }}>

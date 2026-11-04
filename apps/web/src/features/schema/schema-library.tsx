@@ -2,8 +2,8 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { Box, Layers, Plus, Search } from "lucide-react";
-import type { BlockDefinition, Datasource } from "@blok/core";
-import { Button, EmptyState, ErrorNotice, Loading } from "@blok/ui";
+import type { BlockDefinition, Datasource } from "@storypane/core";
+import { Button, EmptyState, ErrorNotice, Loading } from "@storypane/ui";
 import { api, dateLabel, errorMessage } from "../editor/api";
 import type { RegisterGuard } from "../editor/navigation";
 import { SchemaDrawer } from "./schema-drawer";

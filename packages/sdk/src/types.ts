@@ -1,9 +1,15 @@
-export interface BlokBlock { _uid: string; component: string; [field:string]: unknown }
-export interface BlokLocale { id:string; name:string; slug:string }
-export interface BlokAsset { assetId:string; alt?:string }
-export type BlokLink = { type:'story'; storyId:string } | { type:'external'; url:string } | { type:'email'; email:string } | { type:'asset'; assetId:string };
-export interface BlokRichText { type:string; text?:string; attrs?:Record<string,unknown>; content?:BlokRichText[]; marks?:{ type:string; attrs?:Record<string,unknown> }[] }
-export interface BlokSchemaField {
+export type {
+  StorypaneBlock as BlokBlock, StorypaneLocale as BlokLocale, StorypaneAsset as BlokAsset,
+  StorypaneLink as BlokLink, StorypaneRichText as BlokRichText, StorypaneSchemaField as BlokSchemaField,
+  StorypaneSchema as BlokSchema, StorypaneStory as BlokStory,
+};
+
+export interface StorypaneBlock { _uid: string; component: string; [field:string]: unknown }
+export interface StorypaneLocale { id:string; name:string; slug:string }
+export interface StorypaneAsset { assetId:string; alt?:string }
+export type StorypaneLink = { type:'story'; storyId:string } | { type:'external'; url:string } | { type:'email'; email:string } | { type:'asset'; assetId:string };
+export interface StorypaneRichText { type:string; text?:string; attrs?:Record<string,unknown>; content?:StorypaneRichText[]; marks?:{ type:string; attrs?:Record<string,unknown> }[] }
+export interface StorypaneSchemaField {
   name:string;
   type:'text' | 'number' | 'datetime' | 'boolean' | 'option' | 'options' | 'asset' | 'link' | 'blocks';
   required?:boolean;
@@ -12,10 +18,10 @@ export interface BlokSchemaField {
   allowedDefinitionIds?:string[];
   allowedTags?:string[];
 }
-export interface BlokSchema {
-  components:{ id:string; name:string; kind:'nestable' | 'content-type' | 'universal'; version:number; tags?:string[]; fields:BlokSchemaField[] }[];
+export interface StorypaneSchema {
+  components:{ id:string; name:string; kind:'nestable' | 'content-type' | 'universal'; version:number; tags?:string[]; fields:StorypaneSchemaField[] }[];
 }
-export interface BlokStory<T = BlokBlock> {
+export interface StorypaneStory<T = StorypaneBlock> {
   id:string; name:string; slug:string; locale:string; localeId:string;
   revision:number; content:T; publishedAt:string | null;
 }
@@ -45,6 +51,6 @@ export function isPreviewMode(mode: PreviewMode = {}, context?: { url?:string; c
   return false;
 }
 
-export function editable(block: Pick<BlokBlock, '_uid'>, field?:string) {
+export function editable(block: Pick<StorypaneBlock, '_uid'>, field?:string) {
   return { 'data-blok-id':block._uid, ...(field ? { 'data-blok-field':field } : {}) };
 }

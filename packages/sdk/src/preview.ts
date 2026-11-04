@@ -1,11 +1,11 @@
 export { editable, isPreviewMode } from './types.js';
 export type { PreviewMode, PreviewSession } from './types.js';
-import { isPreviewMode, type BlokStory, type PreviewMode, type PreviewSession, type StoryReference } from './types.js';
+import { isPreviewMode, type StorypaneStory, type PreviewMode, type PreviewSession, type StoryReference } from './types.js';
 
 export type PreviewStatus = 'disabled' | 'waiting' | 'connecting' | 'connected' | 'reconnecting' | 'error';
-export interface PreviewOptions<T = BlokStory['content']> {
+export interface PreviewOptions<T = StorypaneStory['content']> {
   cmsUrl:string; spaceId:string; story:StoryReference; mode?:PreviewMode;
-  onChange:(story:BlokStory<T>) => void;
+  onChange:(story:StorypaneStory<T>) => void;
   onStatus?:(status:PreviewStatus, error?:Error) => void;
   /** For standalone preview, fetch a short-lived session from your authenticated app server. */
   getSession?:() => Promise<PreviewSession>;

@@ -1,7 +1,7 @@
-# Blok
+# Storypane
 
-A Storyblok-style CMS: independent locale pages, automatic saving, exclusive
-blok editing, versioned publishing, and a media library adapted from UGC Scout.
+A collaborative headless CMS: independent locale pages, automatic saving, exclusive
+block editing, versioned publishing, and a media library adapted from UGC Scout.
 
 This first build runs the application, Durable Objects, and R2 in Cloudflare's
 local Workers runtime, with **Postgres 18 in Docker**. It does not need cloud
@@ -21,7 +21,7 @@ pnpm dev
 ```
 
 Open **http://127.0.0.1:3130**. The local setup creates a workspace and a Home story
-with Hero and Footer bloks. Run it again safely without resetting your content.
+with Hero and Footer blocks. Run it again safely without resetting your content.
 After sign-in, the **Spaces** screen lists your workspaces. Create a space or open
 **My space**, then use **Settings** in its sidebar to edit its name and description
 or view its members. Admins can change settings; editors have read-only access.
@@ -50,6 +50,13 @@ a random auth secret in ignored `apps/web/.dev.vars`. Local R2/room state persis
 under `.cloudflare/state`; database content persists in `blok_postgres_data`.
 Stop the database with `docker compose stop`. Removing its volume erases content.
 
+Storypane was previously named Blok. Workspace packages now use `@storypane/*`,
+and the SDK command is `storypane`. Prefer `STORYPANE_*` environment variables
+(`PUBLIC_STORYPANE_*` for browser flags); existing `BLOK_*` settings still work.
+The local database, fixture accounts, Docker project/volume, Cloudflare resource
+names, preview protocol, and browser storage keys retain their original identifiers
+so the rename preserves content, assets, sessions, and unsent edits.
+
 ## What works
 
 - Central Spaces screen with search, creation, story/member counts, and per-space
@@ -61,7 +68,7 @@ Stop the database with `docker compose stop`. Removing its volume erases content
 - Delivery SDK with Postgres-backed published reads, read-only live draft preview,
   configurable preview triggers, and React/Next.js/Astro integration recipes.
 - Working Astro example with a typed React block registry, published static pages,
-  unpublished-story preview shell, and `blok:pull` / `blok:types` / `blok:generate` commands.
+  unpublished-story preview shell, and `storypane:pull` / `storypane:types` / `storypane:generate` commands.
 - Application iframe preview and click-to-edit block selection. Configure named preview
   URLs and a default in **Settings → API & preview**, then switch apps in the preview panel.
   URLs support `{slug}` and `{locale}`. Existing single URLs are migrated to a default entry.
@@ -86,9 +93,9 @@ Stop the database with `docker compose stop`. Removing its volume erases content
   Configured locales appear on every story; opening a new locale creates its
   independent page. Admins can add/rename locales and remove unused ones.
   Renaming retains content/history; Default and locales with content cannot be removed.
-- Blok leases, autosave, live updates, conflict detection, and preserved unsent
+- Block leases, autosave, live updates, conflict detection, and preserved unsent
   input when disconnected. Continued editing requires a connection.
-- Page/blok restoration into new history and publication of a fixed reviewed
+- Page/block restoration into new history and publication of a fixed reviewed
   checkpoint. Subsequent edits stay in the draft.
 - Multi-file drops anywhere in the asset library, with a floating upload queue
   that continues across workspace navigation and supports pause/resume.
@@ -99,8 +106,8 @@ Stop the database with `docker compose stop`. Removing its volume erases content
 ## Storage and workspace
 
 Postgres is authoritative for draft JSONB, schemas, leases, immutable checkpoints,
-and publications. Each blok has its own revision. Brief locale transactions
-produce a consistent history without rejecting unrelated blok edits. Durable
+and publications. Each block has its own revision. Brief locale transactions
+produce a consistent history without rejecting unrelated block edits. Durable
 Objects deliver presence and committed updates; they do not hold the only copy
 of a draft. This avoids a second draft database and a cross-database publish step.
 
@@ -115,8 +122,8 @@ of a draft. This avoids a second draft database and a cross-database publish ste
 | `packages/ui` | Shared controls |
 | `packages/sdk` | Published delivery, browser preview bridge, React hook, schema/type CLI |
 
-Existing bloks retain their referenced schema version when a definition changes;
-new bloks use the latest version. Bulk schema migration is not implemented yet.
+Existing blocks retain their referenced schema version when a definition changes;
+new blocks use the latest version. Bulk schema migration is not implemented yet.
 Block Config supports comma-separated tags. Blocks fields can restrict nesting by
 specific blocks or by any matching tag, with searchable selectors. Empty selections
 allow all nestable/universal blocks. Tags are versioned with schemas; imports and
@@ -183,7 +190,7 @@ accounts, and configure:
   responses remain private. Local development uses Cloudflare's image simulator.
   Images over the binding's 20 MiB input limit retain original downloads but
   show a preview-unavailable state. Production Images access must be enabled.
-- `BLOK_APP_URL`: the deployed HTTPS origin, matching cookie/origin validation.
+- `STORYPANE_APP_URL`: the deployed HTTPS origin, matching cookie/origin validation.
 - `AUTH_SECRET`: a strong Worker secret, distinct from the local fixture secret.
 - `EXTERNAL_OPTION_HOSTS`: approved option-source hostnames, if used.
 

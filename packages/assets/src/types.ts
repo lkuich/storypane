@@ -1,5 +1,5 @@
 import type { Pool } from 'pg';
-import type { Actor } from '@blok/core';
+import type { Actor } from '@storypane/core';
 
 export interface AssetRecord {
   id: string;

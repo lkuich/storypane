@@ -1,4 +1,4 @@
-# Blok: first implementation and subagent assignments
+# Storypane: first implementation and subagent assignments
 
 Status: implemented and integrated locally. Docker Postgres, Workers, Durable
 Objects, R2, authentication, editor, schemas, locales, history, and media library
@@ -20,10 +20,10 @@ and remote deployment remain separate steps.
 - Each locale is an independent page with its own structure and publication.
   Default's locale slug is `""`; story URL slugs are separate. Use an internal
   locale ID in APIs and room keys so empty slugs do not create ambiguous routes.
-- Import from Default copies selected subtrees once, with fresh blok IDs.
-- Exclusive editing is per blok instance and locale. Pause offline, preserve
+- Import from Default copies selected subtrees once, with fresh block IDs.
+- Exclusive editing is per block instance and locale. Pause offline, preserve
   unsent input, and reconcile on reconnect. No offline collaborative merge.
-- Restore a page or an individual blok into new draft history. Publish a reviewed,
+- Restore a page or an individual block into new draft history. Publish a reviewed,
   immutable checkpoint while later work continues in the draft.
 
 ## Ownership
@@ -68,16 +68,16 @@ Each agent owns tests for its behavior. The coordinator owns cross-feature tests
   and flags permitting nestable, content-type, or universal use. Store schema
   version references with content. Do not destructively rewrite existing content
   when a definition changes.
-- Store story identity, locale identity, current blok rows, authoritative editing
-  leases, immutable checkpoints, and immutable publications. Each blok has a UUID,
-  JSONB field values, definition version, parent field, order, and blok revision.
+- Store story identity, locale identity, current block rows, authoritative editing
+  leases, immutable checkpoints, and immutable publications. Each block has a UUID,
+  JSONB field values, definition version, parent field, order, and block revision.
   Store nesting once and assemble the nested JSON at API boundaries.
 - Start with a full locale snapshot per accepted autosave batch. Preserve actor,
   locale sequence, mutation ID, reason, and schema versions. This intentionally
   favors simple recovery over storage efficiency; measure before adding deltas
   or retention. Add the required `shortcut:` comment at snapshot creation.
 - Use `pg` and short database transactions. Serialize mutations briefly on the
-  locale row to create a consistent snapshot and sequence. Compare affected blok
+  locale row to create a consistent snapshot and sequence. Compare affected block
   revisions, not a global page revision, so unrelated edits do not conflict.
 - Leases last 45 seconds and renew every 15 seconds. Validate membership,
   session, opaque lease token, expiry, expected revisions, and payload shape on
@@ -95,7 +95,7 @@ Each agent owns tests for its behavior. The coordinator owns cross-feature tests
   checkpoint against its referenced schemas, copies its JSON into a new
   publication, and updates the published pointer atomically.
 - Imports clone subtrees with new instance IDs but retain asset/story references.
-  Blok restore restores its historical subtree without changing siblings; page
+  Block restore restores its historical subtree without changing siblings; page
   restore requires no competing locale leases. Both create new checkpoints.
 - Implement managed KV datasources and a common option resolver for inline
   options, datasources, external JSON, and story references. External sources use
@@ -122,9 +122,9 @@ Each agent owns tests for its behavior. The coordinator owns cross-feature tests
   and a two-second maximum delay. Flush before release/navigation; show pending,
   saved, error, disconnected, locked, and conflict states accurately.
 - Preserve unsent changes in browser storage scoped to user/space/story/locale.
-  Reconnect and reacquire before retrying; replay only matching blok revisions.
+  Reconnect and reacquire before retrying; replay only matching block revisions.
   Keep unrelated incoming changes from resetting focused input.
-- Implement locale tabs, selected-subtree import, page/blok history restore,
+- Implement locale tabs, selected-subtree import, page/block history restore,
   and review/publish of a fixed checkpoint. Later edits remain draft.
 - Reuse only needed UGC Scout Radix/Tailwind primitives. Include labels,
   keyboard operations, focus management, error descriptions, and announcements.
@@ -156,7 +156,7 @@ Each agent owns tests for its behavior. The coordinator owns cross-feature tests
 ## Shared interfaces
 
 - Shared types and runtime validators: block definition/version, field definition,
-  blok draft, locale snapshot, lease, checkpoint, publication, asset reference,
+  block draft, locale snapshot, lease, checkpoint, publication, asset reference,
   option item, permissions, and validation errors.
 - Command names: `saveBlock`, `insertBlock`, `moveBlock`, `deleteBlock`,
   `importBlocks`, `restoreBlock`, `restorePage`, `publishCheckpoint`.
@@ -180,13 +180,13 @@ Each agent owns tests for its behavior. The coordinator owns cross-feature tests
 1. Foundation: health-checked Docker Postgres, runnable local Workers application,
    persisted local bindings, and authenticated space isolation.
 2. Vertical slice: two browser sessions edit Hero and Footer independently; a
-   second writer cannot change a leased blok. Closing an editor releases/expires
+   second writer cannot change a leased block. Closing an editor releases/expires
    its lease and stale tokens cannot write.
 3. Recovery: interrupt a connection, restart the Durable Object, fail the database,
    and simulate commit-before-broadcast failure. Preserve acknowledged data and
    unsent input; never display Saved before commit. Deduplicate retried mutations.
 4. Locale/history: independent structures, fresh IDs on import, sibling-preserving
-   blok restore, safe structural conflicts, and exact-checkpoint publication while
+   block restore, safe structural conflicts, and exact-checkpoint publication while
    the current draft advances. Schema edits must not erase old content.
 5. Fields/assets: complete requested field serialization, option source failures,
    cross-space authorization, image/video/PDF upload, retry and finalization
