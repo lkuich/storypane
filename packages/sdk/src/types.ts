@@ -19,9 +19,11 @@ export interface StorypaneSchemaField {
   allowedTags?:string[];
 }
 export interface StorypaneSchema {
+  migrationVersion:number;
   components:{ id:string; name:string; kind:'nestable' | 'content-type' | 'universal'; version:number; tags?:string[]; fields:StorypaneSchemaField[] }[];
 }
 export interface StorypaneStory<T = StorypaneBlock> {
+  migrationVersion?:number;
   id:string; name:string; slug:string; locale:string; localeId:string;
   revision:number; content:T; publishedAt:string | null;
 }

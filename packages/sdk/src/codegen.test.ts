@@ -6,7 +6,7 @@ import { mkdtempSync,writeFileSync,rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join,resolve } from 'node:path';
 
-const schema:StorypaneSchema = { components:[
+const schema:StorypaneSchema = { migrationVersion:2, components:[
   { id:'page',name:'page',kind:'content-type',version:1,fields:[{ name:'body',type:'blocks',allowedDefinitionIds:['hero'] }] },
   { id:'hero',name:'hero',kind:'universal',version:2,fields:[
     { name:'title',type:'text',required:true },{ name:'description',type:'text',format:'markdown' },
@@ -19,7 +19,8 @@ const schema:StorypaneSchema = { components:[
 ] };
 it('generates deterministic discriminated types with constrained nesting and real field shapes',() => {
   const output = generateTypes(schema);
-  expect(output).toBe(generateTypes({ components:[...schema.components].reverse() }));
+  expect(output).toBe(generateTypes({ migrationVersion:2, components:[...schema.components].reverse() }));
+  expect(output).toContain('export const storypaneMigrationVersion = 2 as const;');
   expect(output).toContain('"body": Array<HeroBlock>');
   expect(output).toContain('"theme": "light" | "dark" | "quote\\\"\\n"');
   expect(output).toContain('export type StorypaneNestable = HeroBlock;');
@@ -54,8 +55,8 @@ it('rejects invalid identifiers, collisions, fields, and missing nested schema r
     (value:StorypaneSchema) => { value.components[0].fields.push(value.components[0].fields[0]); },
     (value:StorypaneSchema) => { value.components[1].kind = 'content-type'; },
   ]) { const changed = structuredClone(schema); mutate(changed); expect(() => generateTypes(changed)).toThrow(); }
-  expect(() => generateTypes({ components:[{ name:'injected' }] })).toThrow();
-  expect(generateTypes({ components:[] })).toContain('export type StorypaneComponent = never;');
+  expect(() => generateTypes({ migrationVersion:2, components:[{ name:'injected' }] })).toThrow();
+  expect(generateTypes({ migrationVersion:2, components:[] })).toContain('export type StorypaneComponent = never;');
 });
 it('generates tag-restricted unions, including never when no nestable block matches',() => {
   const tagged = structuredClone(schema);

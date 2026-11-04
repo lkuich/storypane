@@ -29,8 +29,11 @@ if (existsSync(envPath)) {
   ];
   for (const schema of schemas) {
     for (const field of schema.fields) if (field.type === 'blocks') field.allowedDefinitionIds = (schema.name === 'feature_grid' ? ['feature'] : ['hero','feature_grid','footer']).map(name => definitions.get(name)!.id);
-    definitions.set(schema.name,await request<BlockDefinition>('/api/cms/definitions','POST',schema));
+    definitions.set(schema.name,await request<BlockDefinition>('/api/cms/definitions','POST',{schema,baseVersion:0}));
   }
+  const active=(await request<{id:string;status:string}[]>('/api/cms/migrations')).find(item=>item.status==='active')!;
+  const review=await request<{token:string}>(`/api/cms/migrations/${active.id}/review`);
+  await request(`/api/cms/migrations/${active.id}/deploy`,'POST',{reviewToken:review.token});
   async function createPage(name:string,slug:string) {
     const story = await request<Story>('/api/cms/stories','POST',{ name,slug,definitionId:definitions.get('page')!.id });
     const [locale] = await request<StoryLocale[]>(`/api/cms/stories/${story.id}/locales`);

@@ -1,10 +1,11 @@
+import { migrationWarning } from './migration-warning.js';
 export { editable, isPreviewMode } from './types.js';
 export type { PreviewMode, PreviewSession } from './types.js';
 import { isPreviewMode, type StorypaneStory, type PreviewMode, type PreviewSession, type StoryReference } from './types.js';
 
 export type PreviewStatus = 'disabled' | 'waiting' | 'connecting' | 'connected' | 'reconnecting' | 'error';
 export interface PreviewOptions<T = StorypaneStory['content']> {
-  cmsUrl:string; spaceId:string; story:StoryReference; mode?:PreviewMode;
+  cmsUrl:string; spaceId:string; migrationVersion?:number; story:StoryReference; mode?:PreviewMode;
   onChange:(story:StorypaneStory<T>) => void;
   onStatus?:(status:PreviewStatus, error?:Error) => void;
   /** For standalone preview, fetch a short-lived session from your authenticated app server. */
@@ -14,6 +15,7 @@ export interface PreviewOptions<T = StorypaneStory['content']> {
 /** Connects only in preview mode. Published pages never request drafts or open a socket. */
 export function connectPreview<T>(options:PreviewOptions<T>): () => void {
   if (typeof window === 'undefined' || !isPreviewMode(options.mode)) { options.onStatus?.('disabled'); return () => {}; }
+  const warnMigration=migrationWarning(options.migrationVersion);
   const cms = new URL(options.cmsUrl), editorOrigin = cms.origin;
   let stopped = false, socket:WebSocket | undefined, session:PreviewSession | undefined;
   let reconnect:ReturnType<typeof setTimeout> | undefined, renew:ReturnType<typeof setTimeout> | undefined;
@@ -47,6 +49,7 @@ export function connectPreview<T>(options:PreviewOptions<T>): () => void {
       try {
         const message = JSON.parse(event.data);
         if (message.type === 'content' && message.story?.id === value.storyId && message.story?.localeId === value.localeId && typeof message.story.revision === 'number' && message.story.revision >= revision) {
+          warnMigration(message.story.migrationVersion);
           revision = message.story.revision; options.onChange(message.story); highlight();
         } else if (message.type === 'error') status('error', new Error(message.message ?? 'Preview is unavailable'));
       } catch { status('error', new Error('Invalid preview response')); }

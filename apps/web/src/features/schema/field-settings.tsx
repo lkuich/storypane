@@ -262,7 +262,7 @@ export function FieldSettings({
           }
           const next = newField(choice.type, field.name, field.label);
           if (next.type === "text") next.format = choice.format!;
-          onChange({ ...next, description: field.description, required: field.required });
+          onChange({ ...next, id:field.id, description: field.description, required: field.required });
         }} />
       </Field>
       <div className="field">

@@ -6,6 +6,7 @@ import {
 } from "@storypane/core";
 
 export type SaveAttempt = {
+  migrationVersion?:number;
   mutationId: string;
   baseRevision: number;
   fields: Record<string, Json>;

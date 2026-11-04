@@ -89,9 +89,9 @@ pnpm --filter @storypane/example-astro storypane:generate # both steps
 
 `storypane:pull` loads this app's `.env` and uses a **Preview · server only** token.
 The schema endpoint is space-scoped, rejects published-only/revoked tokens, and
-exports current schema metadata without defaults, draft values, or data-source
-URLs. `storypane:types` works offline. Commit both files; regenerate after changing
-schemas. The checked-in schema is a sample; setup replaces its IDs with those in
+exports deployed schema metadata without defaults, draft values, or data-source
+URLs. `storypane:types` works offline. Commit both files; regenerate after deploying
+schema migrations. The checked-in schema is a sample; setup replaces its IDs with those in
 your own local space.
 
 The SDK's `storypane` executable can be used in other projects too:
@@ -133,7 +133,9 @@ The registry in `src/components/blocks.tsx` uses `satisfies StorypaneComponentMa
 mapped props, so missing registrations or incompatible props fail type checking.
 Drafts can be incomplete; renderers should tolerate missing required content.
 Generated types are compile-time contracts, not runtime validators. They describe
-the current schema; older publications keep their original schema until migrated.
+the pulled deployed migration. The delivery client and preview components pass
+its generated `storypaneMigrationVersion`; outdated integrations warn and keep
+receiving content. Schema deployment migrates both drafts and live publications.
 
 ## Files and checks
 
@@ -163,3 +165,9 @@ The generated `dist/` can be hosted as static assets, including on Cloudflare.
 Use an HTTPS preview URL when the CMS is HTTPS, permit the CMS origin in
 `frame-ancestors`, and avoid an incompatible `X-Frame-Options` header. Deployment,
 standalone preview authentication, and public DAM delivery are outside this example.
+
+For authoring and CI/CD, the SDK also supports `storypane migrations pull`,
+`storypane migrations create "description"`, and `storypane migrations push
+--deploy --yes`. These use a separate management token issued by an admin in
+**Blocks → Schema migrations → CLI & CI access tokens**. See the
+[SDK guide](../../packages/sdk/README.md#schema-migrations-and-generated-types).

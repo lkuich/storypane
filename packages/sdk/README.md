@@ -39,11 +39,13 @@ supported for development.
 
 ```ts
 import { createStorypaneClient, type StorypaneBlock } from '@storypane/sdk'
+import { storypaneMigrationVersion } from './types/storypane'
 
 const storypane = createStorypaneClient({
   url: process.env.STORYPANE_URL!,
   spaceId: process.env.STORYPANE_SPACE_ID!,
   token: process.env.STORYPANE_DELIVERY_TOKEN!,
+  migrationVersion: storypaneMigrationVersion,
 })
 
 const page = await storypane.getStory({ slug: 'home', locale: '' })
@@ -78,11 +80,12 @@ for visitors, and the hook opens a draft connection only in preview mode.
 ```tsx
 // app/[slug]/page.tsx — supply generateStaticParams for the routes you build.
 import { createStorypaneClient } from '@storypane/sdk'
+import { storypaneMigrationVersion } from './types/storypane'
 import { Content } from './content'
 
 const storypane = createStorypaneClient({
   url: process.env.STORYPANE_URL!, spaceId: process.env.STORYPANE_SPACE_ID!,
-  token: process.env.STORYPANE_DELIVERY_TOKEN!,
+  token: process.env.STORYPANE_DELIVERY_TOKEN!, migrationVersion: storypaneMigrationVersion,
 })
 
 export default async function Page({ params }: { params: Promise<{ slug: string }> }) {
@@ -97,6 +100,7 @@ export default async function Page({ params }: { params: Promise<{ slug: string 
 // app/[slug]/content.tsx
 'use client'
 import { useStorypaneStory, editable } from '@storypane/sdk/react'
+import { storypaneMigrationVersion } from './types/storypane'
 import type { StorypaneBlock, StorypaneStory } from '@storypane/sdk'
 
 function Block({ block }: { block: StorypaneBlock }) {
@@ -113,7 +117,7 @@ export function Content({ initial, cmsUrl, spaceId }: {
   initial: StorypaneStory; cmsUrl: string; spaceId: string
 }) {
   const { story, error } = useStorypaneStory(initial, {
-    cmsUrl, spaceId,
+    cmsUrl, spaceId, migrationVersion: storypaneMigrationVersion,
     mode: {
       query: { name: 'blok_preview', value: '1' },
       cookie: { name: 'my_preview', value: '1' },
@@ -148,10 +152,11 @@ app), and hydrate it even on static pages:
 ```astro
 ---
 import { createStorypaneClient } from '@storypane/sdk'
+import { storypaneMigrationVersion } from '../types/storypane'
 import { Content } from '../components/Content'
 const storypane = createStorypaneClient({
   url: import.meta.env.STORYPANE_URL, spaceId: import.meta.env.STORYPANE_SPACE_ID,
-  token: import.meta.env.STORYPANE_DELIVERY_TOKEN,
+  token: import.meta.env.STORYPANE_DELIVERY_TOKEN, migrationVersion: storypaneMigrationVersion,
 })
 const initial = await storypane.getStory({ slug: 'home', locale: '' })
 ---
@@ -169,8 +174,9 @@ Without React, use a bundled Astro `<script>` and render the subscribed content:
 
 ```ts
 import { connectPreview } from '@storypane/sdk/preview'
+import { storypaneMigrationVersion } from './types/storypane'
 const stop = connectPreview({
-  cmsUrl: 'https://cms.example', spaceId: 'your-space-id',
+  cmsUrl: 'https://cms.example', spaceId: 'your-space-id', migrationVersion: storypaneMigrationVersion,
   story: { slug: 'home', locale: '' },
   mode: { query: { name: 'blok_preview', value: '1' } },
   onChange: story => renderWithYourClientComponents(story.content),
@@ -242,24 +248,99 @@ revisions are ignored. Errors are exposed through `onStatus` / the React hook.
   the consuming app. The Astro example is built and tested through its real React
   island; the Next.js example remains an integration recipe.
 
-## Generate block types
+## Schema migrations and generated types
 
-The package includes a `storypane` CLI. Export `STORYPANE_URL`, `STORYPANE_SPACE_ID`, and a
-server-only `STORYPANE_PREVIEW_TOKEN`, then run:
+A space has one shared active migration. CMS schema saves and CLI pushes update
+that migration; page editing and delivery keep using deployed schemas until an
+admin deploys it. New block types must be deployed before they can be inserted.
+
+In **Blocks → Schema migrations → CLI & CI access tokens**, an admin can issue a
+management token with read, stage, or deploy capability. Set `STORYPANE_URL`,
+`STORYPANE_SPACE_ID`, and `STORYPANE_MANAGEMENT_TOKEN` in your terminal or CI secret
+store. Management tokens are never browser credentials. Revocation and the
+issuer's current membership/permissions are checked on every operation.
+
+```sh
+storypane migrations pull
+storypane migrations create "Rename hero title"
+# Edit storypane/migrations/active.json. Keep existing field IDs when renaming.
+storypane migrations push
+# Or review and deploy from an admin's terminal:
+storypane migrations push --deploy
+storypane migrations pull
+storypane generate-types --out src/types/storypane.ts
+```
+
+If the CMS already has an active migration, `pull` downloads it: edit that file
+instead of running `create`. Migration files target exactly one space. Commit the
+`storypane/migrations` directory with application code. Numbered JSON files are
+immutable deployed history; `active.json` is the editable target schema. New
+fields and definitions may omit their IDs; push assigns and persists IDs before
+sending them. Existing IDs preserve renames, including nested blocks. Field order
+in the array controls editor order. Definition API names cannot be renamed, and
+removing an entire definition is not supported.
+
+Local edits and deployed history are never silently overwritten. A stale push or
+divergent pull fails with a conflict. Use `storypane migrations pull --out
+/tmp/storypane-remote` to inspect a separate remote copy, reconcile your changes
+into its active file while preserving its remote revision/source hash, then copy
+that reconciled file into your project. Pull the deployed history too if the base
+version changed. There is no force-push switch.
+
+Deployment prints the schema diff and affected draft/publication counts. Deleted
+fields lose their active values; removing a nested-block field removes its
+subtree. Type changes reset values to a valid target default or unset them.
+Renames and plain text format changes preserve values. Defaults do not overwrite
+unchanged fields. Invalid resulting publications, constraints, references, or
+nesting block deployment. Drafts may still omit fields required for publication.
+
+Drafts and live publications migrate separately in one transaction, so deploying
+schemas never publishes unfinished edits. Old values remain in history. Restores
+apply intervening migrations; restore an older checkpoint before publishing it.
+
+### CI/CD
+
+Use a deploy-capable management token from your CI secret store:
+
+```sh
+storypane migrations push --deploy --yes
+storypane migrations pull
+storypane generate-types --out src/types/storypane.ts
+# Run your application's build/tests, then deploy it.
+```
+
+`--yes` permits noninteractive deployment; validation and conflict checks still
+apply. A stale impact review or failed deployment exits nonzero. Retrying the
+same migration is safe, including after a lost response. The CLI does not commit
+files or deploy your application. On success, the local active file becomes a
+numbered deployed snapshot.
+
+### Runtime version warnings
+
+Codegen exports `storypaneMigrationVersion` with the block types. Pass that
+constant as `migrationVersion` to `createStorypaneClient`, `connectPreview`, and
+`useStorypaneStory`. Published responses and preview updates include their actual
+version. A mismatch logs one warning per observed version per client/connection;
+**content is still returned and preview remains connected**. Unversioned clients
+also keep working. Existing caching options remain available; cached/static
+content has no separate freshness check.
+
+Warnings do not adapt newer content to older application code. Removed/reset
+fields can require renderer changes even though requests succeed. Types describe
+the locally pulled deployment; draft values can be incomplete. Rebuild static
+sites after publishing or deploying schemas.
+
+### Existing schema-pull commands
+
+The original commands still work with `STORYPANE_PREVIEW_TOKEN`:
 
 ```sh
 storypane pull-components --out storypane/components.json
 storypane generate-types --input storypane/components.json --out src/types/storypane.ts
 ```
 
-The first command reads current schema metadata from the scoped `/api/delivery/schema`
-endpoint. A published-only token cannot read schemas. The second runs offline and
-produces discriminated block interfaces, typed fields, allowed nesting unions,
-inline option unions, and `StorypaneComponentMap` for component registration. Files are
-written atomically; invalid input does not overwrite existing output. `getSchema()`
-also exposes the metadata through a server-side SDK client.
-
-Types describe current schemas and valid published values. Drafts may be incomplete,
-and older publications retain their original schema versions. Dynamic options stay
-string IDs, media/link references retain their structures, and there is no runtime
-validation or automatic schema migration in generated output.
+The schema endpoint returns only the latest deployed metadata, without content,
+defaults, or source URLs. A published-only token cannot read schemas. Codegen is
+offline and writes atomically; invalid input preserves the previous output.
+Both workflows require the initial schema migration to be deployed first.
+The `blok` executable and legacy `BLOK_*` environment names remain supported.

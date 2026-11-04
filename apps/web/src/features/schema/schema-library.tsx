@@ -6,11 +6,13 @@ import type { BlockDefinition, Datasource } from "@storypane/core";
 import { Button, EmptyState, ErrorNotice, Loading } from "@storypane/ui";
 import { api, dateLabel, errorMessage } from "../editor/api";
 import type { RegisterGuard } from "../editor/navigation";
+import { MigrationPanel } from "./migration-panel";
 import { SchemaDrawer } from "./schema-drawer";
 
 const kindLabels = { nestable: "Nestable", "content-type": "Content type", universal: "Universal" };
 
-export function SchemaLibrary({ canManage, registerGuard }: { canManage: boolean; registerGuard: RegisterGuard }) {
+export function SchemaLibrary({ canManage, canDeploy, registerGuard }: { canManage: boolean; canDeploy:boolean; registerGuard: RegisterGuard }) {
+  const [deployed,setDeployed]=useState<BlockDefinition[]>([]);
   const [definitions, setDefinitions] = useState<BlockDefinition[]>([]);
   const [datasources, setDatasources] = useState<Datasource[]>([]);
   const [loading, setLoading] = useState(true);
@@ -20,12 +22,14 @@ export function SchemaLibrary({ canManage, registerGuard }: { canManage: boolean
   const load = useCallback(async () => {
     setLoading(true); setError(null);
     try {
-      const [blocks, sources] = await Promise.all([api<BlockDefinition[]>("/definitions"), api<Datasource[]>("/datasources")]);
+      const [blocks, sources, published] = await Promise.all([api<BlockDefinition[]>("/definitions"), api<Datasource[]>("/datasources"), api<BlockDefinition[]>("/definitions?deployed=true")]);
+      setDeployed(published);
       setDefinitions(blocks); setDatasources(sources);
     } catch (cause) { setError(errorMessage(cause)); }
     finally { setLoading(false); }
   }, []);
   useEffect(() => { void load(); }, [load]);
+  useEffect(()=>{let stopped=false;const refresh=()=>{if(!document.hidden)void Promise.all([api<BlockDefinition[]>("/definitions"),api<BlockDefinition[]>("/definitions?deployed=true")]).then(([value,published])=>{if(!stopped){setDefinitions(value);setDeployed(published)}}).catch(()=>undefined)};const timer=setInterval(refresh,5000);window.addEventListener('focus',refresh);return ()=>{stopped=true;clearInterval(timer);window.removeEventListener('focus',refresh)}},[]);
   const filtered = definitions.filter(item => `${item.name} ${item.displayName}`.toLowerCase().includes(search.toLowerCase()));
   return <>
           <div className="page-heading">
@@ -40,6 +44,7 @@ export function SchemaLibrary({ canManage, registerGuard }: { canManage: boolean
               </Button>
             )}
           </div>
+          <MigrationPanel canDeploy={canDeploy} onDeploy={load} />
           <ErrorNotice message={error} retry={() => void load()} />
           <div className="toolbar">
             <div className="search-input">
@@ -84,6 +89,7 @@ export function SchemaLibrary({ canManage, registerGuard }: { canManage: boolean
                             >
                               {item.displayName}
                             </button>
+                            <div>{deployed.find(definition=>definition.id===item.id)?.versionId!==item.versionId && <span className="pill pill--outline">Pending migration</span>}</div>
                             <div className="entity-subtitle mono">
                               {item.name}
                             </div>

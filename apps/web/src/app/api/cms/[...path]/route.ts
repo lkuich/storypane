@@ -1,5 +1,5 @@
 import { env } from 'cloudflare:workers'
-import { StorypaneError } from '@storypane/core'
+import { StorypaneError, definitionSaveSchema, parseInput } from '@storypane/core'
 import { handleAssets } from '@storypane/assets'
 import { authenticate, createServices } from '../../../../lib/context'
 import { assertOrigin, errorResponse, jsonResponse, readJson } from '../../../../lib/http'
@@ -7,13 +7,31 @@ import { assertOrigin, errorResponse, jsonResponse, readJson } from '../../../..
 async function handle(request: Request, route: { params: Promise<{ path: string[] }> }) {
   const services = createServices()
   try {
-    const { actor, space } = await authenticate(request, services)
     const { path } = await route.params
+    const managementToken=path[0]==='migrations' ? request.headers.get('authorization')?.match(/^Bearer (sm_[\w-]+)$/)?.[1] : undefined
+    const authenticated=managementToken ? null : await authenticate(request,services)
+    const actor=authenticated?.actor ?? await services.store.authenticateManagement(managementToken!,request.headers.get('x-blok-space-id') ?? new URL(request.url).searchParams.get('space') ?? '')
+    const space=authenticated?.space
     const method = request.method
     const isWebSocket = request.headers.get('upgrade')?.toLowerCase() === 'websocket'
-    if (!['GET', 'HEAD'].includes(method) || isWebSocket) assertOrigin(request, env.APP_URL)
+    if (!managementToken && (!['GET', 'HEAD'].includes(method) || isWebSocket)) assertOrigin(request, env.APP_URL)
     const [resource, id, child, localeId, action, targetId] = path
     const store = services.store
+    if(resource==='migrations') {
+      if(method==='GET' && !id)return jsonResponse(await store.listMigrations(actor,new URL(request.url).searchParams.get('workspace')==='true'))
+      if(method==='POST' && !id)return jsonResponse(await store.pushMigration(actor,await readJson(request)))
+      if(method==='GET' && id && child==='review')return jsonResponse(await store.reviewMigration(actor,id))
+      if(method==='POST' && id && child==='deploy') {
+        const input=await readJson(request) as {reviewToken?:unknown}
+        if(!input || typeof input.reviewToken!=='string')throw new StorypaneError('invalid','A reviewed migration token is required')
+        return jsonResponse(await store.deployMigration(actor,id,input.reviewToken))
+      }
+    }
+    if(resource==='management-tokens' && !child) {
+      if(method==='GET' && !id)return jsonResponse(await store.listManagementTokens(actor))
+      if(method==='POST' && !id)return jsonResponse(await store.createManagementToken(actor,await readJson(request)),201)
+      if(method==='DELETE' && id){await store.revokeManagementToken(actor,id);return jsonResponse({ok:true})}
+    }
     if(resource==='folders' && !child) {
       if(method==='GET' && !id)return jsonResponse(await store.listFolders(actor))
       if(method==='POST' && !id)return jsonResponse(await store.saveFolder(actor,await readJson(request)),201)
@@ -55,11 +73,11 @@ async function handle(request: Request, route: { params: Promise<{ path: string[
       if (method === 'GET') return jsonResponse(await store.getSpace(actor))
       if (method === 'PUT') return jsonResponse(await store.updateSpace(actor, await readJson(request)))
     }
-    if (resource === 'assets') return await handleAssets(request, path.slice(1), { db: services.db, actor, canWrite:space.permissions.includes('assets:write'), bucket: env.MEDIA, images: env.IMAGES, cache: await caches.open('blok-thumbnails-v1') })
+    if (resource === 'assets') return await handleAssets(request, path.slice(1), { db: services.db, actor, canWrite:space!.permissions.includes('assets:write'), bucket: env.MEDIA, images: env.IMAGES, cache: await caches.open('blok-thumbnails-v1') })
     if (resource === 'definitions') {
-      if (method === 'GET' && !id) return jsonResponse(await store.listDefinitions(actor))
-      if (method === 'POST' && !id) return jsonResponse(await store.createDefinition(actor, await readJson(request)), 201)
-      if (method === 'POST' && id && child === 'versions') return jsonResponse(await store.updateDefinition(actor, id, await readJson(request)))
+      if (method === 'GET' && !id) return jsonResponse(await store.listDefinitions(actor,new URL(request.url).searchParams.get('deployed')==='true'))
+      if (method === 'POST' && !id) { const input=parseInput(definitionSaveSchema,await readJson(request)); return jsonResponse(await store.createDefinition(actor,input.schema,input.baseVersion),201) }
+      if (method === 'POST' && id && child === 'versions') { const input=parseInput(definitionSaveSchema,await readJson(request)); if(!input.expectedVersionId)throw new StorypaneError('invalid','The starting definition version is required'); return jsonResponse(await store.updateDefinition(actor,id,input.schema,input.expectedVersionId,input.baseVersion)) }
     }
     if (resource === 'datasources') {
       if (method === 'GET' && !id) return jsonResponse(await store.listDatasources(actor))

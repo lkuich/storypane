@@ -4,6 +4,24 @@ import { connectPreview } from './preview.js';
 
 afterEach(() => vi.unstubAllGlobals());
 describe('delivery and preview activation', () => {
+  it('returns migrated content to outdated and unversioned clients with deduplicated warnings',async()=>{
+    const warning=vi.spyOn(console,'warn').mockImplementation(()=>{});
+    try {
+      let version=3;
+      const fetch=vi.fn(async()=>Response.json({migrationVersion:version,stories:[{id:'story',migrationVersion:version,content:{headline:'New schema'}}],nextOffset:null}));
+      const client=createStorypaneClient({url:'https://cms.test',spaceId:'space',token:'key',migrationVersion:2,fetch});
+      expect((await client.getStory({slug:'home'})).content).toEqual({headline:'New schema'});
+      await client.listStories();
+      expect(warning).toHaveBeenCalledTimes(1);
+      version=4;await client.listStories();
+      expect(warning).toHaveBeenCalledTimes(2);
+      const legacy=createStorypaneClient({url:'https://cms.test',spaceId:'space',token:'key',fetch});
+      await expect(legacy.getStory({slug:'home'})).resolves.toMatchObject({migrationVersion:4});
+      expect(warning).toHaveBeenCalledTimes(3);
+      const current=createStorypaneClient({url:'https://cms.test',spaceId:'space',token:'key',migrationVersion:4,fetch});
+      await current.listStories();expect(warning).toHaveBeenCalledTimes(3);
+    }finally{warning.mockRestore()}
+  });
   it('passes a configured preview target to the server without placing credentials in the URL', async () => {
     const fetch = vi.fn().mockResolvedValue(Response.json({ token:'session' }));
     const client = createStorypaneClient({ url:'https://cms.test',spaceId:'space',token:'server-key',fetch });
@@ -31,6 +49,24 @@ describe('delivery and preview activation', () => {
     const WebSocket = vi.fn(); vi.stubGlobal('WebSocket',WebSocket);
     const stop = connectPreview({ cmsUrl:'https://cms.test',spaceId:'space',story:{ slug:'home' },onChange:vi.fn() });
     stop(); expect(WebSocket).not.toHaveBeenCalled();
+  });
+  it('keeps preview streaming after a migration mismatch',async()=>{
+    const warning=vi.spyOn(console,'warn').mockImplementation(()=>{});
+    const browser:any={location:{href:'https://site.test/'},addEventListener:vi.fn(),removeEventListener:vi.fn()};browser.parent=browser;
+    vi.stubGlobal('window',browser);
+    vi.stubGlobal('document',{cookie:'',head:{appendChild:vi.fn()},createElement:()=>({remove:vi.fn()}),querySelectorAll:()=>[],addEventListener:vi.fn(),removeEventListener:vi.fn()});
+    vi.stubGlobal('MutationObserver',class {observe(){} disconnect(){}});
+    const sockets:any[]=[];
+    vi.stubGlobal('WebSocket',class {static OPEN=1;readyState=1;onmessage:any;onopen:any;onclose:any;send=vi.fn();close=vi.fn();constructor(){sockets.push(this)}});
+    const onChange=vi.fn(),onStatus=vi.fn();
+    const stop=connectPreview({cmsUrl:'https://cms.test',spaceId:'space',migrationVersion:1,story:{id:'story'},mode:{draft:true},onChange,onStatus,getSession:async()=>({token:'bp_'+'a'.repeat(43),expiresAt:new Date(Date.now()+120000).toISOString(),spaceId:'space',storyId:'story',localeId:'locale',slug:'home',locale:''})});
+    try {
+      await vi.waitFor(()=>expect(sockets).toHaveLength(1));
+      sockets[0].onopen();
+      for(const revision of [1,2])sockets[0].onmessage({data:JSON.stringify({type:'content',story:{id:'story',localeId:'locale',revision,migrationVersion:2,content:{headline:'Migrated'}}})});
+      expect(onChange).toHaveBeenCalledTimes(2);expect(warning).toHaveBeenCalledTimes(1);
+      expect(sockets[0].close).not.toHaveBeenCalled();expect(onStatus).not.toHaveBeenCalledWith('error',expect.anything());
+    }finally{stop();warning.mockRestore()}
   });
   it('uses bearer authentication and explicit locales for published reads, and throws on unpublished stories', async () => {
     const fetch = vi.fn().mockResolvedValueOnce(Response.json({ stories:[{ id:'story',content:{ title:'Published' } }] })).mockResolvedValueOnce(Response.json({ stories:[] }));

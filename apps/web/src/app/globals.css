@@ -699,3 +699,12 @@ hr { border: 0; border-top: 1px solid var(--line); margin: 24px 0; }
 .folder-checkbox { margin-bottom: 20px; }
 @media(max-width:1100px) { .content-filter-panel { grid-template-columns: repeat(2,minmax(0,1fr)); } }
 @media(max-width:640px) { .content-toolbar > .search-input { flex-basis: 100%; } .content-filter-panel { grid-template-columns: minmax(0,1fr); } .content-filter-panel .option-popover { min-width: 0; } }
+
+.migration-panel { margin-bottom: 1.25rem; }
+.migration-panel details, .migration-review details { margin-block: .75rem; }
+.migration-panel summary, .migration-review summary { cursor: pointer; padding-block: .4rem; }
+.migration-review { display: grid; gap: 1rem; }
+.migration-diff { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
+.migration-diff pre { overflow: auto; max-height: 24rem; font-size: .8rem; white-space: pre-wrap; overflow-wrap: anywhere; }
+.migration-panel input { min-width: 0; }
+@media (max-width: 640px) { .migration-diff { grid-template-columns: 1fr; } }

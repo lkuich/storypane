@@ -166,6 +166,7 @@ export function CMSApp({ session: initialSession }: { session: CMSSession }) {
           ))}
         {tab === "blocks" && (
           <SchemaLibrary
+            canDeploy={session.space.role==='admin'}
             canManage={can(session.space,"schemas:write")}
             registerGuard={registerGuard}
           />

@@ -241,6 +241,7 @@ export function useStoryEditor({
             buffer = {
               ...buffer,
               attempt: {
+                migrationVersion:snapshotRef.current?.migrationVersion,
                 mutationId: crypto.randomUUID(),
                 baseRevision: buffer.baseRevision,
                 fields: structuredClone(buffer.fields),
@@ -252,6 +253,7 @@ export function useStoryEditor({
           }
           const attempt = buffer.attempt!;
           const command: Command = {
+            migrationVersion:attempt.migrationVersion,
             type: "saveBlock",
             mutationId: attempt.mutationId,
             expectedRevisions: { [blockId]: attempt.baseRevision },
@@ -472,6 +474,7 @@ export function useStoryEditor({
         }
         const command = {
           ...input,
+          migrationVersion:snapshotRef.current?.migrationVersion,
           mutationId: crypto.randomUUID(),
           expectedRevisions,
           leaseTokens,

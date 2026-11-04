@@ -5,6 +5,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { StorypaneStore } from './store.js'
 import { migrate } from './migrate.js'
 import { acceptVerifiedEmailInvitations } from './invitations.js'
+import { definitionInput } from '@storypane/core'
 import type { Actor, BlockDraft, Command, Lease, LocaleSnapshot } from '@storypane/core'
 
 const databaseUrl = process.env.TEST_DATABASE_URL ?? 'postgresql://blok:blok@127.0.0.1:55432/blok_test'
@@ -17,7 +18,8 @@ const store = new StorypaneStore(pool)
 let alice: Actor
 let bob: Actor
 let snapshot: LocaleSnapshot
-const legacyLocaleId = randomUUID()
+const legacyLocaleId = randomUUID(), legacyRootId=randomUUID()
+let legacySpaceId:string,legacyStoryId:string
 const blockNamed = (state: LocaleSnapshot, name: string) => state.blocks.find(block => state.definitions.find(d => d.versionId === block.schemaVersionId)?.name === name)!
 const commandBase = (...entries: { block: BlockDraft; lease: Lease }[]) => ({ mutationId: randomUUID(), expectedRevisions: Object.fromEntries(entries.map(({ block }) => [block.id, block.revision])), leaseTokens: Object.fromEntries(entries.map(({ block, lease }) => [block.id, lease.token!])) })
 const lease = (actor: Actor, state: LocaleSnapshot, block: BlockDraft) => store.acquireLease(actor, state.story.id, state.locale.id, block.id)
@@ -25,6 +27,15 @@ const run = (actor: Actor, state: LocaleSnapshot, command: Command) => store.com
 async function save(actor: Actor, state: LocaleSnapshot, block: BlockDraft, fields: BlockDraft['fields']) {
   const ownLease = await lease(actor, state, block)
   return run(actor, state, { ...commandBase({ block, lease: ownLease }), type: 'saveBlock', payload: { blockId: block.id, fields } })
+}
+
+async function deployActive() {
+  const migration=(await store.listMigrations(alice)).find(item=>item.status==='active')!
+  const review=await store.reviewMigration(alice,migration.id)
+  expect(review.blockers).toEqual([])
+  const result=await store.deployMigration(alice,migration.id,review.token)
+  snapshot=await store.getSnapshot(alice,snapshot.story.id,snapshot.locale.id)
+  return result
 }
 
 beforeAll(async () => {
@@ -35,7 +46,14 @@ beforeAll(async () => {
   await pool.query(await readFile(new URL('../migrations/001_initial.sql', import.meta.url), 'utf8'))
   const legacySpace = await pool.query("INSERT INTO spaces(name) VALUES('Before upgrade') RETURNING id")
   const legacyStory = await pool.query("INSERT INTO stories(space_id,name,slug) VALUES($1,'Legacy','legacy') RETURNING id", [legacySpace.rows[0].id])
-  await pool.query("INSERT INTO story_locales(id,story_id,slug,name,url_slug,root_block_id) VALUES($1,$2,'fr','French','bonjour',$3)", [legacyLocaleId,legacyStory.rows[0].id,randomUUID()])
+  legacySpaceId=legacySpace.rows[0].id;legacyStoryId=legacyStory.rows[0].id
+  await pool.query("INSERT INTO memberships(space_id,user_id,role) VALUES($1,'alice','admin')",[legacySpaceId])
+  await pool.query("INSERT INTO story_locales(id,story_id,slug,name,url_slug,root_block_id) VALUES($1,$2,'fr','French','bonjour',$3)", [legacyLocaleId,legacyStory.rows[0].id,legacyRootId])
+  const legacyDefinition=(await pool.query("INSERT INTO definitions(space_id,name,current_version) VALUES($1,'legacy_page',2) RETURNING id",[legacySpaceId])).rows[0].id
+  const oldSchema={name:'legacy_page',displayName:'Legacy page',kind:'content-type',fields:[{name:'title',label:'Title',type:'text',format:'singleline'},{name:'retired',label:'Retired',type:'number'}]}
+  const oldVersion=(await pool.query('INSERT INTO definition_versions(definition_id,version,schema) VALUES($1,1,$2) RETURNING id',[legacyDefinition,JSON.stringify(oldSchema)])).rows[0].id
+  await pool.query('INSERT INTO definition_versions(definition_id,version,schema) VALUES($1,2,$2)',[legacyDefinition,JSON.stringify({...oldSchema,fields:oldSchema.fields.slice(0,1)})])
+  await pool.query('INSERT INTO block_drafts(id,locale_id,schema_version_id,fields) VALUES($1,$2,$3,$4)',[legacyRootId,legacyLocaleId,oldVersion,JSON.stringify({title:'Legacy value',retired:42})])
   await pool.query(await readFile(new URL('../migrations/003_delivery_preview.sql', import.meta.url), 'utf8'))
   await pool.query("UPDATE spaces SET preview_url='http://localhost:3132/{slug}' WHERE id=$1", [legacySpace.rows[0].id])
   await pool.query('CREATE TABLE blok_migrations(name text PRIMARY KEY, applied_at timestamptz NOT NULL DEFAULT now())')
@@ -261,6 +279,8 @@ describe('Postgres collaboration and immutable history', () => {
     expect(JSON.stringify(before)).not.toContain('Build something worth sharing.')
     const hero = (await store.listDefinitions(alice)).find(item => item.name === 'hero')!
     await store.updateDefinition(alice,hero.id,{ name:hero.name,displayName:hero.displayName,kind:hero.kind,fields:[...hero.fields,{ name:'style',label:'Style',type:'option',source:{ type:'inline',items:[{ value:'dark',label:'Dark' }] } }] })
+    expect(await store.deliverySchema(preview.token,alice.spaceId)).toEqual(before)
+    await deployActive()
     const after = await store.deliverySchema(preview.token,alice.spaceId)
     expect(after.components.find(item => item.name === 'hero')).toMatchObject({ version:2,fields:expect.arrayContaining([{ name:'style',type:'option',required:false,options:['dark'] }]) })
     await store.revokeDeliveryToken(alice,preview.id)
@@ -432,6 +452,7 @@ describe('Postgres collaboration and immutable history', () => {
   })
   it('protects descendant locks during structural deletion and prevents cycles', async () => {
     const container = await store.createDefinition(alice, { name: 'container', displayName: 'Container', kind: 'nestable', fields: [{ name: 'body', label: 'Body', type: 'blocks' }] })
+    await deployActive()
     let state = snapshot
     const root = state.blocks.find(b => b.id === state.locale.rootBlockId)!; const rootLease = await lease(alice, state, root)
     state = (await run(alice, state, { ...commandBase({ block: root, lease: rootLease }), type: 'insertBlock', payload: { parentId: root.id, parentField: 'body', definitionId: container.id } })).snapshot
@@ -459,6 +480,7 @@ describe('Postgres collaboration and immutable history', () => {
   })
   it('versions schemas without mutating existing content, and rolls back invalid structural changes', async () => {
     const definition = await store.createDefinition(alice, { name: 'limited', displayName: 'Limited page', kind: 'content-type', fields: [{ name: 'body', label: 'Body', type: 'blocks', maxItems: 1 }] })
+    await deployActive()
     let state = await store.createStory(alice, { name: 'Limited', slug: 'limited', definitionId: definition.id })
     const root = state.blocks[0]; const own = await lease(alice, state, root)
     const hero = snapshot.definitions.find(d => d.name === 'hero')!
@@ -480,6 +502,7 @@ describe('Postgres collaboration and immutable history', () => {
       { name:'body',label:'Body',type:'blocks',allowedTags:['layout','marketing'] },
       { name:'other',label:'Other',type:'blocks' },
     ] })
+    await deployActive()
     let state = await store.createStory(alice,{ name:'Tags',slug:'tags',definitionId:parent.id })
     const rootId = state.locale.rootBlockId
     const own = await lease(alice,state,state.blocks[0])
@@ -500,12 +523,13 @@ describe('Postgres collaboration and immutable history', () => {
     french = (await importBlock(blockNamed(state,'tagged').id)).snapshot
     expect(blockNamed(french,'tagged').schemaVersionId).toBe(child.versionId)
     await store.updateDefinition(alice,child.id,{ ...childInput,tags:['other'] })
-    await expect(insert(child.id,'body')).rejects.toMatchObject({ code:'invalid' })
-    expect((await store.getSnapshot(alice,state.story.id,state.locale.id)).revision).toBe(state.revision)
+    state=(await insert(child.id,'body')).snapshot
+    const pending=(await store.listMigrations(alice)).find(item=>item.status==='active')!
+    expect((await store.reviewMigration(alice,pending.id)).blockers.length).toBeGreaterThan(0)
     await expect(run(alice,state,{ ...commandBase(),type:'publishCheckpoint',payload:{ checkpointId:state.checkpointId! } })).resolves.toBeDefined()
     const token = await store.createDeliveryToken(alice,{ name:'Types',scope:'preview' })
     const contract = await store.deliverySchema(token.token,alice.spaceId)
-    expect(contract.components.find(c => c.id === child.id)?.tags).toEqual(['other'])
+    expect(contract.components.find(c => c.id === child.id)?.tags).toEqual(['layout'])
     expect(contract.components.find(c => c.id === parent.id)?.fields[0]).toMatchObject({ allowedTags:['layout','marketing'] })
   })
   it('enforces session, role, space boundaries and preserves archived asset references', async () => {
@@ -529,6 +553,7 @@ describe('Postgres collaboration and immutable history', () => {
   })
   it('enforces asset MIME restrictions on drafts and reviewed publication while allowing archived matching assets', async () => {
     const definition = await store.createDefinition(alice, { name: 'image_page', displayName: 'Image page', kind: 'content-type', fields: [{ name: 'image', label: 'Image', type: 'asset', mimeTypes: ['image/*'] }] })
+    await deployActive()
     const state = await store.createStory(alice, { name: 'Images', slug: 'images', definitionId: definition.id })
     const root = state.blocks[0]
     const imageId = randomUUID(); const fileId = randomUUID()
@@ -789,5 +814,116 @@ describe('Active editor avatars', () => {
     expect(await store.listPageEditors(alice)).toEqual({})
     await pool.query('DELETE FROM cms_sessions WHERE id=$1',[sessionId])
     expect(await store.listPageEditors(alice)).toEqual({})
+  })
+})
+
+describe('shared schema migrations',()=>{
+  it('backfills identities without changing legacy content, then normalizes only on admin deployment',async()=>{
+    const actor={...alice,spaceId:legacySpaceId}
+    const before=await store.getSnapshot(actor,legacyStoryId,legacyLocaleId)
+    expect(before.migrationVersion).toBe(0)
+    expect(before.blocks[0]!.fields).toEqual({title:'Legacy value',retired:42})
+    const active=(await store.listMigrations(actor)).find(item=>item.status==='active')!
+    expect(active.definitions[0]!.fields[0]!.id).toBe(before.definitions[0]!.fields[0]!.id)
+    const review=await store.reviewMigration(actor,active.id)
+    expect(review.changes.some(change=>change.field==='retired' && change.kind==='removed')).toBe(true)
+    expect(review.impacts[0]!.deletedValues).toBe(1)
+    await store.deployMigration(actor,active.id,review.token)
+    const after=await store.getSnapshot(actor,legacyStoryId,legacyLocaleId)
+    expect(after.migrationVersion).toBe(1)
+    expect(after.blocks[0]!.id).toBe(legacyRootId)
+    expect(after.blocks[0]!.fields).toEqual({title:'Legacy value'})
+  })
+  it('serializes competing schema saves without losing separate-definition edits',async()=>{
+    const definitions=await store.listDefinitions(alice),hero=definitions.find(item=>item.name==='hero')!,footer=definitions.find(item=>item.name==='footer')!
+    const results=await Promise.allSettled(['First','Second'].map(displayName=>store.updateDefinition(alice,hero.id,{...definitionInput(hero),displayName},hero.versionId,1)))
+    expect(results.filter(result=>result.status==='fulfilled')).toHaveLength(1)
+    expect(results.filter(result=>result.status==='rejected')).toHaveLength(1)
+    const current=(await store.listDefinitions(alice)).find(item=>item.id===hero.id)!
+    await Promise.all([
+      store.updateDefinition(alice,hero.id,{...definitionInput(current),displayName:'Combined hero'},current.versionId,1),
+      store.updateDefinition(alice,footer.id,{...definitionInput(footer),displayName:'Combined footer'},footer.versionId,1),
+    ])
+    const active=(await store.listMigrations(alice)).find(item=>item.status==='active')!
+    expect(active.definitions.map(item=>item.displayName)).toEqual(expect.arrayContaining(['Combined hero','Combined footer']))
+  })
+
+  it('migrates live content separately from drafts, preserves renames and history, and retries deployment safely',async()=>{
+    const key=await store.createDeliveryToken(alice,{name:'Production',scope:'published'})
+    const original=snapshot.checkpointId!
+    await run(alice,snapshot,{...commandBase(),type:'publishCheckpoint',payload:{checkpointId:original}})
+    const hero=blockNamed(snapshot,'hero')
+    const saved=await save(alice,snapshot,hero,{...hero.fields,title:'Unpublished title'})
+    const definition=snapshot.definitions.find(item=>item.id===hero.definitionId)!
+    await store.updateDefinition(alice,definition.id,{...definitionInput(definition),fields:definition.fields.filter(field=>field.name!=='description').map(field=>field.name==='title'?{...field,name:'headline'}:field)},definition.versionId,1)
+    expect((await store.getSnapshot(alice,snapshot.story.id,snapshot.locale.id)).blocks.find(item=>item.id===hero.id)?.fields.title).toBe('Unpublished title')
+    const active=(await store.listMigrations(alice)).find(item=>item.status==='active')!
+    const review=await store.reviewMigration(alice,active.id)
+    expect(review.blockers).toEqual([])
+    expect(review.impacts.reduce((sum,item)=>sum+item.deletedValues,0)).toBe(2)
+    await expect(store.deployMigration(bob,active.id,review.token)).rejects.toMatchObject({code:'forbidden'})
+    const deployment=await store.deployMigration(alice,active.id,review.token)
+    expect(await store.deployMigration(alice,active.id,review.token)).toEqual(deployment)
+    const current=await store.getSnapshot(alice,snapshot.story.id,snapshot.locale.id)
+    expect(blockNamed(current,'hero').fields).toMatchObject({headline:'Unpublished title'})
+    expect(blockNamed(current,'hero').fields).not.toHaveProperty('description')
+    const delivered=await store.publishedStories(key.token,alice.spaceId,{})
+    expect(delivered.migrationVersion).toBe(2)
+    expect((delivered.stories[0]!.content as any).body[0].headline).toBe(hero.fields.title)
+    expect((delivered.stories[0]!.content as any).body[0]).not.toHaveProperty('title')
+    expect((await store.getCheckpoint(alice,snapshot.story.id,snapshot.locale.id,original)).snapshot.blocks.find(item=>item.id===hero.id)?.fields).toEqual(hero.fields)
+    await expect(run(alice,current,{...commandBase(),type:'publishCheckpoint',payload:{checkpointId:original}})).rejects.toMatchObject({code:'invalid'})
+    const own=await lease(alice,current,blockNamed(current,'hero'))
+    const restored=await run(alice,current,{...commandBase({block:blockNamed(current,'hero'),lease:own}),type:'restoreBlock',payload:{blockId:hero.id,checkpointId:original}})
+    expect(blockNamed(restored.snapshot,'hero').fields).toEqual({headline:hero.fields.title})
+    await expect(run(alice,current,{...commandBase(),migrationVersion:1,type:'publishCheckpoint',payload:{checkpointId:saved.checkpointId}})).rejects.toMatchObject({code:'stale_revision'})
+  })
+  it('rejects stale schema saves and reviews, and leaves invalid deployments unapplied',async()=>{
+    await run(alice,snapshot,{...commandBase(),type:'publishCheckpoint',payload:{checkpointId:snapshot.checkpointId!}})
+    const definition=snapshot.definitions.find(item=>item.name==='hero')!
+    const revised=await store.updateDefinition(alice,definition.id,{...definitionInput(definition),displayName:'Updated hero'},definition.versionId,1)
+    await expect(store.updateDefinition(alice,definition.id,definitionInput(definition),definition.versionId,1)).rejects.toMatchObject({code:'stale_revision'})
+    const active=(await store.listMigrations(alice)).find(item=>item.status==='active')!
+    const review=await store.reviewMigration(alice,active.id)
+    const state=await store.getSnapshot(alice,snapshot.story.id,snapshot.locale.id)
+    await save(alice,state,blockNamed(state,'footer'),{text:'A concurrent edit'})
+    await expect(store.deployMigration(alice,active.id,review.token)).rejects.toMatchObject({code:'stale_revision'})
+    await store.updateDefinition(alice,definition.id,{...definitionInput(revised),fields:revised.fields.map(field=>field.name==='title'?{id:field.id,name:'title',label:'Title',type:'number',required:true}:field)},revised.versionId,1)
+    const invalid=await store.reviewMigration(alice,active.id)
+    expect(invalid.blockers.some(issue=>issue.message==='Required')).toBe(true)
+    await expect(store.deployMigration(alice,active.id,invalid.token)).rejects.toMatchObject({code:'invalid'})
+    expect((await store.listMigrations(alice)).find(item=>item.status==='deployed')?.version).toBe(1)
+    expect(blockNamed(await store.getSnapshot(alice,snapshot.story.id,snapshot.locale.id),'hero').schemaVersionId).toBe(definition.versionId)
+  })
+  it('stages CLI migrations atomically and enforces management token capabilities and revocation',async()=>{
+    const token=await store.createManagementToken(alice,{name:'CI',capability:'stage'})
+    const actor=await store.authenticateManagement(token.token,alice.spaceId)
+    const deployed=(await store.listMigrations(actor)).at(-1)!
+    const definition=deployed.definitions.find(item=>item.name==='hero')!
+    const file={formatVersion:1,id:randomUUID(),spaceId:alice.spaceId,version:2,baseVersion:1,name:'CI migration',status:'active',remoteRevision:null,sourceHash:null,definitions:deployed.definitions.map(item=>({id:item.id,schema:{...definitionInput(item),...(item.id===definition.id?{displayName:'CI hero'}:{})}}))}
+    const staged=await store.pushMigration(actor,file)
+    expect(await store.pushMigration(actor,file)).toEqual(staged)
+    const review=await store.reviewMigration(actor,staged.id)
+    await expect(store.deployMigration(actor,staged.id,review.token)).rejects.toMatchObject({code:'forbidden'})
+    await store.updateDefinition(alice,definition.id,{...definitionInput(staged.definitions.find(item=>item.id===definition.id)!),displayName:'Another editor'})
+    await expect(store.pushMigration(actor,{...file,name:'Conflict',remoteRevision:staged.revision})).rejects.toMatchObject({code:'stale_revision'})
+    await store.revokeManagementToken(alice,token.id)
+    await expect(store.listMigrations(actor)).rejects.toMatchObject({code:'unauthenticated'})
+    await expect(store.authenticateManagement(token.token,alice.spaceId)).rejects.toMatchObject({code:'unauthenticated'})
+  })
+  it('rolls back every content change when deployment fails midway',async()=>{
+    const definition=snapshot.definitions.find(item=>item.name==='hero')!
+    await store.updateDefinition(alice,definition.id,{...definitionInput(definition),displayName:'Rollback test'})
+    const active=(await store.listMigrations(alice)).find(item=>item.status==='active')!
+    const review=await store.reviewMigration(alice,active.id)
+    await pool.query(`CREATE FUNCTION fail_migration() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.reason LIKE 'Migration %' THEN RAISE EXCEPTION 'Injected deployment failure'; END IF; RETURN NEW; END $$`)
+    await pool.query('CREATE TRIGGER fail_migration BEFORE INSERT ON checkpoints FOR EACH ROW EXECUTE FUNCTION fail_migration()')
+    try {
+      await expect(store.deployMigration(alice,active.id,review.token)).rejects.toThrow('Injected deployment failure')
+      const current=await store.getSnapshot(alice,snapshot.story.id,snapshot.locale.id)
+      expect(current.revision).toBe(snapshot.revision)
+      expect(current.migrationVersion).toBe(1)
+      expect(blockNamed(current,'hero').schemaVersionId).toBe(definition.versionId)
+    }finally{await pool.query('DROP TRIGGER fail_migration ON checkpoints');await pool.query('DROP FUNCTION fail_migration()')}
   })
 })

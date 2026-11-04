@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, type DragEvent, type FormEvent } from "react";
 import { ArrowDown, ArrowUp, ChevronDown, GripVertical, Trash2 } from "lucide-react";
-import { definitionInputSchema, fieldDefinitionSchema, type BlockDefinition, type Datasource, type DefinitionInput } from "@storypane/core";
+import { definitionInputSchema, fieldDefinitionSchema, type BlockDefinition, type Datasource, type DefinitionInput, type SchemaMigration, definitionInput } from "@storypane/core";
 import { Button, EmptyState, ErrorNotice, Field, Modal } from "@storypane/ui";
 import { api, errorMessage, fieldName, jsonRequest } from "../editor/api";
 import type { RegisterGuard } from "../editor/navigation";
@@ -27,6 +27,10 @@ export function SchemaDrawer({ initialDefinition, definitions, datasources, canM
   const [draft, setDraft] = useState<DefinitionInput>(() => initialDefinition ? structuredClone({ name: initialDefinition.name, displayName: initialDefinition.displayName, kind: initialDefinition.kind, tags: initialDefinition.tags, fields: initialDefinition.fields }) : structuredClone(emptyDefinition));
   const [original, setOriginal] = useState<BlockDefinition | null>(initialDefinition);
   const [dirty, setDirty] = useState(false);
+  const [availableDefinitions,setAvailableDefinitions]=useState(definitions);
+  const [baseVersion,setBaseVersion]=useState<number|null>(null);
+  const [remote,setRemote]=useState<{definition:BlockDefinition|null;baseVersion:number}|null>(null);
+
   const [selectedField, setSelectedField] = useState<number | null>(null);
   const [tab, setTab] = useState<"fields" | "config">(initialDefinition ? "fields" : "config");
   const [busy, setBusy] = useState(false);
@@ -52,9 +56,30 @@ export function SchemaDrawer({ initialDefinition, definitions, datasources, canM
     if (busy || (dirty && !window.confirm("Discard your unsaved schema changes?"))) return;
     onClose();
   }
+  useEffect(()=>{
+    let stopped=false;
+    async function refresh() {
+      if(document.hidden || busy)return;
+      try {
+        const migrations=await api<SchemaMigration[]>("/migrations?workspace=true");
+        if(stopped)return;
+        const deployed=migrations.filter(item=>item.status==='deployed').at(-1)?.version ?? 0;
+        const shared=(migrations.find(item=>item.status==='active') ?? migrations.at(-1))?.definitions ?? [];
+        setAvailableDefinitions(shared);
+        const latest=shared.find(item=>item.id===original?.id) ?? null;
+        if(baseVersion===null)setBaseVersion(deployed);
+        const changed=(original && latest && latest.versionId!==original.versionId) || (baseVersion!==null && baseVersion!==deployed);
+        if(!changed)return;
+        if(dirty)setRemote({definition:latest,baseVersion:deployed});
+        else { setBaseVersion(deployed); if(latest){setOriginal(latest);setDraft(definitionInput(latest));setTagText(latest.tags?.join(', ') ?? '')} setRemote(null); }
+      }catch(cause){if(!stopped)setError(errorMessage(cause))}
+    }
+    void refresh();const timer=setInterval(()=>void refresh(),5000);window.addEventListener('focus',refresh);
+    return ()=>{stopped=true;clearInterval(timer);window.removeEventListener('focus',refresh)};
+  },[original?.id,original?.versionId,baseVersion,dirty,busy]);
   function change(next: DefinitionInput) { setDraft(next); setDirty(true); setSaved(false); }
   async function save() {
-    if (!draft || !canManage || busy || (original && !dirty)) return;
+    if (!draft || !canManage || busy || baseVersion===null || remote || (original && !dirty)) return;
     const parsed = definitionInputSchema.safeParse(draft);
     if (!parsed.success) {
       setError(parsed.error.issues.map(issue => `${issue.path.join(".")}: ${issue.message}`).join(". "));
@@ -62,7 +87,7 @@ export function SchemaDrawer({ initialDefinition, definitions, datasources, canM
     }
     setBusy(true); setError(null);
     try {
-      const result = await api<BlockDefinition>(original ? `/definitions/${original.id}/versions` : "/definitions", jsonRequest("POST", parsed.data));
+      const result = await api<BlockDefinition>(original ? `/definitions/${original.id}/versions` : "/definitions", jsonRequest("POST", {schema:parsed.data,baseVersion,...(original?{expectedVersionId:original.versionId}:{})}));
       setOriginal(result); setDirty(false); setSaved(true);
       await onSave(result);
     } catch (cause) { setError(errorMessage(cause)); }
@@ -73,6 +98,7 @@ export function SchemaDrawer({ initialDefinition, definitions, datasources, canM
     if (!draft || !canManage || busy || !newName || draft.fields.length >= 200 || draft.fields.some(field => field.name === newName)) return;
     const field = newField(newType.type, newName, newName.replaceAll("_", " ").replace(/^./, character => character.toUpperCase()));
     if (field.type === "text") field.format = newType.format ?? "singleline";
+    field.id=crypto.randomUUID();
     const parsed = fieldDefinitionSchema.safeParse(field);
     if (!parsed.success) { setError(parsed.error.issues.map(issue => issue.message).join(". ")); return; }
     change({ ...draft, fields: [...draft.fields, parsed.data] });
@@ -99,6 +125,7 @@ export function SchemaDrawer({ initialDefinition, definitions, datasources, canM
         {draft && <div className="schema-editor" onKeyDown={event => {
           if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "s") { event.preventDefault(); void save(); }
         }}>
+          {remote && <div role="alert" className="error-notice"><p>The shared schema changed. Your unsaved edits are still here. Copy anything you need before reloading.</p><Button onClick={()=>{if(window.confirm('Discard your unsaved schema edits and load the shared version?')){if(remote.definition){setOriginal(remote.definition);setDraft(definitionInput(remote.definition));setTagText(remote.definition.tags?.join(', ') ?? '')}setBaseVersion(remote.baseVersion);setDirty(false);setRemote(null);setError(null)}}}>Reload shared schema</Button></div>}
           <div className="schema-tabs" role="tablist" aria-label="Block definition">
             {(["fields", "config"] as const).map(value => <button type="button" role="tab" key={value} id={`schema-tab-${value}`} aria-controls={`schema-${value}`} aria-selected={tab === value} tabIndex={tab === value ? 0 : -1} onClick={() => setTab(value)} onKeyDown={event => {
               if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
@@ -178,7 +205,7 @@ export function SchemaDrawer({ initialDefinition, definitions, datasources, canM
                     ),
                   )}
                 </div>
-              {original && <p className="field-hint">Existing stories keep their schema version. Changes here apply to newly added blocks.</p>}
+              {original && <p className="field-hint">Changes are shared in the active migration. Existing pages and new blocks use the deployed schema until an admin deploys it.</p>}
             </fieldset> : <>
               {canManage && <form className="schema-add-field" onSubmit={addField}>
                 <label htmlFor="schema-new-name">Name</label>
@@ -225,7 +252,7 @@ export function SchemaDrawer({ initialDefinition, definitions, datasources, canM
                           }
                         }}><Trash2 /></Button>
                       </div></div>}
-                      <FieldSettings field={item} definitions={definitions} datasources={datasources} onChange={next => change({ ...draft, fields: draft.fields.map((value, position) => position === index ? next : value) })} />
+                      <FieldSettings field={item} definitions={availableDefinitions} datasources={datasources} onChange={next => change({ ...draft, fields: draft.fields.map((value, position) => position === index ? next : value) })} />
                     </fieldset>}
                   </div>;
                 })}
@@ -234,8 +261,8 @@ export function SchemaDrawer({ initialDefinition, definitions, datasources, canM
             </>}
           </div>
           <footer className="schema-drawer-footer">
-            <span className="schema-status" role="status">{dirty ? "Unsaved changes" : saved ? "Version saved" : canManage ? original ? "All changes saved" : "Not saved yet" : "Read only"}</span>
-            {canManage && <div className="button-group"><span className="schema-shortcut" aria-hidden="true">⌘ / Ctrl S</span><Button variant="primary" onClick={() => void save()} disabled={busy || (!!original && !dirty)}>{busy ? "Saving…" : original ? "Save new version" : "Create block"}</Button></div>}
+            <span className="schema-status" role="status">{dirty ? "Unsaved changes" : saved ? "Saved to active migration" : canManage ? original ? "All changes saved" : "Not saved yet" : "Read only"}</span>
+            {canManage && <div className="button-group"><span className="schema-shortcut" aria-hidden="true">⌘ / Ctrl S</span><Button variant="primary" onClick={() => void save()} disabled={busy || baseVersion===null || !!remote || (!!original && !dirty)}>{busy ? "Saving…" : original ? "Save to migration" : "Create block"}</Button></div>}
           </footer>
         </div>}
       </Modal>

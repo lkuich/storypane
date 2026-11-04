@@ -121,5 +121,6 @@
         }
       ]
     }
-  ]
+  ],
+  "migrationVersion": 1
 }

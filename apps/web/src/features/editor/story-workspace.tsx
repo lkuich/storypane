@@ -128,7 +128,7 @@ export function StoryWorkspace({
     void (async () => {
       const [available, blocks, configured] = await Promise.all([
         api<StoryLocale[]>(`/stories/${story.id}/locales`),
-        api<BlockDefinition[]>("/definitions"),
+        api<BlockDefinition[]>("/definitions?deployed=true"),
         api<SpaceLocale[]>("/locales"),
       ]);
       const slug = new URLSearchParams(window.location.search).get('locale') ?? '';
@@ -260,6 +260,11 @@ function LocaleEditor({
     spaceId: session.space.id,
     editable: can(session.space,"content:edit"),
   });
+  useEffect(() => {
+    let stopped=false;
+    void api<BlockDefinition[]>("/definitions?deployed=true").then(value=>{if(!stopped)onDefinitions(value)}).catch(()=>undefined);
+    return ()=>{stopped=true};
+  },[editor.snapshot?.migrationVersion,onDefinitions]);
   const [outlineOpen, setOutlineOpen] = useState(false);
   const [schema, setSchema] = useState<{
     definition: BlockDefinition;
@@ -382,7 +387,6 @@ function LocaleEditor({
       ]);
       const current = latest.find(item => item.id === definition.id);
       if (!current) throw new Error("This block schema is no longer available.");
-      onDefinitions(latest);
       setSchema({ definition: current, definitions: latest, datasources });
     });
   }
@@ -1010,10 +1014,10 @@ function LocaleEditor({
         }}
         onSave={async () => {
           const latest = await api<BlockDefinition[]>("/definitions");
-          onDefinitions(latest);
+          onDefinitions(await api<BlockDefinition[]>("/definitions?deployed=true"));
           setSchema(current => current ? { ...current, definitions: latest } : null);
         }}
-        description="Editing the latest schema. Changes apply to newly added blocks; existing blocks keep their schema version."
+        description="Editing the shared active migration. Page content changes when an admin deploys it."
       />}
       <Modal open={outlineOpen} onClose={() => setOutlineOpen(false)} title="Story outline" description="Jump to a block, or drag siblings to reorder." className="outline-drawer">
         <p id="outline-reorder-help" className="sr-only">Drag to reorder blocks in the same section, or focus a handle and press the up or down arrow key.</p>

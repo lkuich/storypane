@@ -141,12 +141,25 @@ of a draft. This avoids a second draft database and a cross-database publish ste
 | `packages/ui` | Shared controls |
 | `packages/sdk` | Published delivery, browser preview bridge, React hook, schema/type CLI |
 
-Existing blocks retain their referenced schema version when a definition changes;
-new blocks use the latest version. Bulk schema migration is not implemented yet.
+Schema edits accumulate in one shared active migration per space. Review the diff
+in **Blocks → Schema migrations**, then deploy as an admin. Deployment migrates
+existing drafts and live publications separately without publishing unfinished
+content. Renames preserve data; removed fields and incompatible types delete/reset
+active values. Invalid resulting publications block deployment. History remains
+readable; restoring it applies intervening migrations. Database upgrade `013`
+retains legacy content until an admin deploys the initial migration.
+
+The SDK CLI supports `migrations pull`, `migrations create "description"`,
+`migrations push`, and `migrations push --deploy --yes` for CI/CD. Generate types
+from the latest deployed migration with `generate-types --out src/types/storypane.ts`.
+Admin-issued management tokens are available in the migration panel. See the
+[SDK migration guide](packages/sdk/README.md#schema-migrations-and-generated-types)
+for credentials, files, conflicts, and pipeline usage. Outdated SDK consumers
+continue receiving content with advisory version warnings.
 Block Config supports comma-separated tags. Blocks fields can restrict nesting by
 specific blocks or by any matching tag, with searchable selectors. Empty selections
-allow all nestable/universal blocks. Tags are versioned with schemas; imports and
-existing content retain their original tags. Generated SDK types use current tags.
+allow all nestable/universal blocks. Tags are versioned with schemas; imports and new content use deployed tags.
+Generated SDK types also use deployed tags.
 
 Locale settings are shared by a space; the locale prefix (`fr-CA`) is separate
 from each story's page slug (`home`). Existing story locales are registered by

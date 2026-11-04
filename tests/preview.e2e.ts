@@ -80,7 +80,7 @@ test('a static app receives live drafts, selects blocks in the editor, and leave
           const value = await preview.createPreviewSession({ id:story!.id,previewId:settings.previewUrls[request.socket.localPort === 3133 ? 0 : 1].id });
           response.writeHead(200,{ 'Content-Type':'application/json','Cache-Control':'no-store' }).end(JSON.stringify(value)); return;
         }
-        if (['/sdk/preview.js','/sdk/types.js'].includes(pathname)) {
+        if (['/sdk/preview.js','/sdk/types.js','/sdk/migration-warning.js'].includes(pathname)) {
           response.writeHead(200,{ 'Content-Type':'text/javascript' }).end(await readFile(new URL(`../packages/sdk/dist/${pathname.split('/').pop()}`,import.meta.url))); return;
         }
         response.writeHead(200,{ 'Content-Type':'text/html' }).end(html);

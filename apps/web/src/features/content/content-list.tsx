@@ -62,7 +62,7 @@ export function ContentList({
     try {
       const [content, schemas, availableFolders, availableLocales] = await Promise.all([
         api<StorySummary[]>("/stories"),
-        api<BlockDefinition[]>("/definitions"),
+        api<BlockDefinition[]>("/definitions?deployed=true"),
         api<ContentFolder[]>("/folders"),
         api<SpaceLocale[]>("/locales"),
       ]);

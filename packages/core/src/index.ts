@@ -1,7 +1,7 @@
 import { z } from 'zod'
 
 export type Json = null | boolean | number | string | Json[] | { [key: string]: Json }
-export type Actor = { userId: string; sessionId: string; spaceId: string; role: string }
+export type Actor = { userId: string; sessionId: string; spaceId: string; role: string; managementTokenId?:string }
 export const spaceInputSchema = z.object({ name: z.string().trim().min(1).max(120), description: z.string().trim().max(1000).default('') }).strict()
 export type Space = { id: string; name: string; description: string; role: Actor['role']; roleName:string; permissions:Permission[]; createdAt: string; storyCount: number; memberCount: number }
 export type SpaceDetails = Space & { members: { id: string; name: string; email: string; role: Actor['role'] }[] }
@@ -15,7 +15,7 @@ export const roleInputSchema = z.object({ name:z.string().trim().min(1).max(80),
 export function can(space:{ permissions:readonly Permission[] }, permission:Permission) { return space.permissions.includes(permission) }
 export type SpaceLocale = { id: string; name: string; slug: string; storyCount: number }
 export const spaceLocaleInputSchema = z.object({ name:z.string().trim().min(1).max(80), slug:z.string().trim().regex(/^[a-zA-Z0-9][a-zA-Z0-9-]*$/).max(30) }).strict()
-export type DeliveredStory = { id: string; name: string; slug: string; locale: string; localeId: string; revision: number; content: Json; publishedAt: string | null }
+export type DeliveredStory = { migrationVersion?:number; id: string; name: string; slug: string; locale: string; localeId: string; revision: number; content: Json; publishedAt: string | null }
 export type PreviewSession = { token: string; expiresAt: string; spaceId: string; storyId: string; localeId: string; slug: string; locale: string }
 export type DeliveryToken = { id: string; name: string; scope: 'published' | 'preview'; createdAt: string }
 const previewUrlSchema = z.string().trim().min(1).max(2048).refine(value => {
@@ -63,7 +63,7 @@ export const optionSourceSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('stories'), contentTypeId: z.uuid().optional() }).strict(),
 ])
 export type OptionSource = z.infer<typeof optionSourceSchema>
-const base = { name: z.string().regex(/^[a-z][a-z0-9_]*$/).max(80).refine(v => !['_uid', 'component', '__proto__', 'constructor', 'prototype'].includes(v), 'Reserved field name'), label: z.string().min(1).max(120), description: z.string().max(2000).optional(), required: z.boolean().optional(), defaultValue: jsonSchema.optional() }
+const base = { id: z.uuid().optional(), name: z.string().regex(/^[a-z][a-z0-9_]*$/).max(80).refine(v => !['_uid', 'component', '__proto__', 'constructor', 'prototype'].includes(v), 'Reserved field name'), label: z.string().min(1).max(120), description: z.string().max(2000).optional(), required: z.boolean().optional(), defaultValue: jsonSchema.optional() }
 const tagsSchema = z.array(z.string().trim().min(1).max(64)).max(50).refine(tags => new Set(tags).size === tags.length, 'Tags must be unique')
 export const fieldDefinitionSchema = z.discriminatedUnion('type', [
   z.object({ ...base, type: z.literal('text'), format: z.enum(['singleline', 'textarea', 'richtext', 'markdown']).default('singleline'), maxLength: z.number().int().positive().max(1_000_000).optional() }).strict(),
@@ -78,14 +78,17 @@ export const fieldDefinitionSchema = z.discriminatedUnion('type', [
 ])
 export type FieldDefinition = z.infer<typeof fieldDefinitionSchema>
 export const definitionInputSchema = z.object({ name: z.string().regex(/^[a-z][a-z0-9_]*$/).max(80), displayName: z.string().min(1).max(120), kind: z.enum(['nestable', 'content-type', 'universal']), tags: tagsSchema.optional(), fields: z.array(fieldDefinitionSchema).max(200) }).strict().superRefine((schema, ctx) => {
-  const names = new Set<string>()
+  const names = new Set<string>(), ids = new Set<string>()
   schema.fields.forEach((field, i) => {
     if (names.has(field.name)) ctx.addIssue({ code: 'custom', path: ['fields', i, 'name'], message: 'Field names must be unique' })
     names.add(field.name)
+    if (field.id && ids.has(field.id)) ctx.addIssue({ code:'custom', path:['fields',i,'id'], message:'Field IDs must be unique' })
+    if (field.id) ids.add(field.id)
     if (field.type === 'number' && field.min !== undefined && field.max !== undefined && field.min > field.max) ctx.addIssue({ code: 'custom', path: ['fields', i], message: 'Minimum exceeds maximum' })
     if ((field.type === 'blocks' || field.type === 'options') && field.minItems !== undefined && field.maxItems !== undefined && field.minItems > field.maxItems) ctx.addIssue({ code: 'custom', path: ['fields', i], message: 'Minimum exceeds maximum' })
   })
 })
+export const definitionSaveSchema = z.object({schema:definitionInputSchema,baseVersion:z.number().int().nonnegative(),expectedVersionId:z.uuid().optional()}).strict()
 export type DefinitionInput = z.infer<typeof definitionInputSchema>
 export type BlockDefinition = DefinitionInput & { id: string; versionId: string; version: number; createdAt: string }
 export function isBlockAllowed(field: Extract<FieldDefinition, { type: 'blocks' }>, definition: Pick<BlockDefinition, 'id' | 'kind' | 'tags'>): boolean {
@@ -110,7 +113,7 @@ export type Story = { id: string; name: string; slug: string; folderId?:string|n
 export type StoryLocale = { id: string; storyId: string; spaceLocaleId: string; slug: string; name: string; urlSlug: string; slugSegment?:string; rootBlockId: string; revision: number; checkpointId: string | null; publishedVersionId: string | null }
 export type BlockDraft = { id: string; definitionId: string; schemaVersionId: string; parentId: string | null; parentField: string | null; position: number; fields: Record<string, Json>; revision: number }
 export type Lease = { blockId: string; userId: string; sessionId: string; expiresAt: string; token?: string }
-export type LocaleSnapshot = { publicationStatus?:PublicationStatus; story: Story; locale: StoryLocale; blocks: BlockDraft[]; definitions: BlockDefinition[]; leases: Lease[]; revision: number; checkpointId: string | null }
+export type LocaleSnapshot = { migrationVersion?:number; publicationStatus?:PublicationStatus; story: Story; locale: StoryLocale; blocks: BlockDraft[]; definitions: BlockDefinition[]; leases: Lease[]; revision: number; checkpointId: string | null }
 export type Checkpoint = { id: string; revision: number; reason: string; actorId: string; createdAt: string }
 export type CheckpointDetail = Checkpoint & { snapshot: LocaleSnapshot; content: Json }
 export type Publication = { id: string; checkpointId: string; revision: number; createdAt: string; content: Json }
@@ -118,7 +121,7 @@ export type Datasource = { id: string; name: string; slug: string; items: Option
 export type CommitResult = { mutationId: string; localeRevision: number; changedBlockIds: string[]; checkpointId: string; snapshot: LocaleSnapshot; publicationId?: string }
 
 const id = z.uuid()
-const mutationBase = { mutationId: id, expectedRevisions: z.record(z.string(), z.number().int().nonnegative()).default({}), leaseTokens: z.record(z.string(), z.string().min(1)).default({}) }
+const mutationBase = { migrationVersion: z.number().int().nonnegative().optional(), mutationId: id, expectedRevisions: z.record(z.string(), z.number().int().nonnegative()).default({}), leaseTokens: z.record(z.string(), z.string().min(1)).default({}) }
 export const commandSchema = z.discriminatedUnion('type', [
   z.object({ ...mutationBase, type: z.literal('saveBlock'), payload: z.object({ blockId: id, fields: z.record(z.string(), jsonSchema) }).strict() }).strict(),
   z.object({ ...mutationBase, type: z.literal('insertBlock'), payload: z.object({ parentId: id, parentField: z.string(), definitionId: id, position: z.number().int().nonnegative().optional() }).strict() }).strict(),
@@ -209,10 +212,11 @@ export function validateFields(schema: DefinitionInput, fields: Record<string, J
         break
       }
       case 'boolean': if (typeof value !== 'boolean') fail('Expected true or false'); break
-      case 'option': if (typeof value !== 'string') fail('Expected one option value'); break
+      case 'option': if (typeof value !== 'string') fail('Expected one option value'); else if (field.source.type === 'inline' && !field.source.items.some(item => item.value === value)) fail('Choose an available option'); break
       case 'options':
         if (!Array.isArray(value) || !value.every(v => typeof v === 'string') || new Set(value).size !== value.length) fail('Expected distinct option values')
         else { if (publish && field.minItems !== undefined && value.length < field.minItems) fail(`Choose at least ${field.minItems}`); if (field.maxItems !== undefined && value.length > field.maxItems) fail(`Choose at most ${field.maxItems}`) }
+        if (Array.isArray(value) && value.every(item=>typeof item==='string') && new Set(value).size===value.length && field.source.type === 'inline') { const items=field.source.items; if(value.some(item => !items.some(option => option.value === item))) fail('Choose available options') }
         break
       case 'asset': if (!assetReferenceSchema.safeParse(value).success) fail('Expected an asset reference'); break
       case 'link': if (!linkValueSchema.safeParse(value).success) fail('Expected a valid link'); break
@@ -220,3 +224,5 @@ export function validateFields(schema: DefinitionInput, fields: Record<string, J
   }
   return issues
 }
+
+export * from './migrations.js'

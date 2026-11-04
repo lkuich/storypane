@@ -1,8 +1,18 @@
 import { signInApi, signInPage, authState } from './auth'
 import { expect, test, type Page } from '@playwright/test'
-import type { BlockDefinition, Datasource, LocaleSnapshot, Publication, Story, StoryLocale } from '@storypane/core'
+import type { BlockDefinition, Datasource, LocaleSnapshot, Publication, Story, StoryLocale, SchemaMigration, MigrationReview } from '@storypane/core'
 
 const origin = 'http://127.0.0.1:3130'
+
+async function deployPending(page:Page) {
+  const migrations=await (await page.request.get('/api/cms/migrations')).json() as SchemaMigration[]
+  const active=migrations.find(item=>item.status==='active')
+  if(!active)return
+  const review=await (await page.request.get(`/api/cms/migrations/${active.id}/review`)).json() as MigrationReview
+  expect(review.blockers).toEqual([])
+  const response=await page.request.post(`/api/cms/migrations/${active.id}/deploy`,{headers:{Origin:origin},data:{reviewToken:review.token}})
+  expect(response.ok(),await response.text()).toBeTruthy()
+}
 
 async function addField(page: Page, label: string, type = 'text') {
   const drawer = page.locator('dialog.schema-drawer')
@@ -70,20 +80,24 @@ test('admin builds a schema and datasource, then authors and publishes typed con
   await addField(page, 'Image', 'asset')
   await addField(page, 'Sections', 'blocks')
   await page.getByRole('button', { name: 'Create block', exact: true }).click()
-  await expect(page.getByText('Version saved', { exact: true })).toBeVisible()
+  await expect(page.getByText('Saved to active migration', { exact: true })).toBeVisible()
   const definitions = await (await page.request.get('/api/cms/definitions')).json() as BlockDefinition[]
   const definition = definitions.find(item => item.displayName === schemaName)!
   expect(definition.kind).toBe('universal')
   expect(definition.fields.map(field => field.type)).toEqual(['text', 'text', 'text', 'text', 'number', 'datetime', 'boolean', 'option', 'options', 'link', 'asset', 'blocks'])
 
   await page.locator('dialog.schema-drawer').getByRole('button', { name: 'Close dialog', exact: true }).click()
+  await page.getByRole('button',{name:/^Review migration/}).click()
+  await page.getByRole('button',{name:'Deploy migration',exact:true}).click()
+  await expect(page.getByRole('dialog',{name:/^Review migration/})).not.toBeVisible()
 
   const editor = await playwright.request.newContext({ storageState:authState('editor'), baseURL: origin, extraHTTPHeaders: { Origin: origin } })
   try {
     await signInApi(editor, 'editor')
     const schema = { name: definition.name, displayName: schemaName, kind: definition.kind, fields: definition.fields }
-    expect((await editor.post(`/api/cms/definitions/${definition.id}/versions`, { data: schema })).status()).toBe(403)
-    expect((await editor.post('/api/cms/definitions', { data: { ...schema, name: `forbidden_${suffix}` } })).status()).toBe(403)
+    const baseVersion=(await (await page.request.get('/api/cms/migrations')).json() as SchemaMigration[]).filter(item=>item.status==='deployed').at(-1)!.version
+    expect((await editor.post(`/api/cms/definitions/${definition.id}/versions`, { data: {schema,baseVersion,expectedVersionId:definition.versionId} })).status()).toBe(403)
+    expect((await editor.post('/api/cms/definitions', { data: {schema:{...schema,name:`forbidden_${suffix}`},baseVersion} })).status()).toBe(403)
   } finally { await editor.dispose() }
 
   await navigation.getByRole('button', { name: 'Content', exact: true }).click()
@@ -182,7 +196,7 @@ test('schema drawer supports the icon picker, keyboard editing, reordering, and 
   await expect(drawer).toBeVisible()
   await drawer.getByRole('textbox', { name: 'Name', exact: true }).focus()
   await page.keyboard.press('Control+s')
-  await expect(drawer.getByText('Version saved', { exact: true })).toBeVisible()
+  await expect(drawer.getByText('Saved to active migration', { exact: true })).toBeVisible()
   await page.mouse.click(20, 200)
   await expect(drawer).not.toBeVisible()
   await expect(page.getByRole('button', { name: 'New block', exact: true })).toBeFocused()
@@ -190,7 +204,7 @@ test('schema drawer supports the icon picker, keyboard editing, reordering, and 
   await expect(drawer.locator('.schema-field-toggle strong')).toHaveText(['image', 'summary', 'title'])
   await drawer.getByRole('button', { name: 'Edit title', exact: true }).click()
   await drawer.getByLabel('Label', { exact: true }).fill('Page title')
-  await drawer.getByRole('button', { name: 'Save new version', exact: true }).click()
+  await drawer.getByRole('button', { name: 'Save to migration', exact: true }).click()
   await expect(drawer.getByText('Version 2', { exact: true })).toBeVisible()
   await drawer.getByRole('button', { name: 'Edit title', exact: true }).click()
 
@@ -246,7 +260,7 @@ test('existing fields use the visual type picker without losing shared settings'
   await drawer.getByLabel('Maximum characters', { exact: true }).fill('120')
   await drawer.getByLabel('Default value', { exact: true }).fill('Hello')
   await drawer.getByRole('button', { name: 'Create block', exact: true }).click()
-  const save = drawer.getByRole('button', { name: 'Save new version', exact: true })
+  const save = drawer.getByRole('button', { name: 'Save to migration', exact: true })
   await expect(save).toBeDisabled()
 
   const trigger = drawer.getByRole('button', { name: 'Field type', exact: true })
@@ -293,7 +307,7 @@ test('existing fields use the visual type picker without losing shared settings'
   await expect(save).toBeDisabled()
   const definitions = await (await page.request.get('/api/cms/definitions')).json() as BlockDefinition[]
   const field = definitions.find(definition => definition.displayName === name)!.fields[0]
-  expect(field).toEqual({ name: 'title', label: 'Title', description: 'A useful headline', required: true, type: 'text', format: 'richtext' })
+  expect(field).toMatchObject({ name: 'title', label: 'Title', description: 'A useful headline', required: true, type: 'text', format: 'richtext' })
 })
 
 test('searches allowed blocks and persists tag rules through schema editing and story insertion', async ({ page }) => {
@@ -307,7 +321,7 @@ test('searches allowed blocks and persists tag rules through schema editing and 
   await drawer.getByLabel('Display name', { exact: true }).fill(childName)
   await drawer.getByRole('textbox', { name: 'Tags', exact: true }).fill(`${tag}, marketing`)
   await drawer.getByRole('button', { name: 'Create block', exact: true }).click()
-  await expect(drawer.getByText('Version saved', { exact: true })).toBeVisible()
+  await expect(drawer.getByText('Saved to active migration', { exact: true })).toBeVisible()
   await drawer.getByRole('button', { name: 'Close dialog', exact: true }).click()
   await page.getByRole('button', { name: childName, exact: true }).click()
   await drawer.getByRole('tab', { name: 'Config', exact: true }).click()
@@ -329,7 +343,7 @@ test('searches allowed blocks and persists tag rules through schema editing and 
   await search.fill(childName)
   await expect(restrictions.getByRole('checkbox')).toBeChecked()
   await drawer.getByRole('button', { name: 'Create block', exact: true }).click()
-  await expect(drawer.getByText('Version saved', { exact: true })).toBeVisible()
+  await expect(drawer.getByText('Saved to active migration', { exact: true })).toBeVisible()
   await drawer.getByRole('button', { name: 'Close dialog', exact: true }).click()
   await page.getByRole('button', { name: parentName, exact: true }).click()
   await drawer.getByRole('button', { name: 'Edit body', exact: true }).click()
@@ -345,8 +359,8 @@ test('searches allowed blocks and persists tag rules through schema editing and 
   await restrictions.scrollIntoViewIfNeeded()
   await expect.poll(() => drawer.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true)
   await page.screenshot({ path: '/tmp/storypane-tag-restrictions-mobile.png' })
-  await drawer.getByRole('button', { name: 'Save new version', exact: true }).click()
-  await expect(drawer.getByText('Version saved', { exact: true })).toBeVisible()
+  await drawer.getByRole('button', { name: 'Save to migration', exact: true }).click()
+  await expect(drawer.getByText('Saved to active migration', { exact: true })).toBeVisible()
   await drawer.getByRole('button', { name: 'Close dialog', exact: true }).click()
   await page.getByRole('button', { name: parentName, exact: true }).click()
   await drawer.getByRole('button', { name: 'Edit body', exact: true }).click()
@@ -357,6 +371,7 @@ test('searches allowed blocks and persists tag rules through schema editing and 
   expect(parent.fields[0]).toMatchObject({ allowedTags:[tag] })
   expect(parent.fields[0]).not.toHaveProperty('allowedDefinitionIds')
   await drawer.getByRole('button', { name: 'Close dialog', exact: true }).click()
+  await deployPending(page)
   const response = await page.request.post('/api/cms/stories', { headers:{ Origin:origin },data:{ name:parentName,slug:`tag-test-${suffix}`,definitionId:parent.id } })
   expect(response.ok(), await response.text()).toBeTruthy()
   const story = await response.json() as Story
@@ -377,6 +392,13 @@ test('opens the latest selected block schema from content without losing edits',
   await signInPage(page)
   const suffix = crypto.randomUUID().slice(0, 8)
   const post = async (path: string, data: unknown) => {
+    if(path.startsWith('/definitions')) {
+      const migrations=await (await page.request.get('/api/cms/migrations')).json() as SchemaMigration[]
+      const baseVersion=migrations.filter(item=>item.status==='deployed').at(-1)!.version
+      const definitions=await (await page.request.get('/api/cms/definitions')).json() as BlockDefinition[]
+      const existing=definitions.find(item=>item.id===path.split('/')[2])
+      data={schema:data,baseVersion,...(existing?{expectedVersionId:existing.versionId}:{})}
+    }
     const response = await page.request.post(`/api/cms${path}`, { headers: { Origin: origin }, data })
     expect(response.ok(), await response.text()).toBeTruthy()
     return response.json()
@@ -388,6 +410,7 @@ test('opens the latest selected block schema from content without losing edits',
     { name: 'body', label: 'Body', type: 'blocks', allowedDefinitionIds: [child.id] },
   ] }
   const root = await post('/definitions', rootInput) as BlockDefinition
+  await deployPending(page)
   const story = await post('/stories', { name: `Schema shortcut ${suffix}`, slug: `shortcut-${suffix}`, definitionId: root.id }) as Story
   await post(`/definitions/${root.id}/versions`, { ...rootInput, fields: [...rootInput.fields, { name: 'eyebrow', label: 'Eyebrow', type: 'text', format: 'singleline' }] })
   const url = `/?space=11111111-1111-4111-8111-111111111111&story=${story.id}`
@@ -404,8 +427,8 @@ test('opens the latest selected block schema from content without losing edits',
   page.once('dialog', dialog => void dialog.dismiss())
   await page.keyboard.press('Escape')
   await expect(drawer).toBeVisible()
-  await drawer.getByRole('button', { name: 'Save new version', exact: true }).click()
-  await expect(drawer.getByText('Version saved', { exact: true })).toBeVisible()
+  await drawer.getByRole('button', { name: 'Save to migration', exact: true }).click()
+  await expect(drawer.getByText('Saved to active migration', { exact: true })).toBeVisible()
   await drawer.getByRole('button', { name: 'Close dialog', exact: true }).click()
   await expect(drawer).not.toBeVisible()
   await expect(shortcut).toBeFocused()
@@ -423,8 +446,8 @@ test('opens the latest selected block schema from content without losing edits',
   await expect(drawer.getByRole('heading', { name: `Edit '${child.name}'`, exact: true })).toBeVisible()
   await drawer.getByRole('button', { name: 'Edit caption', exact: true }).click()
   await drawer.getByLabel('Label', { exact: true }).fill('Feature caption')
-  await drawer.getByRole('button', { name: 'Save new version', exact: true }).click()
-  await expect(drawer.getByText('Version saved', { exact: true })).toBeVisible()
+  await drawer.getByRole('button', { name: 'Save to migration', exact: true }).click()
+  await expect(drawer.getByText('Saved to active migration', { exact: true })).toBeVisible()
   await page.screenshot({ path: '/tmp/storypane-content-schema-desktop.png' })
   await page.setViewportSize({ width: 390, height: 844 })
   await expect.poll(() => drawer.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true)
@@ -459,4 +482,45 @@ test('opens the latest selected block schema from content without losing edits',
     await expect(editorPage.getByRole('region', { name: 'Block editor' }).getByRole('heading', { name: 'Quick page', exact: true })).toBeVisible()
     await expect(editorPage.getByRole('button', { name: 'Edit schema', exact: true })).toHaveCount(0)
   } finally { await editorContext.close() }
+})
+
+test('shared migration saves conflict safely and deployment updates existing blocks',async({page,browser})=>{
+  await signInPage(page)
+  const suffix=crypto.randomUUID().slice(0,8),name=`Migration ${suffix}`
+  const migrations=await (await page.request.get('/api/cms/migrations')).json() as SchemaMigration[]
+  const baseVersion=migrations.filter(item=>item.status==='deployed').at(-1)!.version
+  const created=await page.request.post('/api/cms/definitions',{headers:{Origin:origin},data:{baseVersion,schema:{name:`migration_${suffix}`,displayName:name,kind:'content-type',fields:[{name:'title',label:'Title',type:'text',format:'singleline',defaultValue:'Preserved content'}]}}})
+  expect(created.ok(),await created.text()).toBeTruthy()
+  const definition=await created.json() as BlockDefinition
+  await deployPending(page)
+  const response=await page.request.post('/api/cms/stories',{headers:{Origin:origin},data:{name,slug:`migration-${suffix}`,definitionId:definition.id}})
+  expect(response.ok(),await response.text()).toBeTruthy()
+  const story=await response.json() as Story
+  const context=await browser.newContext({storageState:authState()})
+  try {
+    const second=await context.newPage()
+    for(const editor of [page,second]) {
+      await editor.goto('/?space=11111111-1111-4111-8111-111111111111&view=blocks')
+      await editor.getByRole('button',{name,exact:true}).click()
+      await editor.getByRole('button',{name:'Edit title',exact:true}).click()
+    }
+    const firstDrawer=page.locator('dialog.schema-drawer'),secondDrawer=second.locator('dialog.schema-drawer')
+    await secondDrawer.getByLabel('Label',{exact:true}).fill('My local change')
+    await firstDrawer.getByLabel('Field name',{exact:true}).fill('headline')
+    await firstDrawer.getByRole('button',{name:'Save to migration',exact:true}).click()
+    await expect(firstDrawer.getByText('Saved to active migration',{exact:true})).toBeVisible()
+    await expect(secondDrawer.getByRole('alert')).toContainText('shared schema changed',{timeout:12000})
+    await expect(secondDrawer.getByLabel('Label',{exact:true})).toHaveValue('My local change')
+    await firstDrawer.getByRole('button',{name:'Close dialog',exact:true}).click()
+    await page.getByRole('button',{name:/^Review migration/}).click()
+    const review=page.getByRole('dialog',{name:/^Review migration/})
+    await expect(review).toContainText('renamed')
+    await review.getByRole('button',{name:'Deploy migration',exact:true}).click()
+    await expect(review).not.toBeVisible()
+    await page.goto(`/?space=11111111-1111-4111-8111-111111111111&story=${story.id}`)
+    await expect(page.getByRole('region',{name:'Block editor'}).getByLabel('Title',{exact:true})).toHaveValue('Preserved content')
+    const locales=await (await page.request.get(`/api/cms/stories/${story.id}/locales`)).json() as StoryLocale[]
+    const current=await (await page.request.get(`/api/cms/stories/${story.id}/locales/${locales[0]!.id}`)).json() as LocaleSnapshot
+    expect(current.blocks[0]!.fields).toEqual({headline:'Preserved content'})
+  }finally{await context.close()}
 })
