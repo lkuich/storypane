@@ -34,12 +34,12 @@ settings capabilities; asset-folder permissions are outside this issue.
 
 For each content capability, support these scope dimensions:
 
-| Dimension | Meaning |
-| --- | --- |
-| Location | All stories, or a union of selected folder subtrees and explicit story IDs; represent the space root explicitly |
-| Locale | All locales, or selected stable space-locale IDs |
-| Block | All block types, or selected stable definition IDs |
-| Field | All fields, or selected stable field IDs within definitions |
+| Dimension | Meaning                                                                                                         |
+| --------- | --------------------------------------------------------------------------------------------------------------- |
+| Location  | All stories, or a union of selected folder subtrees and explicit story IDs; represent the space root explicitly |
+| Locale    | All locales, or selected stable space-locale IDs                                                                |
+| Block     | All block types, or selected stable definition IDs                                                              |
+| Field     | All fields, or selected stable field IDs within definitions                                                     |
 
 An unrestricted dimension matches all. An explicit empty selection matches none.
 Selections within a dimension are OR; dimensions combine with AND. Location's
@@ -154,22 +154,22 @@ this issue DONE; write-only UI restrictions do not satisfy the specification.
 
 - [ ] Upgrade preserves Admin/Editor/Viewer and all existing custom-role behavior.
 - [ ] Folder ancestry, explicit story exceptions, locale/block/field combinations,
-  empty scopes, missing IDs, and renames obey the documented matching rules.
+      empty scopes, missing IDs, and renames obey the documented matching rules.
 - [ ] A French-only editor cannot change/publish another locale through direct API,
-  import, duplicate, restore, bulk operation, old receipt, or scheduled job.
+      import, duplicate, restore, bulk operation, old receipt, or scheduled job.
 - [ ] Hidden content is absent from lists/counts, direct reads, history/review JSON,
-  errors, options, reference expansion, asset usage, clipboard, and live commits.
+      errors, options, reference expansion, asset usage, clipboard, and live commits.
 - [ ] Saving a visible field preserves hidden fields; structural operations cannot
-  delete or relocate protected descendants. Whole-checkpoint publish fails when
-  any required read/publish permission is missing.
+      delete or relocate protected descendants. Whole-checkpoint publish fails when
+      any required read/publish permission is missing.
 - [ ] Revocation during an active lease/socket/preview ends unauthorized access
-  before further data is delivered; unrelated authorized editors keep working.
+      before further data is delivered; unrelated authorized editors keep working.
 - [ ] Moving folders/stories changes effective access consistently; old slug URLs,
-  stale clients, and deferred jobs cannot retain the old grant.
+      stale clients, and deferred jobs cannot retain the old grant.
 - [ ] Restricted users cannot obtain broad credentials or read migration data as
-  a bypass. Public delivery retains its separately documented semantics.
+      a bypass. Public delivery retains its separately documented semantics.
 - [ ] Browser tests demonstrate a full-access editor and restricted collaborator
-  editing together without data disclosure, hidden-field loss, or unsafe retries.
+      editing together without data disclosure, hidden-field loss, or unsafe retries.
 
 ## Reference
 

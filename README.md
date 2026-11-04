@@ -34,9 +34,9 @@ for static builds, visual preview, and schema-to-TypeScript generation.
 For the same site in Next.js, run `pnpm example:setup:next` followed by
 `pnpm dev:example:next`, then open **http://127.0.0.1:3133/home**. Setup adds
 **Local Next.js** as an optional application in Storypane's preview selector and
-preserves the Astro default. Both examples share their renderer and generated
-types. See [the Next.js example guide](apps/example-next/README.md).
-Run `pnpm lint:example` to lint the Astro and shared React source.
+preserves the Astro default. The Next.js example has its own server client, typed
+block components, schema snapshot, and preview route. See [the Next.js integration guide](apps/example-next/README.md).
+Run `pnpm lint:example` to lint and check formatting in both examples.
 
 Postgres listens only on `127.0.0.1:55432`, using database/user/password `blok`.
 Optional settings are in `.env.example`; copy it to `.env` when changing defaults.
@@ -137,17 +137,17 @@ produce a consistent history without rejecting unrelated block edits. Durable
 Objects deliver presence and committed updates; they do not hold the only copy
 of a draft. This avoids a second draft database and a cross-database publish step.
 
-| Path | Responsibility |
-| --- | --- |
-| `apps/web` | Next.js App Router UI/API, authentication, Cloudflare entrypoint |
-| `apps/realtime` | Durable Object rooms and WebSockets |
-| `apps/example-astro` | Static example website, generated block props, live preview |
-| `apps/example-next` | Next.js version of Fieldwork, sharing Astro's renderer and schema |
-| `packages/core` | Content contracts and validation |
-| `packages/db` | Postgres migrations, transactions, history, publishing |
-| `packages/assets` | Asset metadata and R2 upload/delivery service |
-| `packages/ui` | Shared controls |
-| `packages/sdk` | Published delivery, browser preview bridge, React hook, schema/type CLI |
+| Path                 | Responsibility                                                          |
+| -------------------- | ----------------------------------------------------------------------- |
+| `apps/web`           | Next.js App Router UI/API, authentication, Cloudflare entrypoint        |
+| `apps/realtime`      | Durable Object rooms and WebSockets                                     |
+| `apps/example-astro` | Static example website, generated block props, live preview             |
+| `apps/example-next`  | Self-contained Next.js integration with Server Components and preview   |
+| `packages/core`      | Content contracts and validation                                        |
+| `packages/db`        | Postgres migrations, transactions, history, publishing                  |
+| `packages/assets`    | Asset metadata and R2 upload/delivery service                           |
+| `packages/ui`        | Shared controls                                                         |
+| `packages/sdk`       | Published delivery, browser preview bridge, React hook, schema/type CLI |
 
 Schema edits accumulate in one shared active migration per space. Review the diff
 in **Blocks → Schema migrations**, then deploy as an admin. Deployment migrates
@@ -208,6 +208,7 @@ across tabs. Preview apps keep their own styling.
 
 ```sh
 pnpm db:test
+pnpm lint
 pnpm test
 pnpm typecheck
 pnpm build
@@ -226,6 +227,17 @@ settings persistence, administrator access boundaries, and live preview of an
 app served as static HTML on a separate origin, plus the real Astro island,
 unpublished preview shell, and generated schema contracts. `pnpm types`
 regenerates binding declarations; typecheck also runs it automatically.
+
+`pnpm lint` checks source across every app, package, script, and test, then checks
+formatting with Prettier. `pnpm lint:fix` applies automatic lint fixes and formats
+the repository; `pnpm format` only formats. Each workspace also has a `lint`
+script for checking that app or package. Generated types, schema snapshots,
+lockfiles, and build outputs are excluded from formatting; generated types remain
+covered by type checking.
+
+The root installs TypeScript 7's compiler as `@typescript/native` and the compatible
+TypeScript 6 JavaScript API as `typescript` for ESLint. Keep both aliases when
+updating dependencies so linting and the `tsc` command continue to work together.
 
 ## Cloudflare deployment target
 

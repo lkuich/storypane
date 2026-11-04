@@ -7,9 +7,10 @@
     "build": "next build",
     "start": "next start --hostname 127.0.0.1 --port 3133",
     "typecheck": "next typegen && tsc --noEmit",
-    "storypane:pull": "pnpm --dir ../example-astro storypane:pull",
-    "storypane:types": "pnpm --dir ../example-astro storypane:types",
-    "storypane:generate": "pnpm --dir ../example-astro storypane:generate"
+    "storypane:pull": "node --env-file-if-exists=.env ../../packages/sdk/bin/storypane.mjs pull-components --out storypane/components.json",
+    "storypane:types": "storypane generate-types --input storypane/components.json --out src/types/storypane.ts",
+    "storypane:generate": "pnpm storypane:pull && pnpm storypane:types",
+    "lint": "pnpm --workspace-root exec eslint apps/example-next --max-warnings 0 && pnpm --workspace-root exec prettier apps/example-next --check"
   },
   "dependencies": {
     "@storypane/sdk": "workspace:*",

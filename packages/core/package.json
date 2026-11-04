@@ -1,5 +1,14 @@
 {
-  "name": "@storypane/core", "private": true, "type": "module",
-  "exports": { ".": "./src/index.ts" },
-  "dependencies": { "zod": "^4.3.4" }
+  "name": "@storypane/core",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "zod": "^4.3.4"
+  },
+  "scripts": {
+    "lint": "pnpm --workspace-root exec eslint packages/core --max-warnings 0 && pnpm --workspace-root exec prettier packages/core --check"
+  }
 }

@@ -1,6 +1,7 @@
 # Storypane SDK
 
-Use `@storypane/sdk`, `createStorypaneClient`, and `useStorypaneStory` in new apps.
+Use `createStorypaneClient` for publications and `useStorypanePreview` for a
+separate preview route. `useStorypaneStory` adds preview to an existing publication.
 The previous `createBlokClient`, `useBlokStory`, and `Blok*` type exports remain
 aliases within this package. The `blok` CLI alias and legacy `BLOK_*` environment
 variables also continue to work; `STORYPANE_*` settings take precedence.
@@ -11,15 +12,17 @@ TypeScript SDK for published content and live, read-only draft preview. Works wi
 Node, Workers, browsers, Next.js client components, and Astro islands/scripts.
 The package has no runtime dependencies; React is an optional peer dependency.
 
-See the [working Astro example](../../apps/example-astro/README.md) in this monorepo
-for a built site, typed block registry, locale pages, and unpublished-story preview.
+Start with the [Next.js integration guide](../../apps/example-next/README.md) for
+server-side fetching, typed block components, and a separate live preview route.
+An [Astro example](../../apps/example-astro/README.md) is also included.
 
 Build from this monorepo with `pnpm --filter @storypane/sdk build`. Until an npm release,
-install a packed archive or link `packages/sdk` into your app. Three entrypoints:
+install a packed archive or link `packages/sdk` into your app. Entrypoints:
 
 - `@storypane/sdk`: delivery client, types, preview detection, editable attributes.
 - `@storypane/sdk/preview`: framework-independent browser subscription and editor bridge.
-- `@storypane/sdk/react`: `useStorypaneStory` and `editable` for a client component/island.
+- `@storypane/sdk/react`: `useStorypanePreview`, `useStorypaneStory`, and `editable`.
+- `@storypane/sdk/rich-text`: `RichText`, a safe React renderer that works in Server and Client Components.
 
 ## Configure the CMS
 
@@ -38,20 +41,20 @@ supported for development.
 ## Published content
 
 ```ts
-import { createStorypaneClient, type StorypaneBlock } from '@storypane/sdk'
-import { storypaneMigrationVersion } from './types/storypane'
+import { createStorypaneClient, type StorypaneBlock } from '@storypane/sdk';
+import { storypaneMigrationVersion } from './types/storypane';
 
 const storypane = createStorypaneClient({
   url: process.env.STORYPANE_URL!,
   spaceId: process.env.STORYPANE_SPACE_ID!,
   token: process.env.STORYPANE_DELIVERY_TOKEN!,
   migrationVersion: storypaneMigrationVersion,
-})
+});
 
-const page = await storypane.getStory({ slug: 'home', locale: '' })
-const byId = await storypane.getStory({ id: page.id, locale: '' })
-const { stories, nextOffset } = await storypane.listStories({ locale: '', limit: 50 })
-const locales = await storypane.listLocales() // [{ id, name: 'Default', slug: '' }, ...]
+const page = await storypane.getStory({ slug: 'home', locale: '' });
+const byId = await storypane.getStory({ id: page.id, locale: '' });
+const { stories, nextOffset } = await storypane.listStories({ locale: '', limit: 50 });
+const locales = await storypane.listLocales(); // [{ id, name: 'Default', slug: '' }, ...]
 ```
 
 These reads use the CMS delivery API, which queries publication snapshots in
@@ -71,97 +74,135 @@ on the next request. Your app can deliberately cache/build the published respons
 SSG pages still need a rebuild or framework revalidation after publishing. Preview
 does not modify their static HTML or production cache.
 
-## Static Next.js pages
+## Next.js App Router
 
-Keep the published fetch at build time. Put the CMS-rendered part of the page
-inside a client component that receives the initial content. It renders normally
-for visitors, and the hook opens a draft connection only in preview mode.
+Keep the client in a module marked `import 'server-only'`. Call `getStory` from
+an async Server Component, then pass the content to your own React components.
+The client accepts a schema generic once; individual methods can still override
+it with `getStory<MyPage>(...)`.
 
-```tsx
-// app/[slug]/page.tsx — supply generateStaticParams for the routes you build.
-import { createStorypaneClient } from '@storypane/sdk'
-import { storypaneMigrationVersion } from './types/storypane'
-import { Content } from './content'
+```ts
+// src/lib/storypane.ts
+import 'server-only';
+import { createStorypaneClient } from '@storypane/sdk';
+import { storypaneMigrationVersion, type StorypaneContentType } from '@/types/storypane';
 
-const storypane = createStorypaneClient({
-  url: process.env.STORYPANE_URL!, spaceId: process.env.STORYPANE_SPACE_ID!,
-  token: process.env.STORYPANE_DELIVERY_TOKEN!, migrationVersion: storypaneMigrationVersion,
-})
-
-export default async function Page({ params }: { params: Promise<{ slug: string }> }) {
-  const { slug } = await params
-  const initial = await storypane.getStory({ slug }, { cache: 'force-cache' })
-  return <Content initial={initial} cmsUrl={process.env.STORYPANE_URL!}
-    spaceId={process.env.STORYPANE_SPACE_ID!} />
-}
+export const storypane = createStorypaneClient<StorypaneContentType>({
+  url: process.env.STORYPANE_URL!,
+  spaceId: process.env.STORYPANE_SPACE_ID!,
+  token: process.env.STORYPANE_DELIVERY_TOKEN!,
+  migrationVersion: storypaneMigrationVersion,
+});
 ```
 
 ```tsx
-// app/[slug]/content.tsx
-'use client'
-import { useStorypaneStory, editable } from '@storypane/sdk/react'
-import { storypaneMigrationVersion } from './types/storypane'
-import type { StorypaneBlock, StorypaneStory } from '@storypane/sdk'
+// src/app/about/page.tsx
+import { storypane } from '@/lib/storypane';
 
-function Block({ block }: { block: StorypaneBlock }) {
-  // Replace this with your own component registry and schema-specific types.
-  return <section {...editable(block)} tabIndex={0}>
-    {typeof block.title === 'string' && <h1>{block.title}</h1>}
-    {typeof block.text === 'string' && <p>{block.text}</p>}
-    {Array.isArray(block.body) && (block.body as StorypaneBlock[]).map(child =>
-      <Block key={child._uid} block={child} />)}
-  </section>
+export default async function Page() {
+  const story = await storypane.getStory({ slug: 'about' });
+  return <h1>{story.name}</h1>;
 }
+```
 
-export function Content({ initial, cmsUrl, spaceId }: {
-  initial: StorypaneStory; cmsUrl: string; spaceId: string
+For static routes, `listAllStories({ locale: '' })` returns every published story
+in one locale, following pagination. It defaults to the Default locale, just like
+`listStories`. Use `listLocales()` when building routes for every locale.
+`getStory`, `listStories`, and `listAllStories` accept fetch options as their second
+argument. Choose static rendering or request-time fetching in your Next.js routes;
+the SDK does not impose a cache policy on story reads.
+
+### A separate preview route
+
+Use `useStorypanePreview` in a Client Component when no initial publication is
+available. It returns `{ story, status, error }`; `story` stays undefined until
+the editor authorizes the connection. Pass an undefined story reference until
+your route has a slug. Without a parent editor or authenticated `getSession`
+callback, the hook stays disabled.
+
+```tsx
+'use client';
+import { useStorypanePreview } from '@storypane/sdk/react';
+import { storypaneMigrationVersion, type StorypaneContentType } from '@/types/storypane';
+
+export function Preview({
+  cmsUrl,
+  spaceId,
+  slug,
+  locale = '',
+}: {
+  cmsUrl: string;
+  spaceId: string;
+  slug: string;
+  locale?: string;
 }) {
-  const { story, error } = useStorypaneStory(initial, {
-    cmsUrl, spaceId, migrationVersion: storypaneMigrationVersion,
-    mode: {
-      query: { name: 'blok_preview', value: '1' },
-      cookie: { name: 'my_preview', value: '1' },
-      env: process.env.NEXT_PUBLIC_STORYPANE_PREVIEW,
-    },
-  })
-  return <>{error && <p role="alert">{error.message}</p>}<Block block={story.content} /></>
+  const { story, error } = useStorypanePreview<StorypaneContentType>({
+    cmsUrl,
+    spaceId,
+    migrationVersion: storypaneMigrationVersion,
+    story: { slug, locale },
+  });
+  if (error) return <p role="alert">{error.message}</p>;
+  if (!story) return <p>Open this page from Storypane's preview.</p>;
+  return <h1>{story.name}</h1>; // Render your block components here.
 }
 ```
 
-`editable(block)` supplies `data-blok-id`; add it to each block's rendered wrapper.
-In the editor iframe, clicking it selects the corresponding content editor.
-Selecting a block in the editor outlines it in the app. Focusable wrappers support
-Enter/Space selection. Modifier-clicks retain normal link behavior.
+The [complete Next.js example](../../apps/example-next/README.md) includes routing,
+`Suspense` around `useSearchParams`, block rendering, and referenced footer drafts.
+It keeps published pages on the server and reuses the renderer inside `/preview`.
+Client preview components must not import server-only fetch modules.
 
-For native Next.js Draft Mode, read `const { isEnabled } = await draftMode()` on
-the server and pass it as `mode.draft` to the client component. Do not try to read
-Next's HttpOnly draft cookie from browser JavaScript. Reading Draft Mode invokes
-request-time behavior; a fully static export should use the query/cookie bridge
-above instead. [Next.js Draft Mode documentation](https://nextjs.org/docs/app/api-reference/functions/draft-mode).
+If you prefer preview on an existing published route, `useStorypaneStory(initial,
+options)` remains available. It starts with the publication and activates drafts
+only when its `mode` matches. For Next.js Draft Mode, pass the server's `isEnabled`
+value as `mode.draft`; never read the HttpOnly draft cookie from browser JavaScript.
+An arbitrary Server Component cannot be re-rendered by changing browser data;
+the live region must have a client-compatible renderer.
 
-An arbitrary Server Component cannot be re-rendered by changing browser data.
-The content that needs live updates must have a client renderer. For stories with
-no built route yet, configure a static `/preview` shell or a dynamic catch-all;
-the SDK cannot make a missing static route return HTML.
+`editable(block)` supplies selection attributes. Put it on each block's wrapper;
+focusable wrappers also support Enter/Space selection in the editor. The SDK
+cleans up subscriptions, listeners, and highlighting on unmount.
+
+### Rich text
+
+```tsx
+import { RichText } from '@storypane/sdk/rich-text';
+
+<RichText value={block.text} />;
+```
+
+The renderer supports the editor's nodes and marks, escapes text, and rejects
+unsafe link protocols. It also accepts legacy plain strings and empty draft
+values. It has no client-only hooks, so it works in both Server Components and
+live previews. It does not inject CMS strings as HTML.
 
 ## Astro
 
-Use the same React content component as an island (with `@astrojs/react` in your
-app), and hydrate it even on static pages:
+Wrap your React block renderer with `useStorypaneStory(initial, options)` in a
+`Content` component. Use it as an island with `@astrojs/react`, and hydrate it even
+on static pages:
 
 ```astro
 ---
-import { createStorypaneClient } from '@storypane/sdk'
-import { storypaneMigrationVersion } from '../types/storypane'
-import { Content } from '../components/Content'
+import { createStorypaneClient } from '@storypane/sdk';
+import { storypaneMigrationVersion } from '../types/storypane';
+import { Content } from '../components/Content';
 const storypane = createStorypaneClient({
-  url: import.meta.env.STORYPANE_URL, spaceId: import.meta.env.STORYPANE_SPACE_ID,
-  token: import.meta.env.STORYPANE_DELIVERY_TOKEN, migrationVersion: storypaneMigrationVersion,
-})
-const initial = await storypane.getStory({ slug: 'home', locale: '' })
+  url: import.meta.env.STORYPANE_URL,
+  spaceId: import.meta.env.STORYPANE_SPACE_ID,
+  token: import.meta.env.STORYPANE_DELIVERY_TOKEN,
+  migrationVersion: storypaneMigrationVersion,
+});
+const initial = await storypane.getStory({ slug: 'home', locale: '' });
 ---
-<Content client:load initial={initial} cmsUrl={import.meta.env.STORYPANE_URL}
-  spaceId={import.meta.env.STORYPANE_SPACE_ID} />
+
+<Content
+  client:load
+  initial={initial}
+  cmsUrl={import.meta.env.STORYPANE_URL}
+  spaceId={import.meta.env.STORYPANE_SPACE_ID}
+/>
 ```
 
 Use `import.meta.env.PUBLIC_STORYPANE_PREVIEW` for an Astro browser env flag. Astro
@@ -173,14 +214,16 @@ build time, so use the browser detector for them.
 Without React, use a bundled Astro `<script>` and render the subscribed content:
 
 ```ts
-import { connectPreview } from '@storypane/sdk/preview'
-import { storypaneMigrationVersion } from './types/storypane'
+import { connectPreview } from '@storypane/sdk/preview';
+import { storypaneMigrationVersion } from './types/storypane';
 const stop = connectPreview({
-  cmsUrl: 'https://cms.example', spaceId: 'your-space-id', migrationVersion: storypaneMigrationVersion,
+  cmsUrl: 'https://cms.example',
+  spaceId: 'your-space-id',
+  migrationVersion: storypaneMigrationVersion,
   story: { slug: 'home', locale: '' },
   mode: { query: { name: 'blok_preview', value: '1' } },
-  onChange: story => renderWithYourClientComponents(story.content),
-})
+  onChange: (story) => renderWithYourClientComponents(story.content),
+});
 // Call stop() when the page/island unmounts, including Astro client navigation.
 ```
 
@@ -209,20 +252,21 @@ must verify the visitor may preview before using a **Preview · server only** to
 ```ts
 // YOUR APP SERVER: only after checking your editor session/authorization.
 const previewClient = createStorypaneClient({
-  url: process.env.STORYPANE_URL!, spaceId: process.env.STORYPANE_SPACE_ID!,
+  url: process.env.STORYPANE_URL!,
+  spaceId: process.env.STORYPANE_SPACE_ID!,
   token: process.env.STORYPANE_PREVIEW_TOKEN!,
-})
-const session = await previewClient.createPreviewSession({ slug: 'home', locale: '' })
+});
+const session = await previewClient.createPreviewSession({ slug: 'home', locale: '' });
 // Return session as JSON with Cache-Control: no-store.
 ```
 
 ```ts
 // In connectPreview(...) or useStorypaneStory(...) options:
 getSession: async () => {
-  const response = await fetch('/api/my-authenticated-preview-session', { method: 'POST' })
-  if (!response.ok) throw new Error('Sign in to preview')
-  return response.json()
-}
+  const response = await fetch('/api/my-authenticated-preview-session', { method: 'POST' });
+  if (!response.ok) throw new Error('Sign in to preview');
+  return response.json();
+};
 ```
 
 Use a stable callback for the React hook (module function or `useCallback`). Your

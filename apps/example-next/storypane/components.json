@@ -1,0 +1,150 @@
+{
+  "migrationVersion": 4,
+  "components": [
+    {
+      "id": "c5b779c7-76d7-4cf1-b80f-50ba1084b0b9",
+      "name": "feature",
+      "kind": "nestable",
+      "version": 4,
+      "tags": [
+        "rootComponent"
+      ],
+      "fields": [
+        {
+          "name": "title",
+          "type": "text",
+          "required": true,
+          "format": "singleline"
+        },
+        {
+          "name": "text",
+          "type": "text",
+          "required": false,
+          "format": "richtext"
+        },
+        {
+          "name": "tag",
+          "type": "option",
+          "required": false,
+          "options": [
+            "Discover",
+            "Create",
+            "Grow"
+          ]
+        },
+        {
+          "name": "page",
+          "type": "link",
+          "required": false
+        }
+      ]
+    },
+    {
+      "id": "b98f828c-b7fe-415a-be0a-9625c6e45e1c",
+      "name": "feature_grid",
+      "kind": "nestable",
+      "version": 1,
+      "tags": [],
+      "fields": [
+        {
+          "name": "title",
+          "type": "text",
+          "required": true,
+          "format": "singleline"
+        },
+        {
+          "name": "items",
+          "type": "blocks",
+          "required": false,
+          "allowedDefinitionIds": [
+            "c5b779c7-76d7-4cf1-b80f-50ba1084b0b9"
+          ],
+          "allowedTags": []
+        }
+      ]
+    },
+    {
+      "id": "d8470d32-0be6-481c-aab0-9aaeec0d9c7e",
+      "name": "footer",
+      "kind": "universal",
+      "version": 2,
+      "tags": [],
+      "fields": [
+        {
+          "name": "text",
+          "type": "text",
+          "required": false,
+          "format": "textarea"
+        },
+        {
+          "name": "link",
+          "type": "link",
+          "required": false
+        }
+      ]
+    },
+    {
+      "id": "1ae60dba-4571-427f-821e-4b042ddf511b",
+      "name": "hero",
+      "kind": "nestable",
+      "version": 4,
+      "tags": [],
+      "fields": [
+        {
+          "name": "eyebrow",
+          "type": "text",
+          "required": false,
+          "format": "singleline"
+        },
+        {
+          "name": "title",
+          "type": "text",
+          "required": true,
+          "format": "singleline"
+        },
+        {
+          "name": "description",
+          "type": "text",
+          "required": false,
+          "format": "textarea"
+        },
+        {
+          "name": "hero_image",
+          "type": "asset",
+          "required": false
+        }
+      ]
+    },
+    {
+      "id": "a01cf275-8036-417c-a827-c0e7115ff1b9",
+      "name": "page",
+      "kind": "content-type",
+      "version": 4,
+      "tags": [],
+      "fields": [
+        {
+          "name": "title",
+          "type": "text",
+          "required": true,
+          "format": "singleline"
+        },
+        {
+          "name": "body",
+          "type": "blocks",
+          "required": false,
+          "allowedDefinitionIds": [
+            "1ae60dba-4571-427f-821e-4b042ddf511b",
+            "d8470d32-0be6-481c-aab0-9aaeec0d9c7e",
+            "c5b779c7-76d7-4cf1-b80f-50ba1084b0b9"
+          ],
+          "allowedTags": []
+        },
+        {
+          "name": "footer",
+          "type": "option",
+          "required": false
+        }
+      ]
+    }
+  ]
+}

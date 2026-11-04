@@ -7,16 +7,16 @@ Build a custom sign-up experience using the `useSignUp()` hook.
 ## Hook API
 
 ```typescript
-import { useSignUp } from '@clerk/nextjs' // or @clerk/clerk-react, @clerk/clerk-expo
+import { useSignUp } from '@clerk/nextjs'; // or @clerk/clerk-react, @clerk/clerk-expo
 
-const { signUp, isLoaded, setActive } = useSignUp()
+const { signUp, isLoaded, setActive } = useSignUp();
 ```
 
-| Property | Type | Description |
-|----------|------|-------------|
-| `signUp` | `SignUp` | Sign-up object with methods |
-| `isLoaded` | `boolean` | Whether the hook has loaded |
-| `setActive` | `(params) => Promise` | Sets the active session |
+| Property    | Type                  | Description                 |
+| ----------- | --------------------- | --------------------------- |
+| `signUp`    | `SignUp`              | Sign-up object with methods |
+| `isLoaded`  | `boolean`             | Whether the hook has loaded |
+| `setActive` | `(params) => Promise` | Sets the active session     |
 
 ## Sign-Up Flow
 
@@ -26,9 +26,9 @@ const { signUp, isLoaded, setActive } = useSignUp()
 const result = await signUp.create({
   emailAddress: 'user@example.com',
   password: 'securePassword123',
-  firstName: 'Jane',  // optional
-  lastName: 'Doe',    // optional
-})
+  firstName: 'Jane', // optional
+  lastName: 'Doe', // optional
+});
 ```
 
 ### 2. Prepare Verification
@@ -38,7 +38,7 @@ Send a verification code to the user's email or phone:
 ```typescript
 await signUp.prepareVerification({
   strategy: 'email_code', // or 'phone_code', 'email_link'
-})
+});
 ```
 
 ### 3. Attempt Verification
@@ -49,7 +49,7 @@ Verify the code the user received:
 const result = await signUp.attemptVerification({
   strategy: 'email_code',
   code: '123456',
-})
+});
 ```
 
 ### 4. Finalize
@@ -57,7 +57,7 @@ const result = await signUp.attemptVerification({
 Set the active session after successful sign-up:
 
 ```typescript
-await setActive({ session: signUp.createdSessionId })
+await setActive({ session: signUp.createdSessionId });
 ```
 
 ### SSO (OAuth)
@@ -67,7 +67,7 @@ await signUp.authenticateWithRedirect({
   strategy: 'oauth_google',
   redirectUrl: '/sso-callback',
   redirectUrlComplete: '/',
-})
+});
 ```
 
 ## Error Handling
@@ -75,17 +75,17 @@ await signUp.authenticateWithRedirect({
 Use try/catch with `isClerkAPIResponseError()`:
 
 ```typescript
-import { isClerkAPIResponseError } from '@clerk/nextjs/errors'
+import { isClerkAPIResponseError } from '@clerk/nextjs/errors';
 
 try {
-  await signUp.create({ emailAddress, password })
+  await signUp.create({ emailAddress, password });
 } catch (err) {
   if (isClerkAPIResponseError(err)) {
     err.errors.forEach((e) => {
-      console.log(e.code)        // e.g. 'form_password_pwned'
-      console.log(e.message)     // Human-readable message
-      console.log(e.longMessage) // Detailed message
-    })
+      console.log(e.code); // e.g. 'form_password_pwned'
+      console.log(e.message); // Human-readable message
+      console.log(e.longMessage); // Detailed message
+    });
   }
 }
 ```
@@ -93,56 +93,56 @@ try {
 ## Complete Example: Email/Password with Email Verification
 
 ```tsx
-'use client'
-import { useState } from 'react'
-import { useSignUp } from '@clerk/nextjs'
-import { isClerkAPIResponseError } from '@clerk/nextjs/errors'
-import { useRouter } from 'next/navigation'
+'use client';
+import { useState } from 'react';
+import { useSignUp } from '@clerk/nextjs';
+import { isClerkAPIResponseError } from '@clerk/nextjs/errors';
+import { useRouter } from 'next/navigation';
 
 export default function SignUpPage() {
-  const { signUp, isLoaded, setActive } = useSignUp()
-  const router = useRouter()
+  const { signUp, isLoaded, setActive } = useSignUp();
+  const router = useRouter();
 
-  const [email, setEmail] = useState('')
-  const [password, setPassword] = useState('')
-  const [code, setCode] = useState('')
-  const [step, setStep] = useState<'register' | 'verify'>('register')
-  const [error, setError] = useState('')
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [code, setCode] = useState('');
+  const [step, setStep] = useState<'register' | 'verify'>('register');
+  const [error, setError] = useState('');
 
-  if (!isLoaded) return <div>Loading...</div>
+  if (!isLoaded) return <div>Loading...</div>;
 
   async function handleRegister(e: React.FormEvent) {
-    e.preventDefault()
-    setError('')
+    e.preventDefault();
+    setError('');
 
     try {
-      await signUp.create({ emailAddress: email, password })
-      await signUp.prepareVerification({ strategy: 'email_code' })
-      setStep('verify')
+      await signUp.create({ emailAddress: email, password });
+      await signUp.prepareVerification({ strategy: 'email_code' });
+      setStep('verify');
     } catch (err) {
       if (isClerkAPIResponseError(err)) {
-        setError(err.errors[0]?.message || 'Sign up failed')
+        setError(err.errors[0]?.message || 'Sign up failed');
       }
     }
   }
 
   async function handleVerify(e: React.FormEvent) {
-    e.preventDefault()
-    setError('')
+    e.preventDefault();
+    setError('');
 
     try {
       const result = await signUp.attemptVerification({
         strategy: 'email_code',
         code,
-      })
+      });
 
       if (result.status === 'complete') {
-        await setActive({ session: result.createdSessionId })
-        router.push('/')
+        await setActive({ session: result.createdSessionId });
+        router.push('/');
       }
     } catch (err) {
       if (isClerkAPIResponseError(err)) {
-        setError(err.errors[0]?.message || 'Verification failed')
+        setError(err.errors[0]?.message || 'Verification failed');
       }
     }
   }
@@ -160,7 +160,7 @@ export default function SignUpPage() {
         {error && <p>{error}</p>}
         <button type="submit">Verify Email</button>
       </form>
-    )
+    );
   }
 
   return (
@@ -180,7 +180,7 @@ export default function SignUpPage() {
       {error && <p>{error}</p>}
       <button type="submit">Sign Up</button>
     </form>
-  )
+  );
 }
 ```
 

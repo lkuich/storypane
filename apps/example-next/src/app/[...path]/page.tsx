@@ -1,21 +1,44 @@
+import { cache } from 'react';
 import { notFound } from 'next/navigation';
-import { Story } from '../../components/client';
-import { cmsUrl,spaceId,previewParameter,publishedPages } from '../../lib/cms';
+import { StorypaneError } from '@storypane/sdk';
+import { StoryContent } from '@/components/story-content';
+import { storypane, getLocales, getPublishedStories } from '@/lib/storypane';
+import { referencesFor } from '@/lib/content';
+import { referenceForPath, staticStoryParams } from '@/lib/routes';
 
-type Props = { params:Promise<{ path:string[] }> };
+type Props = { params: Promise<{ path: string[] }> };
+
 export const dynamicParams = false;
 export const dynamic = 'force-static';
+
 export async function generateStaticParams() {
-  return (await publishedPages()).map(({ params }) => ({ path:params.path.split('/') }));
+  const [stories, locales] = await Promise.all([getPublishedStories(), getLocales()]);
+  return staticStoryParams(stories, locales);
 }
-async function pageFor({ params }:Props) {
-  const path = (await params).path.join('/');
-  return (await publishedPages()).find(page => page.params.path === path)?.props ?? notFound();
+
+const getPage = cache(async (path: string) => {
+  const reference = referenceForPath(path.split('/'), await getLocales());
+  try {
+    return await storypane.getStory(reference);
+  } catch (error) {
+    if (error instanceof StorypaneError && error.status === 404) {
+      notFound();
+    }
+    throw error;
+  }
+});
+
+export async function generateMetadata({ params }: Props) {
+  const story = await getPage((await params).path.join('/'));
+  return { title: story.name };
 }
-export async function generateMetadata(props:Props) {
-  return { title:(await pageFor(props)).story.name };
-}
-export default async function Page(props:Props) {
-  const { story,references } = await pageFor(props);
-  return <div lang={story.locale || 'en'}><Story initial={story} references={references} cmsUrl={cmsUrl} spaceId={spaceId} previewParameter={previewParameter} framework="Next.js" /></div>;
+
+export default async function Page({ params }: Props) {
+  const { path } = await params;
+  const [story, stories] = await Promise.all([getPage(path.join('/')), getPublishedStories()]);
+  return (
+    <div lang={story.locale || 'en'}>
+      <StoryContent story={story} references={referencesFor(stories, story.locale)} />
+    </div>
+  );
 }

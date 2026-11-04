@@ -11,7 +11,7 @@
     "dev:example": "pnpm --filter @storypane/sdk build && pnpm --filter @storypane/example-astro dev",
     "dev:example:next": "pnpm --filter @storypane/sdk build && pnpm --filter @storypane/example-next dev",
     "example:setup:next": "tsx scripts/setup-next-example.ts",
-    "lint:example": "pnpm --filter @storypane/example-astro lint",
+    "lint:example": "eslint apps/example-astro apps/example-next --max-warnings 0 && prettier apps/example-astro apps/example-next --check",
     "build:example:next": "pnpm --filter @storypane/sdk build && pnpm --filter @storypane/example-next build",
     "example:setup": "tsx scripts/setup-astro-example.ts && pnpm --filter @storypane/sdk build && pnpm --filter @storypane/example-astro storypane:generate",
     "build:example": "pnpm --filter @storypane/sdk build && pnpm --filter @storypane/example-astro build",
@@ -22,7 +22,12 @@
     "test:e2e": "playwright test",
     "db:start": "docker compose up -d --wait",
     "db:setup": "tsx scripts/setup.ts",
-    "db:test": "tsx scripts/test-database.ts"
+    "db:test": "tsx scripts/test-database.ts",
+    "lint": "pnpm lint:code && pnpm format:check",
+    "lint:fix": "pnpm lint:code --fix && pnpm format",
+    "lint:code": "eslint . --max-warnings 0",
+    "format": "prettier . --write",
+    "format:check": "prettier . --check"
   },
   "dependencies": {
     "@storypane/core": "workspace:*",
@@ -31,13 +36,23 @@
   },
   "devDependencies": {
     "@cloudflare/workers-types": "latest",
+    "@eslint/js": "^10.0.1",
+    "@next/eslint-plugin-next": "^16.4.5",
     "@playwright/test": "latest",
     "@types/node": "^24",
     "@types/pg": "^8",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "eslint": "^10.14.0",
+    "eslint-plugin-astro": "^3.2.1",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "globals": "^17.14.0",
+    "prettier": "^3.9.10",
+    "prettier-plugin-astro": "^1.1.2",
     "tsx": "^4.23.0",
-    "typescript": "latest",
-    "vitest": "latest"
+    "typescript": "npm:@typescript/typescript6@^6.0.2",
+    "typescript-eslint": "^8.72.1",
+    "vitest": "latest",
+    "@typescript/native": "npm:typescript@^7.0.2"
   }
 }

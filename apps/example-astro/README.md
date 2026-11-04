@@ -125,10 +125,12 @@ import { editable } from '@storypane/sdk';
 import type { HeroBlock } from '../types/storypane';
 
 function Hero({ block }: { block: HeroBlock }) {
-  return <section {...editable(block)} tabIndex={0}>
-    <h1>{block.title || 'Untitled'}</h1>
-    <p>{block.description}</p>
-  </section>;
+  return (
+    <section {...editable(block)} tabIndex={0}>
+      <h1>{block.title || 'Untitled'}</h1>
+      <p>{block.description}</p>
+    </section>
+  );
 }
 ```
 
@@ -157,19 +159,21 @@ appear immediately; this relies on the CMS and example using the same site
 
 ## Files and checks
 
-| File | Purpose |
-| --- | --- |
-| `src/lib/cms.ts` | Discover space locales, fetch publications, paginate, build routes |
-| `src/lib/publications.ts` | Shared publication pagination and route validation for both frameworks |
-| `src/pages/[...path].astro` | Static route generation |
-| `src/components/Story.tsx` | Published-first rendering and live preview hook |
-| `src/components/PreviewShell.tsx` | Preview of unpublished stories/locales |
-| `src/components/blocks.tsx` | Typed component registry and editable markers |
-| `storypane/components.json`, `src/types/storypane.ts` | Pulled schema and generated types |
+| File                                                  | Purpose                                                                |
+| ----------------------------------------------------- | ---------------------------------------------------------------------- |
+| `src/lib/cms.ts`                                      | Discover space locales, fetch publications, paginate, build routes     |
+| `src/lib/publications.ts`                             | Shared publication pagination and route validation for both frameworks |
+| `src/pages/[...path].astro`                           | Static route generation                                                |
+| `src/components/Story.tsx`                            | Published-first rendering and live preview hook                        |
+| `src/components/PreviewShell.tsx`                     | Preview of unpublished stories/locales                                 |
+| `src/components/blocks.tsx`                           | Typed component registry and editable markers                          |
+| `storypane/components.json`, `src/types/storypane.ts` | Pulled schema and generated types                                      |
 
-`pnpm lint:example` runs ESLint over Astro, TypeScript and React source, including
-the shared renderer, using recommended JavaScript/TypeScript/Astro rules and React
-hook checks. Generated schema types are checked by TypeScript instead.
+From the repository root, `pnpm lint:example` checks both self-contained examples with ESLint and Prettier. The shared configuration includes recommended
+JavaScript/TypeScript/Astro rules, React hook checks, and Next.js rules for the Next
+example. `pnpm --filter @storypane/example-astro lint` checks only this app.
+Generated schema types are checked by TypeScript instead. Use `pnpm format` to
+apply the repository's formatting conventions.
 
 `pnpm typecheck` includes Astro checking. `pnpm build:example` checks and builds
 this site; root `pnpm build` builds the CMS/SDK independently of a configured CMS

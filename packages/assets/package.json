@@ -1,6 +1,19 @@
 {
-  "name": "@storypane/assets", "private": true, "type": "module",
-  "exports": { ".": "./src/index.ts" },
-  "dependencies": { "@storypane/core": "workspace:*", "pg": "^8.16.3", "zod": "^4.3.4" },
-  "devDependencies": { "@types/pg": "^8" }
+  "name": "@storypane/assets",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@storypane/core": "workspace:*",
+    "pg": "^8.16.3",
+    "zod": "^4.3.4"
+  },
+  "devDependencies": {
+    "@types/pg": "^8"
+  },
+  "scripts": {
+    "lint": "pnpm --workspace-root exec eslint packages/assets --max-warnings 0 && pnpm --workspace-root exec prettier packages/assets --check"
+  }
 }

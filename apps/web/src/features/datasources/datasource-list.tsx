@@ -1,31 +1,20 @@
-"use client";
+'use client';
 
-import { useCallback, useEffect, useState, type FormEvent } from "react";
-import { Database, Plus, Search, Trash2 } from "lucide-react";
-import {
-  datasourceInputSchema,
-  type Datasource,
-  type OptionItem,
-} from "@storypane/core";
-import {
-  Button,
-  EmptyState,
-  ErrorNotice,
-  Field,
-  Loading,
-  Modal,
-} from "@storypane/ui";
-import { api, errorMessage, jsonRequest, slugify } from "../editor/api";
+import { useCallback, useEffect, useState, type FormEvent } from 'react';
+import { Database, Plus, Search, Trash2 } from 'lucide-react';
+import { datasourceInputSchema, type Datasource, type OptionItem } from '@storypane/core';
+import { Button, EmptyState, ErrorNotice, Field, Loading, Modal } from '@storypane/ui';
+import { api, errorMessage, jsonRequest, slugify } from '../editor/api';
 
 export function DatasourceList({ canManage }: { canManage: boolean }) {
   const [items, setItems] = useState<Datasource[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [search, setSearch] = useState("");
+  const [search, setSearch] = useState('');
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Datasource | null>(null);
-  const [name, setName] = useState("");
-  const [slug, setSlug] = useState("");
+  const [name, setName] = useState('');
+  const [slug, setSlug] = useState('');
   const [entries, setEntries] = useState<OptionItem[]>([]);
   const [formError, setFormError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -33,7 +22,7 @@ export function DatasourceList({ canManage }: { canManage: boolean }) {
     setLoading(true);
     setError(null);
     try {
-      setItems(await api<Datasource[]>("/datasources"));
+      setItems(await api<Datasource[]>('/datasources'));
     } catch (error) {
       setError(errorMessage(error));
     } finally {
@@ -45,11 +34,9 @@ export function DatasourceList({ canManage }: { canManage: boolean }) {
   }, [load]);
   function edit(source: Datasource | null) {
     setEditing(source);
-    setName(source?.name ?? "");
-    setSlug(source?.slug ?? "");
-    setEntries(
-      source?.items.map((item) => ({ ...item })) ?? [{ label: "", value: "" }],
-    );
+    setName(source?.name ?? '');
+    setSlug(source?.slug ?? '');
+    setEntries(source?.items.map((item) => ({ ...item })) ?? [{ label: '', value: '' }]);
     setFormError(null);
     setOpen(true);
   }
@@ -62,16 +49,14 @@ export function DatasourceList({ canManage }: { canManage: boolean }) {
       items: entries,
     });
     if (!parsed.success) {
-      setFormError(
-        parsed.error.issues.map((issue) => issue.message).join(". "),
-      );
+      setFormError(parsed.error.issues.map((issue) => issue.message).join('. '));
       return;
     }
     setBusy(true);
     try {
       await api(
-        editing ? `/datasources/${editing.id}` : "/datasources",
-        jsonRequest(editing ? "PUT" : "POST", parsed.data),
+        editing ? `/datasources/${editing.id}` : '/datasources',
+        jsonRequest(editing ? 'PUT' : 'POST', parsed.data),
       );
       setOpen(false);
       await load();
@@ -88,7 +73,6 @@ export function DatasourceList({ canManage }: { canManage: boolean }) {
     <>
       <div className="page-heading">
         <div>
-          
           <h1>Datasources</h1>
           <p>Manage reusable choices in one place.</p>
         </div>
@@ -132,10 +116,7 @@ export function DatasourceList({ canManage }: { canManage: boolean }) {
                       <span className="entity-icon">
                         <Database />
                       </span>
-                      <button
-                        className="entity-title"
-                        onClick={() => edit(item)}
-                      >
+                      <button className="entity-title" onClick={() => edit(item)}>
                         {item.name}
                       </button>
                     </div>
@@ -150,9 +131,7 @@ export function DatasourceList({ canManage }: { canManage: boolean }) {
           </table>
         ) : (
           <EmptyState
-            title={
-              search ? "No matching datasources" : "One list. Many places."
-            }
+            title={search ? 'No matching datasources' : 'One list. Many places.'}
             action={
               canManage &&
               !search && (
@@ -162,23 +141,19 @@ export function DatasourceList({ canManage }: { canManage: boolean }) {
               )
             }
           >
-            Keep categories, colors, and other shared choices consistent across
-            your stories.
+            Keep categories, colors, and other shared choices consistent across your stories.
           </EmptyState>
         )}
       </div>
       <Modal
         open={open}
         onClose={() => !busy && setOpen(false)}
-        title={editing ? editing.name : "New datasource"}
+        title={editing ? editing.name : 'New datasource'}
         description="Each choice has a label for editors and a stable value stored in content."
       >
         <form onSubmit={save}>
           <ErrorNotice message={formError} />
-          <fieldset
-            disabled={!canManage || busy}
-            style={{ border: 0, padding: 0, margin: 0 }}
-          >
+          <fieldset disabled={!canManage || busy} style={{ border: 0, padding: 0, margin: 0 }}>
             <Field label="Name" htmlFor="datasource-name">
               <input
                 id="datasource-name"
@@ -212,9 +187,7 @@ export function DatasourceList({ canManage }: { canManage: boolean }) {
                   onChange={(event) =>
                     setEntries(
                       entries.map((item, i) =>
-                        i === index
-                          ? { ...item, label: event.target.value }
-                          : item,
+                        i === index ? { ...item, label: event.target.value } : item,
                       ),
                     )
                   }
@@ -227,9 +200,7 @@ export function DatasourceList({ canManage }: { canManage: boolean }) {
                   onChange={(event) =>
                     setEntries(
                       entries.map((item, i) =>
-                        i === index
-                          ? { ...item, value: event.target.value }
-                          : item,
+                        i === index ? { ...item, value: event.target.value } : item,
                       ),
                     )
                   }
@@ -238,27 +209,23 @@ export function DatasourceList({ canManage }: { canManage: boolean }) {
                   variant="ghost"
                   className="icon-button"
                   aria-label={`Remove choice ${index + 1}`}
-                  onClick={() =>
-                    setEntries(entries.filter((_, i) => i !== index))
-                  }
+                  onClick={() => setEntries(entries.filter((_, i) => i !== index))}
                 >
                   <Trash2 />
                 </Button>
               </div>
             ))}
-            <Button
-              onClick={() => setEntries([...entries, { label: "", value: "" }])}
-            >
+            <Button onClick={() => setEntries([...entries, { label: '', value: '' }])}>
               <Plus /> Add choice
             </Button>
           </fieldset>
           <div className="dialog-actions">
             <Button onClick={() => setOpen(false)} disabled={busy}>
-              {canManage ? "Cancel" : "Close"}
+              {canManage ? 'Cancel' : 'Close'}
             </Button>
             {canManage && (
               <Button type="submit" variant="primary" disabled={busy}>
-                {busy ? "Saving…" : "Save datasource"}
+                {busy ? 'Saving…' : 'Save datasource'}
               </Button>
             )}
           </div>

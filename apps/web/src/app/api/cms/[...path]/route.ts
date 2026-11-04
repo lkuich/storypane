@@ -1,146 +1,306 @@
-import { env } from 'cloudflare:workers'
-import { StorypaneError, definitionSaveSchema, parseInput } from '@storypane/core'
-import { handleAssets } from '@storypane/assets'
-import { authenticate, createServices } from '../../../../lib/context'
-import { assertOrigin, errorResponse, jsonResponse, readJson } from '../../../../lib/http'
+import { env } from 'cloudflare:workers';
+import { StorypaneError, definitionSaveSchema, parseInput } from '@storypane/core';
+import { handleAssets } from '@storypane/assets';
+import { authenticate, createServices } from '../../../../lib/context';
+import { assertOrigin, errorResponse, jsonResponse, readJson } from '../../../../lib/http';
 
 async function handle(request: Request, route: { params: Promise<{ path: string[] }> }) {
-  const services = createServices()
+  const services = createServices();
   try {
-    const { path } = await route.params
-    const managementToken=path[0]==='migrations' ? request.headers.get('authorization')?.match(/^Bearer (sm_[\w-]+)$/)?.[1] : undefined
-    const authenticated=managementToken ? null : await authenticate(request,services)
-    const actor=authenticated?.actor ?? await services.store.authenticateManagement(managementToken!,request.headers.get('x-blok-space-id') ?? new URL(request.url).searchParams.get('space') ?? '')
-    const space=authenticated?.space
-    const method = request.method
-    const isWebSocket = request.headers.get('upgrade')?.toLowerCase() === 'websocket'
-    if (!managementToken && (!['GET', 'HEAD'].includes(method) || isWebSocket)) assertOrigin(request, env.APP_URL)
-    const [resource, id, child, localeId, action, targetId] = path
-    const store = services.store
-    if(resource==='migrations') {
-      if(method==='GET' && !id)return jsonResponse(await store.listMigrations(actor,new URL(request.url).searchParams.get('workspace')==='true'))
-      if(method==='POST' && !id)return jsonResponse(await store.pushMigration(actor,await readJson(request)))
-      if(method==='GET' && id && child==='review')return jsonResponse(await store.reviewMigration(actor,id,new URL(request.url).searchParams.get('destructive')==='true'))
-      if(method==='POST' && id && child==='deploy') {
-        const input=await readJson(request) as {reviewToken?:unknown;destructive?:boolean;confirmation?:string}
-        if(!input || typeof input.reviewToken!=='string')throw new StorypaneError('invalid','A reviewed migration token is required')
-        return jsonResponse(await store.deployMigration(actor,id,input.reviewToken,{destructive:input.destructive,confirmation:input.confirmation}))
+    const { path } = await route.params;
+    const managementToken =
+      path[0] === 'migrations'
+        ? request.headers.get('authorization')?.match(/^Bearer (sm_[\w-]+)$/)?.[1]
+        : undefined;
+    const authenticated = managementToken ? null : await authenticate(request, services);
+    const actor =
+      authenticated?.actor ??
+      (await services.store.authenticateManagement(
+        managementToken!,
+        request.headers.get('x-blok-space-id') ??
+          new URL(request.url).searchParams.get('space') ??
+          '',
+      ));
+    const space = authenticated?.space;
+    const method = request.method;
+    const isWebSocket = request.headers.get('upgrade')?.toLowerCase() === 'websocket';
+    if (!managementToken && (!['GET', 'HEAD'].includes(method) || isWebSocket))
+      assertOrigin(request, env.APP_URL);
+    const [resource, id, child, localeId, action, targetId] = path;
+    const store = services.store;
+    if (resource === 'migrations') {
+      if (method === 'GET' && !id)
+        return jsonResponse(
+          await store.listMigrations(
+            actor,
+            new URL(request.url).searchParams.get('workspace') === 'true',
+          ),
+        );
+      if (method === 'POST' && !id)
+        return jsonResponse(await store.pushMigration(actor, await readJson(request)));
+      if (method === 'GET' && id && child === 'review')
+        return jsonResponse(
+          await store.reviewMigration(
+            actor,
+            id,
+            new URL(request.url).searchParams.get('destructive') === 'true',
+          ),
+        );
+      if (method === 'POST' && id && child === 'deploy') {
+        const input = (await readJson(request)) as {
+          reviewToken?: unknown;
+          destructive?: boolean;
+          confirmation?: string;
+        };
+        if (!input || typeof input.reviewToken !== 'string')
+          throw new StorypaneError('invalid', 'A reviewed migration token is required');
+        return jsonResponse(
+          await store.deployMigration(actor, id, input.reviewToken, {
+            destructive: input.destructive,
+            confirmation: input.confirmation,
+          }),
+        );
       }
     }
-    if(resource==='management-tokens' && !child) {
-      if(method==='GET' && !id)return jsonResponse(await store.listManagementTokens(actor))
-      if(method==='POST' && !id)return jsonResponse(await store.createManagementToken(actor,await readJson(request)),201)
-      if(method==='DELETE' && id){await store.revokeManagementToken(actor,id);return jsonResponse({ok:true})}
+    if (resource === 'management-tokens' && !child) {
+      if (method === 'GET' && !id) return jsonResponse(await store.listManagementTokens(actor));
+      if (method === 'POST' && !id)
+        return jsonResponse(await store.createManagementToken(actor, await readJson(request)), 201);
+      if (method === 'DELETE' && id) {
+        await store.revokeManagementToken(actor, id);
+        return jsonResponse({ ok: true });
+      }
     }
-    if(resource==='folders' && !child) {
-      if(method==='GET' && !id)return jsonResponse(await store.listFolders(actor))
-      if(method==='POST' && !id)return jsonResponse(await store.saveFolder(actor,await readJson(request)),201)
-      if(method==='PUT' && id)return jsonResponse(await store.saveFolder(actor,await readJson(request),id))
-      if(method==='DELETE' && id){await store.deleteFolder(actor,id);return jsonResponse({ok:true})}
+    if (resource === 'folders' && !child) {
+      if (method === 'GET' && !id) return jsonResponse(await store.listFolders(actor));
+      if (method === 'POST' && !id)
+        return jsonResponse(await store.saveFolder(actor, await readJson(request)), 201);
+      if (method === 'PUT' && id)
+        return jsonResponse(await store.saveFolder(actor, await readJson(request), id));
+      if (method === 'DELETE' && id) {
+        await store.deleteFolder(actor, id);
+        return jsonResponse({ ok: true });
+      }
     }
-    if (resource === 'presence' && !id && method === 'GET') return jsonResponse(await store.listPageEditors(actor))
+    if (resource === 'presence' && !id && method === 'GET')
+      return jsonResponse(await store.listPageEditors(actor));
     if (resource === 'roles' && !child) {
-      if (method === 'GET' && !id) return jsonResponse(await store.listSpaceRoles(actor))
-      if (method === 'POST' && !id) { await store.saveSpaceRole(actor, await readJson(request)); return jsonResponse({ok:true},201) }
-      if (method === 'PUT' && id) { await store.saveSpaceRole(actor, await readJson(request),id); return jsonResponse({ok:true}) }
-      if (method === 'DELETE' && id) { await store.deleteSpaceRole(actor,id); return jsonResponse({ok:true}) }
+      if (method === 'GET' && !id) return jsonResponse(await store.listSpaceRoles(actor));
+      if (method === 'POST' && !id) {
+        await store.saveSpaceRole(actor, await readJson(request));
+        return jsonResponse({ ok: true }, 201);
+      }
+      if (method === 'PUT' && id) {
+        await store.saveSpaceRole(actor, await readJson(request), id);
+        return jsonResponse({ ok: true });
+      }
+      if (method === 'DELETE' && id) {
+        await store.deleteSpaceRole(actor, id);
+        return jsonResponse({ ok: true });
+      }
     }
     if (resource === 'members' && id && !child) {
-      if (method === 'PUT') { await store.updateSpaceMember(actor, id, await readJson(request)); return jsonResponse({ ok:true }) }
-      if (method === 'DELETE') { await store.removeSpaceMember(actor, id); return jsonResponse({ ok:true }) }
+      if (method === 'PUT') {
+        await store.updateSpaceMember(actor, id, await readJson(request));
+        return jsonResponse({ ok: true });
+      }
+      if (method === 'DELETE') {
+        await store.removeSpaceMember(actor, id);
+        return jsonResponse({ ok: true });
+      }
     }
     if (resource === 'invitations' && !child) {
-      if (method === 'GET' && !id) return jsonResponse(await store.listSpaceInvitations(actor))
-      if (method === 'POST' && !id) { await store.inviteSpaceMember(actor, await readJson(request)); return jsonResponse({ ok:true }, 201) }
-      if (method === 'DELETE' && id) { await store.revokeSpaceInvitation(actor, id); return jsonResponse({ ok:true }) }
+      if (method === 'GET' && !id) return jsonResponse(await store.listSpaceInvitations(actor));
+      if (method === 'POST' && !id) {
+        await store.inviteSpaceMember(actor, await readJson(request));
+        return jsonResponse({ ok: true }, 201);
+      }
+      if (method === 'DELETE' && id) {
+        await store.revokeSpaceInvitation(actor, id);
+        return jsonResponse({ ok: true });
+      }
     }
     if (resource === 'locales') {
-      if (method === 'GET' && !id) return jsonResponse(await store.listSpaceLocales(actor))
-      if (method === 'POST' && !id) return jsonResponse(await store.createSpaceLocale(actor, await readJson(request)), 201)
-      if (method === 'PUT' && id) return jsonResponse(await store.updateSpaceLocale(actor, id, await readJson(request)))
-      if (method === 'DELETE' && id) { await store.deleteSpaceLocale(actor, id); return jsonResponse({ ok:true }) }
+      if (method === 'GET' && !id) return jsonResponse(await store.listSpaceLocales(actor));
+      if (method === 'POST' && !id)
+        return jsonResponse(await store.createSpaceLocale(actor, await readJson(request)), 201);
+      if (method === 'PUT' && id)
+        return jsonResponse(await store.updateSpaceLocale(actor, id, await readJson(request)));
+      if (method === 'DELETE' && id) {
+        await store.deleteSpaceLocale(actor, id);
+        return jsonResponse({ ok: true });
+      }
     }
     if (resource === 'delivery-settings' && !id) {
-      if (method === 'GET') return jsonResponse(await store.getDeliverySettings(actor))
-      if (method === 'PUT') return jsonResponse(await store.updateDeliverySettings(actor, await readJson(request)))
+      if (method === 'GET') return jsonResponse(await store.getDeliverySettings(actor));
+      if (method === 'PUT')
+        return jsonResponse(await store.updateDeliverySettings(actor, await readJson(request)));
     }
     if (resource === 'delivery-tokens') {
-      if (method === 'GET' && !id) return jsonResponse(await store.listDeliveryTokens(actor))
-      if (method === 'POST' && !id) return jsonResponse(await store.createDeliveryToken(actor, await readJson(request)), 201)
-      if (method === 'DELETE' && id) { await store.revokeDeliveryToken(actor, id); return jsonResponse({ ok:true }) }
+      if (method === 'GET' && !id) return jsonResponse(await store.listDeliveryTokens(actor));
+      if (method === 'POST' && !id)
+        return jsonResponse(await store.createDeliveryToken(actor, await readJson(request)), 201);
+      if (method === 'DELETE' && id) {
+        await store.revokeDeliveryToken(actor, id);
+        return jsonResponse({ ok: true });
+      }
     }
     if (resource === 'space' && !id) {
-      if (method === 'GET') return jsonResponse(await store.getSpace(actor))
-      if (method === 'PUT') return jsonResponse(await store.updateSpace(actor, await readJson(request)))
+      if (method === 'GET') return jsonResponse(await store.getSpace(actor));
+      if (method === 'PUT')
+        return jsonResponse(await store.updateSpace(actor, await readJson(request)));
     }
-    if (resource === 'assets') return await handleAssets(request, path.slice(1), { db: services.db, actor, canWrite:space!.permissions.includes('assets:write'), bucket: env.MEDIA, images: env.IMAGES, cache: await caches.open('blok-thumbnails-v1') })
+    if (resource === 'assets')
+      return await handleAssets(request, path.slice(1), {
+        db: services.db,
+        actor,
+        canWrite: space!.permissions.includes('assets:write'),
+        bucket: env.MEDIA,
+        images: env.IMAGES,
+        cache: await caches.open('blok-thumbnails-v1'),
+      });
     if (resource === 'definitions') {
-      if (method === 'GET' && !id) return jsonResponse(await store.listDefinitions(actor,new URL(request.url).searchParams.get('deployed')==='true'))
-      if (method === 'POST' && !id) { const input=parseInput(definitionSaveSchema,await readJson(request)); return jsonResponse(await store.createDefinition(actor,input.schema,input.baseVersion),201) }
-      if (method === 'POST' && id && child === 'versions') { const input=parseInput(definitionSaveSchema,await readJson(request)); if(!input.expectedVersionId)throw new StorypaneError('invalid','The starting definition version is required'); return jsonResponse(await store.updateDefinition(actor,id,input.schema,input.expectedVersionId,input.baseVersion)) }
+      if (method === 'GET' && !id)
+        return jsonResponse(
+          await store.listDefinitions(
+            actor,
+            new URL(request.url).searchParams.get('deployed') === 'true',
+          ),
+        );
+      if (method === 'POST' && !id) {
+        const input = parseInput(definitionSaveSchema, await readJson(request));
+        return jsonResponse(
+          await store.createDefinition(actor, input.schema, input.baseVersion),
+          201,
+        );
+      }
+      if (method === 'POST' && id && child === 'versions') {
+        const input = parseInput(definitionSaveSchema, await readJson(request));
+        if (!input.expectedVersionId)
+          throw new StorypaneError('invalid', 'The starting definition version is required');
+        return jsonResponse(
+          await store.updateDefinition(
+            actor,
+            id,
+            input.schema,
+            input.expectedVersionId,
+            input.baseVersion,
+          ),
+        );
+      }
     }
     if (resource === 'datasources') {
-      if (method === 'GET' && !id) return jsonResponse(await store.listDatasources(actor))
-      if ((method === 'POST' && !id) || (method === 'PUT' && id)) return jsonResponse(await store.saveDatasource(actor, await readJson(request), id))
+      if (method === 'GET' && !id) return jsonResponse(await store.listDatasources(actor));
+      if ((method === 'POST' && !id) || (method === 'PUT' && id))
+        return jsonResponse(await store.saveDatasource(actor, await readJson(request), id));
     }
     if (resource === 'options' && method === 'POST') {
-      const input = await readJson(request)
-      if (!input || typeof input !== 'object' || Array.isArray(input)) throw new StorypaneError('invalid', 'Invalid options request')
-      const { search, ...rest } = input as Record<string, unknown>
-      return jsonResponse(await store.resolveOptions(actor, { ...rest, query: search ?? rest.query }))
+      const input = await readJson(request);
+      if (!input || typeof input !== 'object' || Array.isArray(input))
+        throw new StorypaneError('invalid', 'Invalid options request');
+      const { search, ...rest } = input as Record<string, unknown>;
+      return jsonResponse(
+        await store.resolveOptions(actor, { ...rest, query: search ?? rest.query }),
+      );
     }
     if (resource === 'stories') {
-      if(id && child==='location' && !localeId && method==='PUT')return jsonResponse(await store.updateStoryLocation(actor,id,await readJson(request)))
+      if (id && child === 'location' && !localeId && method === 'PUT')
+        return jsonResponse(await store.updateStoryLocation(actor, id, await readJson(request)));
       if (id && child === 'pin' && !localeId && (method === 'PUT' || method === 'DELETE')) {
-        const pinned=method === 'PUT'
-        await store.setStoryPinned(actor,id,pinned)
-        return jsonResponse({pinned})
+        const pinned = method === 'PUT';
+        await store.setStoryPinned(actor, id, pinned);
+        return jsonResponse({ pinned });
       }
-      if (method === 'GET' && !id) return jsonResponse(await store.listStories(actor))
-      if (method === 'GET' && id && !child) return jsonResponse(await store.getStory(actor, id))
-      if (method === 'POST' && !id) return jsonResponse((await store.createStory(actor, await readJson(request))).story, 201)
+      if (method === 'GET' && !id) return jsonResponse(await store.listStories(actor));
+      if (method === 'GET' && id && !child) return jsonResponse(await store.getStory(actor, id));
+      if (method === 'POST' && !id)
+        return jsonResponse((await store.createStory(actor, await readJson(request))).story, 201);
       if (id && child === 'locales') {
-        if (!localeId && method === 'GET') return jsonResponse(await store.listLocales(actor, id))
-        if (!localeId && method === 'POST') return jsonResponse((await store.createLocale(actor, id, await readJson(request))).locale, 201)
+        if (!localeId && method === 'GET') return jsonResponse(await store.listLocales(actor, id));
+        if (!localeId && method === 'POST')
+          return jsonResponse(
+            (await store.createLocale(actor, id, await readJson(request))).locale,
+            201,
+          );
         if (localeId) {
-          if (action === 'preview' && method === 'POST') return jsonResponse(await store.createEditorPreview(actor, id, localeId, await readJson(request)), 201)
-          if (!action && method === 'GET') return jsonResponse(await store.getSnapshot(actor, id, localeId))
-          const room = env.ROOMS.getByName(`${actor.spaceId}:${id}:${localeId}`)
-          const internalHeaders = new Headers({ 'x-blok-actor': JSON.stringify(actor), 'x-blok-story-id': id, 'x-blok-locale-id': localeId })
+          if (action === 'preview' && method === 'POST')
+            return jsonResponse(
+              await store.createEditorPreview(actor, id, localeId, await readJson(request)),
+              201,
+            );
+          if (!action && method === 'GET')
+            return jsonResponse(await store.getSnapshot(actor, id, localeId));
+          const room = env.ROOMS.getByName(`${actor.spaceId}:${id}:${localeId}`);
+          const internalHeaders = new Headers({
+            'x-blok-actor': JSON.stringify(actor),
+            'x-blok-story-id': id,
+            'x-blok-locale-id': localeId,
+          });
           async function notify(payload: unknown) {
             try {
-              const headers = new Headers(internalHeaders)
-              headers.set('content-type', 'application/json')
-              const result = await room.fetch(new Request('https://room/notify', { method: 'POST', headers, body: JSON.stringify(payload) }))
-              if (!result.ok) console.warn('Room notification failed', { status: result.status })
-            } catch (error) { console.warn('Room notification unavailable; clients will resync', error) }
+              const headers = new Headers(internalHeaders);
+              headers.set('content-type', 'application/json');
+              const result = await room.fetch(
+                new Request('https://room/notify', {
+                  method: 'POST',
+                  headers,
+                  body: JSON.stringify(payload),
+                }),
+              );
+              if (!result.ok) console.warn('Room notification failed', { status: result.status });
+            } catch (error) {
+              console.warn('Room notification unavailable; clients will resync', error);
+            }
           }
           if (action === 'commands' && method === 'POST') {
-            const result = await store.command(actor, id, localeId, await readJson(request))
-            await notify(result)
-            return jsonResponse(result)
+            const result = await store.command(actor, id, localeId, await readJson(request));
+            await notify(result);
+            return jsonResponse(result);
           }
           if (action === 'leases') {
-            const input = await readJson(request)
-            if (!input || typeof input !== 'object' || Array.isArray(input)) throw new StorypaneError('invalid', 'Invalid lease request')
-            const { blockId, token } = input as { blockId?: unknown; token?: unknown }
-            if (typeof blockId !== 'string' || (method !== 'POST' && typeof token !== 'string')) throw new StorypaneError('invalid', 'Missing lease details')
-            if (method === 'POST') { const lease = await store.acquireLease(actor, id, localeId, blockId); await notify({ type: 'leases' }); return jsonResponse(lease) }
-            if (method === 'PATCH') { const lease = await store.renewLease(actor, id, localeId, blockId, token as string); await notify({ type: 'leases' }); return jsonResponse(lease) }
-            if (method === 'DELETE') { await store.releaseLease(actor, id, localeId, blockId, token as string); await notify({ type: 'leases' }); return jsonResponse({ ok: true }) }
+            const input = await readJson(request);
+            if (!input || typeof input !== 'object' || Array.isArray(input))
+              throw new StorypaneError('invalid', 'Invalid lease request');
+            const { blockId, token } = input as { blockId?: unknown; token?: unknown };
+            if (typeof blockId !== 'string' || (method !== 'POST' && typeof token !== 'string'))
+              throw new StorypaneError('invalid', 'Missing lease details');
+            if (method === 'POST') {
+              const lease = await store.acquireLease(actor, id, localeId, blockId);
+              await notify({ type: 'leases' });
+              return jsonResponse(lease);
+            }
+            if (method === 'PATCH') {
+              const lease = await store.renewLease(actor, id, localeId, blockId, token as string);
+              await notify({ type: 'leases' });
+              return jsonResponse(lease);
+            }
+            if (method === 'DELETE') {
+              await store.releaseLease(actor, id, localeId, blockId, token as string);
+              await notify({ type: 'leases' });
+              return jsonResponse({ ok: true });
+            }
           }
-          if (action === 'checkpoints' && method === 'GET') return jsonResponse(targetId ? await store.getCheckpoint(actor, id, localeId, targetId) : await store.listCheckpoints(actor, id, localeId))
+          if (action === 'checkpoints' && method === 'GET')
+            return jsonResponse(
+              targetId
+                ? await store.getCheckpoint(actor, id, localeId, targetId)
+                : await store.listCheckpoints(actor, id, localeId),
+            );
           if (action === 'published' && method === 'GET') {
-            const publication = await store.getPublication(actor, id, localeId)
-            if (!publication) throw new StorypaneError('not_found', 'This locale has not been published.')
-            return jsonResponse(publication)
+            const publication = await store.getPublication(actor, id, localeId);
+            if (!publication)
+              throw new StorypaneError('not_found', 'This locale has not been published.');
+            return jsonResponse(publication);
           }
         }
       }
     }
-    throw new StorypaneError('not_found', 'Endpoint not found')
-  } catch (error) { return errorResponse(error) }
-  finally { await services.db.end() }
+    throw new StorypaneError('not_found', 'Endpoint not found');
+  } catch (error) {
+    return errorResponse(error);
+  } finally {
+    await services.db.end();
+  }
 }
 
-export { handle as GET, handle as POST, handle as PUT, handle as PATCH, handle as DELETE }
+export { handle as GET, handle as POST, handle as PUT, handle as PATCH, handle as DELETE };

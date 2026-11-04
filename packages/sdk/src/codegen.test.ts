@@ -1,34 +1,63 @@
-import { expect,it } from 'vitest';
+import { expect, it } from 'vitest';
 import { generateTypes } from './codegen.js';
 import type { StorypaneSchema } from './types.js';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync,writeFileSync,rmSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join,resolve } from 'node:path';
+import { join, resolve } from 'node:path';
 
-const schema:StorypaneSchema = { migrationVersion:2, components:[
-  { id:'page',name:'page',kind:'content-type',version:1,fields:[{ name:'body',type:'blocks',allowedDefinitionIds:['hero'] }] },
-  { id:'hero',name:'hero',kind:'universal',version:2,fields:[
-    { name:'title',type:'text',required:true },{ name:'description',type:'text',format:'markdown' },
-    { name:'count',type:'number' },{ name:'date',type:'datetime' },{ name:'enabled',type:'boolean' },
-    { name:'theme',type:'option',required:true,options:['light','dark','quote"\n'] },
-    { name:'tags',type:'options',options:['one','two'] },{ name:'remote',type:'option' },
-    { name:'image',type:'asset' },{ name:'link',type:'link' },{ name:'body',type:'text',format:'richtext' },
-    { name:'children',type:'blocks' },
-  ] },
-] };
-it('generates deterministic discriminated types with constrained nesting and real field shapes',() => {
+const schema: StorypaneSchema = {
+  migrationVersion: 2,
+  components: [
+    {
+      id: 'page',
+      name: 'page',
+      kind: 'content-type',
+      version: 1,
+      fields: [{ name: 'body', type: 'blocks', allowedDefinitionIds: ['hero'] }],
+    },
+    {
+      id: 'hero',
+      name: 'hero',
+      kind: 'universal',
+      version: 2,
+      fields: [
+        { name: 'title', type: 'text', required: true },
+        { name: 'description', type: 'text', format: 'markdown' },
+        { name: 'count', type: 'number' },
+        { name: 'date', type: 'datetime' },
+        { name: 'enabled', type: 'boolean' },
+        { name: 'theme', type: 'option', required: true, options: ['light', 'dark', 'quote"\n'] },
+        { name: 'tags', type: 'options', options: ['one', 'two'] },
+        { name: 'remote', type: 'option' },
+        { name: 'image', type: 'asset' },
+        { name: 'link', type: 'link' },
+        { name: 'body', type: 'text', format: 'richtext' },
+        { name: 'children', type: 'blocks' },
+      ],
+    },
+  ],
+};
+it('generates deterministic discriminated types with constrained nesting and real field shapes', () => {
   const output = generateTypes(schema);
-  expect(output).toBe(generateTypes({ migrationVersion:2, components:[...schema.components].reverse() }));
+  expect(output).toBe(
+    generateTypes({ migrationVersion: 2, components: [...schema.components].reverse() }),
+  );
   expect(output).toContain('export const storypaneMigrationVersion = 2 as const;');
   expect(output).toContain('"body": Array<HeroBlock>');
-  expect(output).toContain('"theme": "light" | "dark" | "quote\\\"\\n"');
+  expect(output).toContain('"theme": "light" | "dark" | ' + JSON.stringify('quote"\n'));
   expect(output).toContain('export type StorypaneNestable = HeroBlock;');
-  const dir = mkdtempSync(join(tmpdir(),'blok-types-'));
+  const dir = mkdtempSync(join(tmpdir(), 'blok-types-'));
   try {
-    const source = join(dir,'check.ts');
+    const source = join(dir, 'check.ts');
     // Use the SDK's real field types without depending on temporary-directory package resolution.
-    writeFileSync(source,output.replace("from '@storypane/sdk'",`from ${JSON.stringify(new URL('./types.js',import.meta.url).pathname)}`) + `
+    writeFileSync(
+      source,
+      output.replace(
+        "from '@storypane/sdk'",
+        `from ${JSON.stringify(new URL('./types.js', import.meta.url).pathname)}`,
+      ) +
+        `
 const hero: HeroBlock = { _uid:'1',component:'hero',title:'Hello',theme:'light',children:[] };
 const page: PageBlock = { _uid:'2',component:'page',body:[hero] };
 // @ts-expect-error Content types cannot be nested in this field.
@@ -41,28 +70,68 @@ hero.image = { assetId:'asset',alt:'Alternative text' };
 hero.link = { type:'story',storyId:'story' };
 hero.body = { type:'doc',content:[{ type:'paragraph',content:[{ type:'text',text:'Safe' }] }] };
 hero.count = null; hero.enabled = ''; hero.tags = ['two'];
-`);
-    const check = spawnSync(resolve('node_modules/.bin/tsc'),['--strict','--noEmit','--skipLibCheck','--target','ES2022','--module','NodeNext','--moduleResolution','NodeNext',source],{ cwd:dir,encoding:'utf8' });
-    expect(check.status,check.stdout + check.stderr).toBe(0);
-  } finally { rmSync(dir,{ recursive:true,force:true }); }
+`,
+    );
+    const check = spawnSync(
+      resolve('node_modules/.bin/tsc'),
+      [
+        '--strict',
+        '--noEmit',
+        '--skipLibCheck',
+        '--target',
+        'ES2022',
+        '--module',
+        'NodeNext',
+        '--moduleResolution',
+        'NodeNext',
+        source,
+      ],
+      { cwd: dir, encoding: 'utf8' },
+    );
+    expect(check.status, check.stdout + check.stderr).toBe(0);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
-it('rejects invalid identifiers, collisions, fields, and missing nested schema references',() => {
+it('rejects invalid identifiers, collisions, fields, and missing nested schema references', () => {
   for (const mutate of [
-    (value:StorypaneSchema) => { value.components[0].name = 'bad;export'; },
-    (value:StorypaneSchema) => { value.components[0].name = 'hero_'; },
-    (value:StorypaneSchema) => { value.components[0].fields[0].name = 'constructor'; },
-    (value:StorypaneSchema) => { value.components[0].fields[0].allowedDefinitionIds = ['missing']; },
-    (value:StorypaneSchema) => { value.components[0].fields.push(value.components[0].fields[0]); },
-    (value:StorypaneSchema) => { value.components[1].kind = 'content-type'; },
-  ]) { const changed = structuredClone(schema); mutate(changed); expect(() => generateTypes(changed)).toThrow(); }
-  expect(() => generateTypes({ migrationVersion:2, components:[{ name:'injected' }] })).toThrow();
-  expect(generateTypes({ migrationVersion:2, components:[] })).toContain('export type StorypaneComponent = never;');
+    (value: StorypaneSchema) => {
+      value.components[0].name = 'bad;export';
+    },
+    (value: StorypaneSchema) => {
+      value.components[0].name = 'hero_';
+    },
+    (value: StorypaneSchema) => {
+      value.components[0].fields[0].name = 'constructor';
+    },
+    (value: StorypaneSchema) => {
+      value.components[0].fields[0].allowedDefinitionIds = ['missing'];
+    },
+    (value: StorypaneSchema) => {
+      value.components[0].fields.push(value.components[0].fields[0]);
+    },
+    (value: StorypaneSchema) => {
+      value.components[1].kind = 'content-type';
+    },
+  ]) {
+    const changed = structuredClone(schema);
+    mutate(changed);
+    expect(() => generateTypes(changed)).toThrow();
+  }
+  expect(() =>
+    generateTypes({ migrationVersion: 2, components: [{ name: 'injected' }] }),
+  ).toThrow();
+  expect(generateTypes({ migrationVersion: 2, components: [] })).toContain(
+    'export type StorypaneComponent = never;',
+  );
 });
-it('generates tag-restricted unions, including never when no nestable block matches',() => {
+it('generates tag-restricted unions, including never when no nestable block matches', () => {
   const tagged = structuredClone(schema);
   tagged.components[0].tags = ['layout'];
   tagged.components[1].tags = ['layout'];
-  tagged.components[0].fields = [{ name:'body',type:'blocks',allowedTags:['layout','marketing'] }];
+  tagged.components[0].fields = [
+    { name: 'body', type: 'blocks', allowedTags: ['layout', 'marketing'] },
+  ];
   expect(generateTypes(tagged)).toContain('"body": Array<HeroBlock>');
   tagged.components[1].tags = [];
   expect(generateTypes(tagged)).toContain('"body": Array<never>');
@@ -71,6 +140,6 @@ it('generates tag-restricted unions, including never when no nestable block matc
   tagged.components[0].fields[0].allowedTags = [''];
   expect(() => generateTypes(tagged)).toThrow();
   tagged.components[0].fields[0].allowedTags = ['layout'];
-  tagged.components[1].tags = ['layout','layout'];
+  tagged.components[1].tags = ['layout', 'layout'];
   expect(() => generateTypes(tagged)).toThrow();
 });

@@ -1,5 +1,15 @@
 {
-  "name": "@storypane/ui", "private": true, "type": "module",
-  "exports": { ".": "./src/index.tsx" },
-  "peerDependencies": { "react": "^19.3.1", "react-dom": "^19.3.1" }
+  "name": "@storypane/ui",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.tsx"
+  },
+  "peerDependencies": {
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1"
+  },
+  "scripts": {
+    "lint": "pnpm --workspace-root exec eslint packages/ui --max-warnings 0 && pnpm --workspace-root exec prettier packages/ui --check"
+  }
 }

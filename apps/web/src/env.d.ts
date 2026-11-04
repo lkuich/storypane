@@ -1,2 +1,2 @@
-/// <reference path="../.cloudflare/types/index.d.ts" />
 /// <reference types="vinext/types" />
+import '../.cloudflare/types/index.d.ts';

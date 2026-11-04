@@ -7,13 +7,13 @@ features. Investigated against the working tree and official documentation on
 Issue numbers preserve the numbered gaps from the product comparison. Only gaps
 1–4 and 8 are queued here; the missing numbers are intentional.
 
-| Issue | Status | Outcome | Dependencies |
-| --- | --- | --- | --- |
-| [001 — Story lifecycle and bulk actions](001-story-lifecycle.md) | TODO | Unpublish, duplicate, safely delete/restore, and act on selected stories | Existing checkpoints, publications, folders, and leases |
-| [002 — Outbound webhooks](002-webhooks.md) | TODO | Reliably notify sites and services after committed changes | Hooks into 001 as its actions land; adds a durable delivery runner |
-| [003 — Scheduled publishing](003-scheduled-publishing.md) | TODO | Publish an explicitly reviewed locale checkpoint at a future time | Coordinate lifecycle races with 001; reuse 002's cron entry point if present |
-| [004 — Production media delivery](004-production-media.md) | TODO | Public published-media URLs, optimized images, focal points, and usage lookup | Existing R2/Images bindings; respect 001's publication/deletion state |
-| [008 — Scoped content permissions](008-scoped-permissions.md) | TODO | Restrict reading, editing, and publishing by content location and identity | Integrate every content path, including 001–004 |
+| Issue                                                            | Status | Outcome                                                                       | Dependencies                                                                 |
+| ---------------------------------------------------------------- | ------ | ----------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| [001 — Story lifecycle and bulk actions](001-story-lifecycle.md) | TODO   | Unpublish, duplicate, safely delete/restore, and act on selected stories      | Existing checkpoints, publications, folders, and leases                      |
+| [002 — Outbound webhooks](002-webhooks.md)                       | TODO   | Reliably notify sites and services after committed changes                    | Hooks into 001 as its actions land; adds a durable delivery runner           |
+| [003 — Scheduled publishing](003-scheduled-publishing.md)        | TODO   | Publish an explicitly reviewed locale checkpoint at a future time             | Coordinate lifecycle races with 001; reuse 002's cron entry point if present |
+| [004 — Production media delivery](004-production-media.md)       | TODO   | Public published-media URLs, optimized images, focal points, and usage lookup | Existing R2/Images bindings; respect 001's publication/deletion state        |
+| [008 — Scoped content permissions](008-scoped-permissions.md)    | TODO   | Restrict reading, editing, and publishing by content location and identity    | Integrate every content path, including 001–004                              |
 
 Suggested implementation order: 001, 002, 003, 004, then 008. Issue 008 is the
 largest change; review its authorization contract before implementing the other

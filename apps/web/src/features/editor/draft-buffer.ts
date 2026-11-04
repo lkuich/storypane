@@ -1,12 +1,7 @@
-import {
-  commandSchema,
-  type BlockDraft,
-  type Command,
-  type Json,
-} from "@storypane/core";
+import { commandSchema, type BlockDraft, type Command, type Json } from '@storypane/core';
 
 export type SaveAttempt = {
-  migrationVersion?:number;
+  migrationVersion?: number;
   mutationId: string;
   baseRevision: number;
   fields: Record<string, Json>;
@@ -49,10 +44,10 @@ export function readBuffers(raw: string | null): DraftBuffers {
   if (!raw) return {};
   try {
     const value: unknown = JSON.parse(raw);
-    if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
     const valid: DraftBuffers = {};
     for (const [id, buffer] of Object.entries(value)) {
-      if (!buffer || typeof buffer !== "object") continue;
+      if (!buffer || typeof buffer !== 'object') continue;
       const item = buffer as Partial<DraftBuffer>;
       if (
         Number.isInteger(item.baseRevision) &&
@@ -60,7 +55,7 @@ export function readBuffers(raw: string | null): DraftBuffers {
         Number.isInteger(item.generation) &&
         item.generation! > 0 &&
         item.fields &&
-        typeof item.fields === "object" &&
+        typeof item.fields === 'object' &&
         !Array.isArray(item.fields)
       )
         valid[id] = item as DraftBuffer;
@@ -82,9 +77,9 @@ export function readPendingCommand(raw: string | null): Command | null {
 }
 
 export function localDatetime(iso: string): string {
-  if (!iso || !Number.isFinite(Date.parse(iso))) return "";
+  if (!iso || !Number.isFinite(Date.parse(iso))) return '';
   const date = new Date(iso);
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}T${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}T${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
 }
 
 export function utcDatetime(local: string): string | null {

@@ -1,40 +1,40 @@
-"use client";
+'use client';
 
-import { Plus, Trash2 } from "lucide-react";
+import { Plus, Trash2 } from 'lucide-react';
 import type {
   BlockDefinition,
   Datasource,
   FieldDefinition,
   Json,
   OptionSource,
-} from "@storypane/core";
-import { Button, Field } from "@storypane/ui";
-import { FieldTypePicker, choiceForField } from "./field-type-picker";
-import { BlockRestrictions } from "./block-restrictions";
+} from '@storypane/core';
+import { Button, Field } from '@storypane/ui';
+import { FieldTypePicker, choiceForField } from './field-type-picker';
+import { BlockRestrictions } from './block-restrictions';
 
 export function newField(
-  type: FieldDefinition["type"],
+  type: FieldDefinition['type'],
   name: string,
   label: string,
 ): FieldDefinition {
   const base = { name, label, required: false };
   switch (type) {
-    case "text":
-      return { ...base, type, format: "singleline" };
-    case "datetime":
-      return { ...base, type, mode: "datetime" };
-    case "boolean":
+    case 'text':
+      return { ...base, type, format: 'singleline' };
+    case 'datetime':
+      return { ...base, type, mode: 'datetime' };
+    case 'boolean':
       return { ...base, type, defaultValue: false };
-    case "option":
-    case "options":
-      return { ...base, type, source: { type: "inline", items: [] } };
+    case 'option':
+    case 'options':
+      return { ...base, type, source: { type: 'inline', items: [] } };
     default:
       return { ...base, type };
   }
 }
 
 function optionalNumber(value: string) {
-  return value === "" ? undefined : Number(value);
+  return value === '' ? undefined : Number(value);
 }
 
 export function SourceSettings({
@@ -48,12 +48,11 @@ export function SourceSettings({
   datasources: Datasource[];
   definitions: BlockDefinition[];
 }) {
-  function changeType(type: OptionSource["type"]) {
-    if (type === "inline") onChange({ type, items: [] });
-    if (type === "datasource")
-      onChange({ type, datasourceId: datasources[0]?.id ?? "" });
-    if (type === "external") onChange({ type, url: "" });
-    if (type === "stories") onChange({ type });
+  function changeType(type: OptionSource['type']) {
+    if (type === 'inline') onChange({ type, items: [] });
+    if (type === 'datasource') onChange({ type, datasourceId: datasources[0]?.id ?? '' });
+    if (type === 'external') onChange({ type, url: '' });
+    if (type === 'stories') onChange({ type });
   }
   return (
     <div className="option-editor">
@@ -61,9 +60,7 @@ export function SourceSettings({
         <select
           id="option-source"
           value={source.type}
-          onChange={(event) =>
-            changeType(event.target.value as OptionSource["type"])
-          }
+          onChange={(event) => changeType(event.target.value as OptionSource['type'])}
         >
           <option value="inline">Defined here</option>
           <option value="datasource">Managed datasource</option>
@@ -71,7 +68,7 @@ export function SourceSettings({
           <option value="stories">Stories</option>
         </select>
       </Field>
-      {source.type === "inline" && (
+      {source.type === 'inline' && (
         <>
           <div className="field-label" style={{ marginBottom: 8 }}>
             Label / value
@@ -86,9 +83,7 @@ export function SourceSettings({
                   onChange({
                     ...source,
                     items: source.items.map((item, i) =>
-                      i === index
-                        ? { ...item, label: event.target.value }
-                        : item,
+                      i === index ? { ...item, label: event.target.value } : item,
                     ),
                   })
                 }
@@ -101,9 +96,7 @@ export function SourceSettings({
                   onChange({
                     ...source,
                     items: source.items.map((item, i) =>
-                      i === index
-                        ? { ...item, value: event.target.value }
-                        : item,
+                      i === index ? { ...item, value: event.target.value } : item,
                     ),
                   })
                 }
@@ -127,7 +120,7 @@ export function SourceSettings({
             onClick={() =>
               onChange({
                 ...source,
-                items: [...source.items, { label: "", value: "" }],
+                items: [...source.items, { label: '', value: '' }],
               })
             }
           >
@@ -135,14 +128,12 @@ export function SourceSettings({
           </Button>
         </>
       )}
-      {source.type === "datasource" && (
+      {source.type === 'datasource' && (
         <Field label="Datasource" htmlFor="source-datasource">
           <select
             id="source-datasource"
             value={source.datasourceId}
-            onChange={(event) =>
-              onChange({ ...source, datasourceId: event.target.value })
-            }
+            onChange={(event) => onChange({ ...source, datasourceId: event.target.value })}
           >
             <option value="">Choose a datasource…</option>
             {datasources.map((item) => (
@@ -152,13 +143,11 @@ export function SourceSettings({
             ))}
           </select>
           {!datasources.length && (
-            <p className="field-hint">
-              Create a datasource in the Datasources tab first.
-            </p>
+            <p className="field-hint">Create a datasource in the Datasources tab first.</p>
           )}
         </Field>
       )}
-      {source.type === "external" && (
+      {source.type === 'external' && (
         <Field
           label="JSON endpoint"
           htmlFor="source-url"
@@ -171,29 +160,25 @@ export function SourceSettings({
             type="url"
             placeholder="https://example.com/options.json"
             value={source.url}
-            onChange={(event) =>
-              onChange({ ...source, url: event.target.value })
-            }
+            onChange={(event) => onChange({ ...source, url: event.target.value })}
           />
         </Field>
       )}
-      {source.type === "stories" && (
+      {source.type === 'stories' && (
         <Field label="Restrict to a content type" htmlFor="source-content-type">
           <select
             id="source-content-type"
-            value={source.contentTypeId ?? ""}
+            value={source.contentTypeId ?? ''}
             onChange={(event) =>
               onChange({
-                type: "stories",
-                ...(event.target.value
-                  ? { contentTypeId: event.target.value }
-                  : {}),
+                type: 'stories',
+                ...(event.target.value ? { contentTypeId: event.target.value } : {}),
               })
             }
           >
             <option value="">All stories</option>
             {definitions
-              .filter((item) => item.kind !== "nestable")
+              .filter((item) => item.kind !== 'nestable')
               .map((item) => (
                 <option value={item.id} key={item.id}>
                   {item.displayName}
@@ -217,10 +202,8 @@ export function FieldSettings({
   definitions: BlockDefinition[];
   datasources: Datasource[];
 }) {
-  const update = (patch: object) =>
-    onChange({ ...field, ...patch } as FieldDefinition);
-  const defaultText =
-    typeof field.defaultValue === "string" ? field.defaultValue : "";
+  const update = (patch: object) => onChange({ ...field, ...patch } as FieldDefinition);
+  const defaultText = typeof field.defaultValue === 'string' ? field.defaultValue : '';
   return (
     <>
       <div className="field-row">
@@ -231,10 +214,7 @@ export function FieldSettings({
             onChange={(event) => update({ label: event.target.value })}
           />
         </Field>
-        <Field
-          label="Field name"
-          htmlFor="field-name"
-        >
+        <Field label="Field name" htmlFor="field-name">
           <input
             id="field-name"
             aria-describedby="field-name-hint"
@@ -243,7 +223,9 @@ export function FieldSettings({
             value={field.name}
             onChange={(event) => update({ name: event.target.value })}
           />
-          <p id="field-name-hint" className="field-hint">Lowercase letters, numbers and underscores only. Start with a letter, e.g. hero_image.</p>
+          <p id="field-name-hint" className="field-hint">
+            Lowercase letters, numbers and underscores only. Start with a letter, e.g. hero_image.
+          </p>
         </Field>
       </div>
       <Field label="Description" htmlFor="field-description">
@@ -251,22 +233,31 @@ export function FieldSettings({
           id="field-description"
           style={{ minHeight: 75 }}
           placeholder="Help editors understand this field…"
-          value={field.description ?? ""}
+          value={field.description ?? ''}
           onChange={(event) => update({ description: event.target.value })}
         />
       </Field>
       <Field label="Field type" htmlFor="field-type">
-        <FieldTypePicker id="field-type" value={choiceForField(field)} onChange={choice => {
-          if (choice.id === choiceForField(field).id) return;
-          if (field.type === "text" && choice.type === "text") {
-            const { defaultValue: _default, ...rest } = field;
-            onChange({ ...rest, format: choice.format! });
-            return;
-          }
-          const next = newField(choice.type, field.name, field.label);
-          if (next.type === "text") next.format = choice.format!;
-          onChange({ ...next, id:field.id, description: field.description, required: field.required });
-        }} />
+        <FieldTypePicker
+          id="field-type"
+          value={choiceForField(field)}
+          onChange={(choice) => {
+            if (choice.id === choiceForField(field).id) return;
+            if (field.type === 'text' && choice.type === 'text') {
+              const { defaultValue: _default, ...rest } = field;
+              onChange({ ...rest, format: choice.format! });
+              return;
+            }
+            const next = newField(choice.type, field.name, field.label);
+            if (next.type === 'text') next.format = choice.format!;
+            onChange({
+              ...next,
+              id: field.id,
+              description: field.description,
+              required: field.required,
+            });
+          }}
+        />
       </Field>
       <div className="field">
         <label className="checkbox-field">
@@ -274,11 +265,11 @@ export function FieldSettings({
             type="checkbox"
             checked={field.required ?? false}
             onChange={(event) => update({ required: event.target.checked })}
-          />{" "}
+          />{' '}
           Required to publish
         </label>
       </div>
-      {field.type === "text" && (
+      {field.type === 'text' && (
         <>
           <Field label="Maximum characters" htmlFor="text-max">
             <input
@@ -286,26 +277,22 @@ export function FieldSettings({
               type="number"
               min={1}
               placeholder="No limit"
-              value={field.maxLength ?? ""}
-              onChange={(event) =>
-                update({ maxLength: optionalNumber(event.target.value) })
-              }
+              value={field.maxLength ?? ''}
+              onChange={(event) => update({ maxLength: optionalNumber(event.target.value) })}
             />
           </Field>
-          {field.format !== "richtext" && (
+          {field.format !== 'richtext' && (
             <Field label="Default value" htmlFor="text-default">
               <textarea
                 id="text-default"
                 value={defaultText}
-                onChange={(event) =>
-                  update({ defaultValue: event.target.value })
-                }
+                onChange={(event) => update({ defaultValue: event.target.value })}
               />
             </Field>
           )}
         </>
       )}
-      {field.type === "number" && (
+      {field.type === 'number' && (
         <>
           <div className="field-row">
             <Field label="Minimum" htmlFor="number-min">
@@ -313,10 +300,8 @@ export function FieldSettings({
                 id="number-min"
                 type="number"
                 step="any"
-                value={field.min ?? ""}
-                onChange={(event) =>
-                  update({ min: optionalNumber(event.target.value) })
-                }
+                value={field.min ?? ''}
+                onChange={(event) => update({ min: optionalNumber(event.target.value) })}
               />
             </Field>
             <Field label="Maximum" htmlFor="number-max">
@@ -324,10 +309,8 @@ export function FieldSettings({
                 id="number-max"
                 type="number"
                 step="any"
-                value={field.max ?? ""}
-                onChange={(event) =>
-                  update({ max: optionalNumber(event.target.value) })
-                }
+                value={field.max ?? ''}
+                onChange={(event) => update({ max: optionalNumber(event.target.value) })}
               />
             </Field>
           </div>
@@ -339,10 +322,8 @@ export function FieldSettings({
                 min={0}
                 max={15}
                 placeholder="Any"
-                value={field.decimals ?? ""}
-                onChange={(event) =>
-                  update({ decimals: optionalNumber(event.target.value) })
-                }
+                value={field.decimals ?? ''}
+                onChange={(event) => update({ decimals: optionalNumber(event.target.value) })}
               />
             </Field>
             <Field label="Default value" htmlFor="number-default">
@@ -350,20 +331,14 @@ export function FieldSettings({
                 id="number-default"
                 type="number"
                 step="any"
-                value={
-                  typeof field.defaultValue === "number"
-                    ? field.defaultValue
-                    : ""
-                }
-                onChange={(event) =>
-                  update({ defaultValue: optionalNumber(event.target.value) })
-                }
+                value={typeof field.defaultValue === 'number' ? field.defaultValue : ''}
+                onChange={(event) => update({ defaultValue: optionalNumber(event.target.value) })}
               />
             </Field>
           </div>
         </>
       )}
-      {field.type === "datetime" && (
+      {field.type === 'datetime' && (
         <Field label="Selection" htmlFor="date-mode">
           <select
             id="date-mode"
@@ -375,17 +350,17 @@ export function FieldSettings({
           </select>
         </Field>
       )}
-      {field.type === "boolean" && (
+      {field.type === 'boolean' && (
         <label className="checkbox-field">
           <input
             type="checkbox"
             checked={field.defaultValue === true}
             onChange={(event) => update({ defaultValue: event.target.checked })}
-          />{" "}
+          />{' '}
           Enabled by default
         </label>
       )}
-      {(field.type === "option" || field.type === "options") && (
+      {(field.type === 'option' || field.type === 'options') && (
         <>
           <SourceSettings
             source={field.source}
@@ -395,36 +370,28 @@ export function FieldSettings({
           />
           <div style={{ marginTop: 18 }}>
             <Field
-              label={
-                field.type === "option" ? "Default value" : "Default values"
-              }
+              label={field.type === 'option' ? 'Default value' : 'Default values'}
               htmlFor="option-default"
               description={
-                field.type === "options"
-                  ? "One stored value per line."
-                  : "The stored value, not its display label."
+                field.type === 'options'
+                  ? 'One stored value per line.'
+                  : 'The stored value, not its display label.'
               }
             >
-              {field.type === "option" ? (
+              {field.type === 'option' ? (
                 <input
                   id="option-default"
                   value={defaultText}
-                  onChange={(event) =>
-                    update({ defaultValue: event.target.value })
-                  }
+                  onChange={(event) => update({ defaultValue: event.target.value })}
                 />
               ) : (
                 <textarea
                   id="option-default"
-                  value={
-                    Array.isArray(field.defaultValue)
-                      ? field.defaultValue.join("\n")
-                      : ""
-                  }
+                  value={Array.isArray(field.defaultValue) ? field.defaultValue.join('\n') : ''}
                   onChange={(event) =>
                     update({
                       defaultValue: event.target.value
-                        ? event.target.value.split("\n")
+                        ? event.target.value.split('\n')
                         : ([] as Json[]),
                     })
                   }
@@ -434,17 +401,15 @@ export function FieldSettings({
           </div>
         </>
       )}
-      {(field.type === "blocks" || field.type === "options") && (
+      {(field.type === 'blocks' || field.type === 'options') && (
         <div className="field-row">
           <Field label="Minimum items" htmlFor="items-min">
             <input
               id="items-min"
               type="number"
               min={0}
-              value={field.minItems ?? ""}
-              onChange={(event) =>
-                update({ minItems: optionalNumber(event.target.value) })
-              }
+              value={field.minItems ?? ''}
+              onChange={(event) => update({ minItems: optionalNumber(event.target.value) })}
             />
           </Field>
           <Field label="Maximum items" htmlFor="items-max">
@@ -452,18 +417,16 @@ export function FieldSettings({
               id="items-max"
               type="number"
               min={1}
-              value={field.maxItems ?? ""}
-              onChange={(event) =>
-                update({ maxItems: optionalNumber(event.target.value) })
-              }
+              value={field.maxItems ?? ''}
+              onChange={(event) => update({ maxItems: optionalNumber(event.target.value) })}
             />
           </Field>
         </div>
       )}
-      {field.type === "blocks" && (
+      {field.type === 'blocks' && (
         <BlockRestrictions field={field} definitions={definitions} onChange={onChange} />
       )}
-      {field.type === "asset" && (
+      {field.type === 'asset' && (
         <Field
           label="Allowed file types"
           htmlFor="asset-mime"
@@ -471,19 +434,17 @@ export function FieldSettings({
         >
           <textarea
             id="asset-mime"
-            placeholder={"image/jpeg\nimage/png\napplication/pdf"}
-            value={field.mimeTypes?.join("\n") ?? ""}
+            placeholder={'image/jpeg\nimage/png\napplication/pdf'}
+            value={field.mimeTypes?.join('\n') ?? ''}
             onChange={(event) =>
               update({
-                mimeTypes: event.target.value
-                  ? event.target.value.split("\n")
-                  : undefined,
+                mimeTypes: event.target.value ? event.target.value.split('\n') : undefined,
               })
             }
           />
         </Field>
       )}
-      {field.type === "link" && (
+      {field.type === 'link' && (
         <p className="field-hint">
           Editors can link to a story, external URL, email address, or asset.
         </p>

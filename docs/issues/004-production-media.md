@@ -55,13 +55,13 @@ client. URL construction itself does not grant access or require a network reque
 
 Start with a finite set of canonical variants to bound work and cache cardinality:
 
-| Parameter | Accepted values |
-| --- | --- |
-| width | 160, 320, 640, 1280, 1920, 2560; required |
-| aspect | original (default), 1:1, 4:3, 3:4, 16:9, 9:16 |
-| fit | cover or contain; relevant when an aspect is supplied |
-| format | webp (default), jpeg, png |
-| quality | 60, 80 (default), 90; only for lossy output |
+| Parameter | Accepted values                                       |
+| --------- | ----------------------------------------------------- |
+| width     | 160, 320, 640, 1280, 1920, 2560; required             |
+| aspect    | original (default), 1:1, 4:3, 3:4, 16:9, 9:16         |
+| fit       | cover or contain; relevant when an aspect is supplied |
+| format    | webp (default), jpeg, png                             |
+| quality   | 60, 80 (default), 90; only for lossy output           |
 
 Derive height from width/aspect. Define defaults and normalize irrelevant options
 before building cache keys; reject unknown parameters, duplicate parameters, and
@@ -132,17 +132,17 @@ and uses a still frame). Original downloads continue to preserve animation/bytes
 
 - [ ] A clean upgrade and new space expose no unauthenticated media until opted in.
 - [ ] URLs work without credentials only for eligible current published assets;
-  wrong-space, draft-only, history-only, deleted-story, and disabled-space cases fail.
+      wrong-space, draft-only, history-only, deleted-story, and disabled-space cases fail.
 - [ ] Revocation works after warming the transform cache; shared live references
-  preserve access and archived-but-published assets remain usable.
+      preserve access and archived-but-published assets remain usable.
 - [ ] Allowed sizes/formats/crops have the expected dimensions and focal placement;
-  unknown/unbounded inputs and unsupported MIME/size fail predictably.
+      unknown/unbounded inputs and unsupported MIME/size fail predictably.
 - [ ] Focal editing is keyboard accessible, preserves source bytes, invalidates
-  variant identity, and emits the asset event. Non-image metadata remains editable.
+      variant identity, and emits the asset event. Non-image metadata remains editable.
 - [ ] Original byte ranges/HEAD and authenticated SDK export remain compatible;
-  public helper output and example HTML contain no credentials.
+      public helper output and example HTML contain no credentials.
 - [ ] Usage results accurately distinguish draft/live references without leaking
-  hidden content. Local image simulation and a real deployed Images smoke test pass.
+      hidden content. Local image simulation and a real deployed Images smoke test pass.
 
 ## References
 

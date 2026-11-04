@@ -28,12 +28,12 @@ and remote deployment remain separate steps.
 
 ## Ownership
 
-| Owner | Owns | Delivers |
-| --- | --- | --- |
-| Coordinator | Root configuration, manifests/lockfile, auth, app route shells, integration tests | Runnable monorepo, shared identity/space permissions, local Cloudflare bindings, integrated release |
-| Data & collaboration subagent | `packages/core`, `packages/db`, `apps/realtime` | Contracts, schema validation, transactions, history, publishing, leases, WebSocket protocol |
-| Editor subagent | Editor/schema/content/datasource features in `apps/web`; `packages/ui` | Accessible schema builder, field editors, locale authoring, collaboration states, history/publish UI |
-| DAM subagent | Asset features in `apps/web`; `packages/assets` | R2 upload service, media library, folders, picker, metadata and content delivery |
+| Owner                         | Owns                                                                              | Delivers                                                                                             |
+| ----------------------------- | --------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| Coordinator                   | Root configuration, manifests/lockfile, auth, app route shells, integration tests | Runnable monorepo, shared identity/space permissions, local Cloudflare bindings, integrated release  |
+| Data & collaboration subagent | `packages/core`, `packages/db`, `apps/realtime`                                   | Contracts, schema validation, transactions, history, publishing, leases, WebSocket protocol          |
+| Editor subagent               | Editor/schema/content/datasource features in `apps/web`; `packages/ui`            | Accessible schema builder, field editors, locale authoring, collaboration states, history/publish UI |
+| DAM subagent                  | Asset features in `apps/web`; `packages/assets`                                   | R2 upload service, media library, folders, picker, metadata and content delivery                     |
 
 Only the coordinator edits root/app package manifests, dependency versions, the
 lockfile, and deployment configuration. The data subagent owns all migrations,
@@ -163,7 +163,7 @@ Each agent owns tests for its behavior. The coordinator owns cross-feature tests
 - Mutation envelope: `{mutationId, expectedRevisions, leaseTokens, payload}`.
   Session authentication supplies the actor; never trust an actor ID in a payload.
 - Commit response/event: `{mutationId, localeRevision, changedBlockIds,
-  checkpointId}`. Sync returns a current snapshot and active leases. Clients
+checkpointId}`. Sync returns a current snapshot and active leases. Clients
   ignore old events and resync on gaps.
 - Error codes: `unauthenticated`, `forbidden`, `locked`, `stale_revision`,
   `invalid`, `unavailable`, with field-level validation details when applicable.

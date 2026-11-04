@@ -1,11 +1,8 @@
-import { useStorypaneStory } from "@storypane/sdk/react";
-import type { StorypaneStory } from "@storypane/sdk";
-import {
-  storypaneMigrationVersion,
-  type StorypaneContentType,
-} from "../types/storypane";
-import { Content } from "./blocks";
-import { storyReferences,type SiteReferences } from "../lib/content";
+import { useStorypaneStory } from '@storypane/sdk/react';
+import type { StorypaneStory } from '@storypane/sdk';
+import { storypaneMigrationVersion, type StorypaneContentType } from '../types/storypane';
+import { Content } from './blocks';
+import { storyReferences, type SiteReferences } from '../lib/content';
 
 export default function Story({
   initial,
@@ -31,23 +28,27 @@ export default function Story({
     mode: {
       query: {
         name: previewParameter,
-        value: "1",
+        value: '1',
       },
-      cookie: { name: "blok_preview", value: "1" },
+      cookie: { name: 'blok_preview', value: '1' },
       env: previewEnabled,
     },
   });
   return (
     <>
-      {status !== "disabled" && (
+      {status !== 'disabled' && (
         <div className="preview-status" role="status">
-          {error?.message ||
-            (status === "connected"
-              ? "Live preview"
-              : "Connecting to Storypane…")}
+          {error?.message || (status === 'connected' ? 'Live preview' : 'Connecting to Storypane…')}
         </div>
       )}
-      <Content block={story.content} references={storyReferences(story,references)} cmsUrl={cmsUrl} spaceId={spaceId} framework={framework} preview={status === "connected" || status === "reconnecting"} />
+      <Content
+        block={story.content}
+        references={storyReferences(story, references)}
+        cmsUrl={cmsUrl}
+        spaceId={spaceId}
+        framework={framework}
+        preview={status === 'connected' || status === 'reconnecting'}
+      />
     </>
   );
 }

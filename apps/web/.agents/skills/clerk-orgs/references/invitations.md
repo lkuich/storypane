@@ -4,31 +4,31 @@ Send, list, revoke. Backend API methods live on `clerkClient().organizations.*`.
 
 > **Framework wrappers.** Method signatures on `clerk.organizations.*` are identical across SDKs; only the wrapper that gives you the client differs:
 >
-> | SDK | Get the client | Get the auth context |
-> |---|---|---|
-> | `@clerk/nextjs/server` | `const clerk = await clerkClient()` | `const { userId, has } = await auth()` |
-> | `@clerk/backend` (agnostic) | `const clerk = createClerkClient({ secretKey })` | n/a (verify the session token yourself with `verifyToken` imported from `@clerk/backend`) |
-> | `@clerk/astro/server` | `const clerk = clerkClient(context)` | `const { userId } = context.locals.auth()` |
-> | `@clerk/nuxt/server` | `const clerk = clerkClient(event)` | `const { userId } = event.context.auth()` |
-> | `@clerk/express` | `const clerk = clerkClient` (after `clerkMiddleware()`) | `const { userId } = getAuth(req)` |
+> | SDK                         | Get the client                                          | Get the auth context                                                                      |
+> | --------------------------- | ------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+> | `@clerk/nextjs/server`      | `const clerk = await clerkClient()`                     | `const { userId, has } = await auth()`                                                    |
+> | `@clerk/backend` (agnostic) | `const clerk = createClerkClient({ secretKey })`        | n/a (verify the session token yourself with `verifyToken` imported from `@clerk/backend`) |
+> | `@clerk/astro/server`       | `const clerk = clerkClient(context)`                    | `const { userId } = context.locals.auth()`                                                |
+> | `@clerk/nuxt/server`        | `const clerk = clerkClient(event)`                      | `const { userId } = event.context.auth()`                                                 |
+> | `@clerk/express`            | `const clerk = clerkClient` (after `clerkMiddleware()`) | `const { userId } = getAuth(req)`                                                         |
 >
 > Examples below use `@clerk/nextjs` as the default flavor.
 
 ## Create Invitation
 
 ```typescript
-import { clerkClient, auth } from '@clerk/nextjs/server'
+import { clerkClient, auth } from '@clerk/nextjs/server';
 
 export async function inviteMember(emailAddress: string, role: string) {
-  const { userId, orgId, has } = await auth()
-  if (!userId || !orgId) throw new Error('No active organization')
+  const { userId, orgId, has } = await auth();
+  if (!userId || !orgId) throw new Error('No active organization');
   // Inviting needs the System Permission org:sys_memberships:manage, which
   // has() can't check, so check a role that carries it.
   if (!has({ role: 'org:admin' })) {
-    throw new Error('Not authorized')
+    throw new Error('Not authorized');
   }
 
-  const clerk = await clerkClient()
+  const clerk = await clerkClient();
   return clerk.organizations.createOrganizationInvitation({
     organizationId: orgId, // the active org that has() checked
     inviterUserId: userId,
@@ -36,20 +36,20 @@ export async function inviteMember(emailAddress: string, role: string) {
     role,
     redirectUrl: 'https://yourapp.com/accept-invite',
     publicMetadata: { invitedFrom: 'admin-panel' },
-  })
+  });
 }
 ```
 
 **Params:**
 
-| Param | Type | Notes |
-|-------|------|-------|
-| `organizationId` | `string` | Required |
-| `inviterUserId` | `string \| null` | Required. The user sending the invite. Pass `null` only for system-originated invites (rare). |
-| `emailAddress` | `string` | Required. Target email. |
-| `role` | `string` | Required. `'org:admin'`, `'org:member'`, or any custom role slug. |
-| `redirectUrl?` | `string` | Where the user lands after accepting. |
-| `publicMetadata?` | `object` | Readable by Frontend + Backend; settable only from Backend. |
+| Param             | Type             | Notes                                                                                         |
+| ----------------- | ---------------- | --------------------------------------------------------------------------------------------- |
+| `organizationId`  | `string`         | Required                                                                                      |
+| `inviterUserId`   | `string \| null` | Required. The user sending the invite. Pass `null` only for system-originated invites (rare). |
+| `emailAddress`    | `string`         | Required. Target email.                                                                       |
+| `role`            | `string`         | Required. `'org:admin'`, `'org:member'`, or any custom role slug.                             |
+| `redirectUrl?`    | `string`         | Where the user lands after accepting.                                                         |
+| `publicMetadata?` | `object`         | Readable by Frontend + Backend; settable only from Backend.                                   |
 
 **Rate limit:** 250 requests/hour per application instance.
 
@@ -61,7 +61,7 @@ Takes the `organizationId` as its first positional arg and an array of per-invit
 await clerk.organizations.createOrganizationInvitationBulk(organizationId, [
   { inviterUserId: userId, emailAddress: 'alice@acme.com', role: 'org:admin' },
   { inviterUserId: userId, emailAddress: 'bob@acme.com', role: 'org:member' },
-])
+]);
 ```
 
 Each item accepts the same optional fields as a single `createOrganizationInvitation` call (`redirectUrl`, `publicMetadata`). The bulk endpoint is rate-limited separately at **50 requests/hour** per application instance (vs 250/hr for single create).
@@ -71,10 +71,10 @@ Each item accepts the same optional fields as a single `createOrganizationInvita
 ```typescript
 const { data, totalCount } = await clerk.organizations.getOrganizationInvitationList({
   organizationId,
-  status: ['pending', 'accepted', 'revoked', 'expired'],  // any subset; defaults to ['pending']
-  limit: 50,         // max 500
+  status: ['pending', 'accepted', 'revoked', 'expired'], // any subset; defaults to ['pending']
+  limit: 50, // max 500
   offset: 0,
-})
+});
 ```
 
 Returns a `PaginatedResourceResponse<OrganizationInvitation[]>` — access the array via `data` and the total via `totalCount`.
@@ -87,8 +87,8 @@ Full status enum: `'pending' | 'accepted' | 'revoked' | 'expired'`. Skipping `st
 await clerk.organizations.revokeOrganizationInvitation({
   organizationId,
   invitationId,
-  requestingUserId: userId,  // the user doing the revoking
-})
+  requestingUserId: userId, // the user doing the revoking
+});
 ```
 
 All three params are required strings. You cannot revoke an already-accepted invitation (use membership removal APIs for that).
@@ -99,7 +99,7 @@ All three params are required strings. You cannot revoke an already-accepted inv
 const invitation = await clerk.organizations.getOrganizationInvitation({
   organizationId,
   invitationId,
-})
+});
 ```
 
 ## Built-in Invitation UI
@@ -108,15 +108,15 @@ Zero-code path — `<OrganizationProfile />` includes a full members tab with in
 
 ```tsx
 // app/org-settings/[[...rest]]/page.tsx
-import { OrganizationProfile } from '@clerk/nextjs'
-import { Suspense } from 'react'
+import { OrganizationProfile } from '@clerk/nextjs';
+import { Suspense } from 'react';
 
 export default function OrgSettings() {
   return (
     <Suspense>
       <OrganizationProfile />
     </Suspense>
-  )
+  );
 }
 ```
 

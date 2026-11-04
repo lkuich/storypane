@@ -12,21 +12,21 @@ Each of these pages gates its whole render, so it keeps the checks at the top an
 
 ```tsx
 // app/orgs/[slug]/billing/page.tsx
-import { auth } from '@clerk/nextjs/server'
-import { redirect } from 'next/navigation'
+import { auth } from '@clerk/nextjs/server';
+import { redirect } from 'next/navigation';
 
 export default async function BillingPage({ params }: { params: Promise<{ slug: string }> }) {
-  const { slug } = await params
-  const { orgSlug } = await auth.protect({ permission: 'org:billing:manage' })
-  if (orgSlug !== slug) redirect('/dashboard')
-  return <BillingSettings />
+  const { slug } = await params;
+  const { orgSlug } = await auth.protect({ permission: 'org:billing:manage' });
+  if (orgSlug !== slug) redirect('/dashboard');
+  return <BillingSettings />;
 }
 ```
 
 ```tsx
 // app/orgs/[slug]/billing/loading.tsx
 export default function Loading() {
-  return <p>Loading...</p>
+  return <p>Loading...</p>;
 }
 ```
 
@@ -57,20 +57,20 @@ The same check applies to API routes and server actions — see below.
 ## Server Actions: Scope Writes by `orgId`
 
 ```typescript
-'use server'
-import { auth } from '@clerk/nextjs/server'
+'use server';
+import { auth } from '@clerk/nextjs/server';
 
 export async function createProject(name: string) {
-  const { orgId, userId, has } = await auth()
+  const { orgId, userId, has } = await auth();
 
-  if (!userId) throw new Error('Not signed in')
-  if (!orgId) throw new Error('No active organization')
+  if (!userId) throw new Error('Not signed in');
+  if (!orgId) throw new Error('No active organization');
   if (!has({ permission: 'org:projects:create' })) {
-    throw new Error('Not authorized')
+    throw new Error('Not authorized');
   }
 
   // Pull orgId from the session, never from client input — prevents cross-org writes
-  return db.projects.create({ data: { name, orgId, createdBy: userId } })
+  return db.projects.create({ data: { name, orgId, createdBy: userId } });
 }
 ```
 
@@ -80,33 +80,30 @@ export async function createProject(name: string) {
 
 ```typescript
 // app/api/orgs/[slug]/members/route.ts
-import { auth, clerkClient } from '@clerk/nextjs/server'
-import { NextResponse } from 'next/server'
+import { auth, clerkClient } from '@clerk/nextjs/server';
+import { NextResponse } from 'next/server';
 
-export async function GET(
-  _req: Request,
-  { params }: { params: Promise<{ slug: string }> },
-) {
-  const { orgSlug, orgId, has } = await auth()
-  const { slug } = await params
+export async function GET(_req: Request, { params }: { params: Promise<{ slug: string }> }) {
+  const { orgSlug, orgId, has } = await auth();
+  const { slug } = await params;
 
   if (orgSlug !== slug) {
-    return NextResponse.json({ error: 'wrong org' }, { status: 403 })
+    return NextResponse.json({ error: 'wrong org' }, { status: 403 });
   }
   // This example limits the member list to admins. Every default role has
   // org:sys_memberships:read, which has() can't check, and the slug check
   // above already proves membership, so remove this check to let all
   // members read the list.
   if (!has({ role: 'org:admin' })) {
-    return NextResponse.json({ error: 'forbidden' }, { status: 403 })
+    return NextResponse.json({ error: 'forbidden' }, { status: 403 });
   }
 
-  const clerk = await clerkClient()
+  const clerk = await clerkClient();
   const { data } = await clerk.organizations.getOrganizationMembershipList({
     organizationId: orgId!,
-  })
+  });
 
-  return NextResponse.json({ members: data })
+  return NextResponse.json({ members: data });
 }
 ```
 

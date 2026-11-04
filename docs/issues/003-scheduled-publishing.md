@@ -112,16 +112,16 @@ notifications recover through the existing heartbeat/sync protocol.
 
 - [ ] The reviewed checkpoint publishes while later drafts remain unpublished.
 - [ ] No public change occurs before due_at; independent locale schedules do not
-  affect each other. Browser closure/session expiry does not stop a valid job.
+      affect each other. Browser closure/session expiry does not stop a valid job.
 - [ ] Concurrent ticks and crash/retry cases create one publication and one event.
 - [ ] Cancel/reschedule/publish-now/unpublish/delete races follow transaction order
-  and cannot resurrect stale content.
+      and cannot resurrect stale content.
 - [ ] Revoked membership/permissions, schema changes, and newly occupied live URLs
-  produce visible failure without replacing the current publication.
+      produce visible failure without replacing the current publication.
 - [ ] DST gaps/overlaps and non-local timezones resolve to the reviewed UTC instant.
 - [ ] Transient retry exhaustion is visible; worker downtime leaves jobs recoverable.
 - [ ] Scheduled changes refresh the editor and trigger a site's webhook rebuild;
-  local scheduled invocation and the deployed cron are explicitly verified.
+      local scheduled invocation and the deployed cron are explicitly verified.
 
 ## References
 

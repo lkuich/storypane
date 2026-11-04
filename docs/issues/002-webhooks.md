@@ -28,15 +28,15 @@ durable dispatcher as real events.
 
 Initial events:
 
-| Event | When it is recorded |
-| --- | --- |
-| story.saved | A committed draft change, including structural edits and restoration; exclude publication bookkeeping checkpoints |
-| story.published | A locale's current publication changes, manually, in bulk, or on schedule |
-| story.unpublished | A live locale is unpublished, including as part of story deletion |
-| story.deleted | The whole story is soft-deleted |
-| story.moved | A story's draft location/path changes; include old/new paths and make clear publication did not change |
-| asset.updated | Editor changes asset metadata/focal point that can affect rendered output |
-| schema.deployed | A schema migration commits; signals a rebuild even when it changed existing live publications |
+| Event             | When it is recorded                                                                                               |
+| ----------------- | ----------------------------------------------------------------------------------------------------------------- |
+| story.saved       | A committed draft change, including structural edits and restoration; exclude publication bookkeeping checkpoints |
+| story.published   | A locale's current publication changes, manually, in bulk, or on schedule                                         |
+| story.unpublished | A live locale is unpublished, including as part of story deletion                                                 |
+| story.deleted     | The whole story is soft-deleted                                                                                   |
+| story.moved       | A story's draft location/path changes; include old/new paths and make clear publication did not change            |
+| asset.updated     | Editor changes asset metadata/focal point that can affect rendered output                                         |
+| schema.deployed   | A schema migration commits; signals a rebuild even when it changed existing live publications                     |
 
 Draft events are opt-in; the normal rebuild subscription uses publication,
 unpublication, deletion, asset updates, and schema deployment. Emit one schema
@@ -114,19 +114,19 @@ the payload at commit time; later edits must not change a queued event.
 ## Acceptance tests
 
 - [ ] Failed/rolled-back mutations produce no deliveries; committed mutations
-  survive a worker restart and emit one logical event per transition.
+      survive a worker restart and emit one logical event per transition.
 - [ ] Concurrent dispatchers, expired claims, lost responses, and retry exhaustion
-  preserve at-least-once delivery with a stable ID and bounded attempts.
+      preserve at-least-once delivery with a stable ID and bounded attempts.
 - [ ] Manual, bulk, scheduled, and schema-driven live-content changes trigger the
-  documented events; normal draft autosave never triggers a publish event.
+      documented events; normal draft autosave never triggers a publish event.
 - [ ] Signature verification passes for exact bytes and fails for tampered/replayed
-  requests; no secrets appear in configuration reads, payloads, errors, or logs.
+      requests; no secrets appear in configuration reads, payloads, errors, or logs.
 - [ ] Private DNS, disallowed hosts, redirects, oversized responses, and stalled
-  endpoints are rejected without blocking content mutations.
+      endpoints are rejected without blocking content mutations.
 - [ ] Disable/configuration changes fence queued claims; admin and space isolation
-  are enforced on every configuration/log/retry endpoint.
+      are enforced on every configuration/log/retry endpoint.
 - [ ] A sample static site receives a publish event and rebuilds using a server-held
-  delivery token. Local cron invocation is documented and verified.
+      delivery token. Local cron invocation is documented and verified.
 
 ## References
 

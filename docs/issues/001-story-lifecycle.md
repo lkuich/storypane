@@ -24,13 +24,13 @@ duplicate, or delete whole stories, or select several stories for an action.
 
 ## Proposed behavior
 
-| Action | Scope and result | Authorization |
-| --- | --- | --- |
-| Unpublish | Explicitly selected locales; clear their live pointers, retain drafts/history, and record the action | Publish permission on each affected locale |
-| Duplicate | Copy all existing locale drafts into a new story in the same space; new story, locale, block, and checkpoint IDs; always unpublished | Read the complete source and edit/create in the destination |
-| Delete | Soft-delete the whole story, unpublish every locale, revoke its previews/leases, and cancel pending schedules | Edit all affected content; also publish permission if any locale is live or scheduled |
-| Restore deleted story | Restore from the Deleted filter, keeping the story unpublished; never reactivate old schedules | Edit/create in the restored destination |
-| Bulk actions | Publish, unpublish, move, duplicate, and delete selected stories, with an explicit locale choice for publication actions | Same checks as each single-item action |
+| Action                | Scope and result                                                                                                                     | Authorization                                                                         |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------- |
+| Unpublish             | Explicitly selected locales; clear their live pointers, retain drafts/history, and record the action                                 | Publish permission on each affected locale                                            |
+| Duplicate             | Copy all existing locale drafts into a new story in the same space; new story, locale, block, and checkpoint IDs; always unpublished | Read the complete source and edit/create in the destination                           |
+| Delete                | Soft-delete the whole story, unpublish every locale, revoke its previews/leases, and cancel pending schedules                        | Edit all affected content; also publish permission if any locale is live or scheduled |
+| Restore deleted story | Restore from the Deleted filter, keeping the story unpublished; never reactivate old schedules                                       | Edit/create in the restored destination                                               |
+| Bulk actions          | Publish, unpublish, move, duplicate, and delete selected stories, with an explicit locale choice for publication actions             | Same checks as each single-item action                                                |
 
 Deletion adds deleted_at/deleted_by to stories. Keep source rows, references,
 checkpoints, publications, and R2 bytes. Keep deleted slugs reserved in v1, making
@@ -112,13 +112,13 @@ After 008, blockers from unreadable stories are reported without their names/pat
 - [ ] A lost response and retry never duplicate a story or repeat side effects.
 - [ ] Duplication preserves locale structure with fresh IDs and no live publication.
 - [ ] Delete preserves history/bytes, rejects incoming active references, and
-  prevents new references, stale-tab saves, preview access, and delivery access.
+      prevents new references, stale-tab saves, preview access, and delivery access.
 - [ ] Restore stays unpublished, handles intervening schema migrations, and keeps
-  old schedules cancelled. Reserved-slug errors explain the deleted owner safely.
+      old schedules cancelled. Reserved-slug errors explain the deleted owner safely.
 - [ ] Bulk failures are per-story, actionable, and safe to retry; locale selection
-  never silently publishes or unpublishes other translations.
+      never silently publishes or unpublishes other translations.
 - [ ] Viewer, cross-space, scoped-role, active-lease, and schedule-race cases fail
-  closed. Browser coverage exercises selection, review, partial failure, and recovery.
+      closed. Browser coverage exercises selection, review, partial failure, and recovery.
 
 ## Reference
 

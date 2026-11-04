@@ -3,17 +3,53 @@
   "version": "0.1.0",
   "type": "module",
   "description": "Published content delivery and live visual preview for Storypane",
-  "files": ["dist", "bin", "README.md"],
-  "bin": { "storypane": "./bin/storypane.mjs", "blok": "./bin/storypane.mjs" },
+  "files": [
+    "dist",
+    "bin",
+    "README.md"
+  ],
+  "bin": {
+    "storypane": "./bin/storypane.mjs",
+    "blok": "./bin/storypane.mjs"
+  },
   "sideEffects": false,
   "exports": {
-    ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" },
-    "./preview": { "types": "./dist/preview.d.ts", "import": "./dist/preview.js" },
-    "./react": { "types": "./dist/react.d.ts", "import": "./dist/react.js" }
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./preview": {
+      "types": "./dist/preview.d.ts",
+      "import": "./dist/preview.js"
+    },
+    "./react": {
+      "types": "./dist/react.d.ts",
+      "import": "./dist/react.js"
+    },
+    "./rich-text": {
+      "types": "./dist/rich-text.d.ts",
+      "import": "./dist/rich-text.js"
+    }
   },
-  "scripts": { "build": "tsc -p tsconfig.json", "prepack": "pnpm build" },
-  "peerDependencies": { "react": ">=18 <20" },
-  "peerDependenciesMeta": { "react": { "optional": true } },
-  "devDependencies": { "react": "19.3.1", "@types/react": "^19", "typescript": "latest" },
-  "engines": { "node": ">=18" }
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "prepack": "pnpm build",
+    "lint": "pnpm --workspace-root exec eslint packages/sdk --max-warnings 0 && pnpm --workspace-root exec prettier packages/sdk --check"
+  },
+  "peerDependencies": {
+    "react": ">=18 <20"
+  },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "react": "19.3.1",
+    "@types/react": "^19",
+    "typescript": "latest"
+  },
+  "engines": {
+    "node": ">=18"
+  }
 }

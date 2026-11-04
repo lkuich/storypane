@@ -1,27 +1,15 @@
-"use client";
+'use client';
 
-import {
-  useLayoutEffect,
-  useId,
-  useRef,
-  type ButtonHTMLAttributes,
-  type ReactNode,
-} from "react";
+import { useLayoutEffect, useId, useRef, type ButtonHTMLAttributes, type ReactNode } from 'react';
 
 export function Button({
-  variant = "secondary",
-  className = "",
+  variant = 'secondary',
+  className = '',
   ...props
 }: ButtonHTMLAttributes<HTMLButtonElement> & {
-  variant?: "primary" | "secondary" | "ghost" | "danger";
+  variant?: 'primary' | 'secondary' | 'ghost' | 'danger';
 }) {
-  return (
-    <button
-      type="button"
-      className={`button button--${variant} ${className}`}
-      {...props}
-    />
-  );
+  return <button type="button" className={`button button--${variant} ${className}`} {...props} />;
 }
 
 export function Field({
@@ -58,7 +46,7 @@ export function Modal({
   description,
   children,
   wide = false,
-  className = "",
+  className = '',
   closeOnBackdrop = false,
 }: {
   open: boolean;
@@ -78,25 +66,37 @@ export function Modal({
     const dialog = ref.current;
     if (open && !dialog?.open) dialog?.showModal();
     if (!open && dialog?.open) dialog.close();
-    return () => { if (dialog?.open) dialog.close(); };
+    return () => {
+      if (dialog?.open) dialog.close();
+    };
   }, [open]);
   return (
     <dialog
       ref={ref}
-      className={`dialog ${wide ? "dialog--wide" : ""} ${className}`}
+      className={`dialog ${wide ? 'dialog--wide' : ''} ${className}`}
       aria-labelledby={titleId}
       aria-describedby={description ? descriptionId : undefined}
-      onPointerDown={event => {
+      onPointerDown={(event) => {
         const bounds = event.currentTarget.getBoundingClientRect();
-        backdropPress.current = event.target === event.currentTarget &&
-          (event.clientX < bounds.left || event.clientX > bounds.right || event.clientY < bounds.top || event.clientY > bounds.bottom);
+        backdropPress.current =
+          event.target === event.currentTarget &&
+          (event.clientX < bounds.left ||
+            event.clientX > bounds.right ||
+            event.clientY < bounds.top ||
+            event.clientY > bounds.bottom);
       }}
-      onClick={event => {
+      onClick={(event) => {
         const startedOutside = backdropPress.current;
         backdropPress.current = false;
         if (!closeOnBackdrop || !startedOutside || event.target !== event.currentTarget) return;
         const bounds = event.currentTarget.getBoundingClientRect();
-        if (event.clientX < bounds.left || event.clientX > bounds.right || event.clientY < bounds.top || event.clientY > bounds.bottom) onClose();
+        if (
+          event.clientX < bounds.left ||
+          event.clientX > bounds.right ||
+          event.clientY < bounds.top ||
+          event.clientY > bounds.bottom
+        )
+          onClose();
       }}
       onCancel={(event) => {
         event.preventDefault();
@@ -154,7 +154,7 @@ export function EmptyState({
   );
 }
 
-export function Loading({ label = "Loading…" }: { label?: string }) {
+export function Loading({ label = 'Loading…' }: { label?: string }) {
   return (
     <div className="loading-state" role="status">
       <span className="spinner" aria-hidden="true" />
