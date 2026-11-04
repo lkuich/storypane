@@ -644,6 +644,27 @@ describe('asset service with Postgres and R2 contract', () => {
     expect((await finish(upload.id)).status).toBe(415);
     expect((await call('GET', `/${upload.assetId}`)).status).toBe(404);
   });
+  it('verifies stored metadata when multipart completion omits it', async () => {
+    const upload = await begin();
+    await send(upload.id);
+    const bucket = context.bucket as MemoryBucket;
+    const resume = bucket.resumeMultipartUpload.bind(bucket);
+    vi.spyOn(bucket, 'resumeMultipartUpload').mockImplementation((key, id) => {
+      const multipart = resume(key, id);
+      return {
+        ...multipart,
+        complete: async (parts) => ({
+          ...(await multipart.complete(parts)),
+          httpMetadata: undefined,
+        }),
+      };
+    });
+    const completed = await finish(upload.id);
+    expect(completed.status).toBe(200);
+    const result = (await completed.json()) as { asset: AssetRecord };
+    expect(result.asset.byteSize).toBe(png.length);
+    expect(bucket.completeCalls).toBe(1);
+  });
   it('recovers when R2 completion succeeds before the database insert fails', async () => {
     const upload = await begin();
     await send(upload.id);

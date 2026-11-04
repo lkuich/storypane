@@ -237,12 +237,14 @@ async function completeUpload(context: AssetContext, id: string) {
     );
     // R2 completion may survive a failed Postgres commit; the immutable key makes retry safe.
     let object = await context.bucket.head(row.object_key);
-    if (!object)
-      object = await context.bucket
-        .resumeMultipartUpload(row.object_key, row.r2_upload_id)
-        .complete(parts);
+    if (!object) {
+      await context.bucket.resumeMultipartUpload(row.object_key, row.r2_upload_id).complete(parts);
+      // Multipart completion can omit HTTP metadata; verify the stored object instead.
+      object = await context.bucket.head(row.object_key);
+    }
     assert(
-      object.size === Number(row.expected_size) &&
+      object &&
+        object.size === Number(row.expected_size) &&
         object.httpMetadata?.contentType === row.mime_type,
       'Uploaded file size or type does not match',
     );

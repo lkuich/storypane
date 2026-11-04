@@ -1,6 +1,6 @@
 # 004 — Production media delivery and image controls
 
-Status: IN PROGRESS — implemented; authenticated/deployed verification pending
+Status: IN PROGRESS — deployed; public focal/aspect/animation verification pending
 
 Source: comparison gap 4  
 Related: [lifecycle](001-story-lifecycle.md), [webhooks](002-webhooks.md),
@@ -185,7 +185,13 @@ Integration complete: 008 applies location, locale, definition, and field read f
 inside `listAssetUsage` before pagination, with a scoped pagination regression test.
 No inaccessible count is returned. The hidden-content regression passes; the
 authenticated asset browser test remains unverified.
-No deployment or setting change on an existing space was performed.
+Deployed on 2026-11-04. A signed-in test account uploaded a real PNG through R2 and
+retrieved a WebP thumbnail through the production Images binding. The same asset's
+public URL returned 404 while public media was disabled. This check exposed R2
+multipart completion responses without HTTP metadata; completion now verifies a
+fresh HEAD result, with a regression test. Temporary account and database fixtures
+were removed. No existing space's public-media setting was changed. The full
+asset UI journey and public focal/aspect/animation checks still remain.
 
 ## References
 

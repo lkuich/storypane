@@ -143,8 +143,9 @@ failure/recovery and scheduling/cancellation. They require authenticated Clerk
 storage state and have not been executed. Scoped access and per-subscriber realtime
 invalidation are integrated and covered by DB/realtime tests. Actual local cron
 ran twice with one publication/event and no duplicate; combined tests, typechecking,
-and production build pass. Deployed cron and authenticated browser verification
-remain pending; see [the tracker](README.md).
+and production build pass. The production minute cron was observed with outcome
+`ok` and no exceptions on 2026-11-04. A real scheduled publication and the connected
+editor browser journey remain pending; see [the tracker](README.md).
 
 ## References
 

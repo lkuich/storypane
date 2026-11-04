@@ -259,16 +259,27 @@ updating dependencies so linting and the `tsc` command continue to work together
 
 ## Cloudflare deployment target
 
-Selected account: **loren.jk3@gmail.com**,
-`c813587edc389800e834e0c261a91ef5`. Its existing authentication and read access to
-Workers, R2, and Hyperdrive were verified. Resource creation and remote deployment
-have not been tested. The machine's default `cf` login belongs to another account;
-use credentials for this account explicitly and keep them outside the repository.
+The CMS is deployed at **https://storypane.dev** in account
+`c813587edc389800e834e0c261a91ef5`. Production builds select `storypane-web`,
+`storypane-realtime`, and the custom domain; development keeps the local overrides.
+The machine's default `cf` login belongs to another account. Use a profile or
+`CLOUDFLARE_API_TOKEN` for the deployment account and keep credentials outside git.
+
+Production resources provisioned on 2026-11-04:
+
+- Neon project `delicate-fog-38250737` (`storypane`), main branch, database
+  `storypane`, AWS Oregon, fixed 0.25 CU. Migrations 001–020 are applied.
+- Hyperdrive `dba85d3dab20441c9d23c8e813b6c27b`, with query caching disabled.
+- Private R2 bucket `storypane-assets` and an Images binding.
+- `storypane-realtime` owns the SQLite-backed `StoryRoom` Durable Objects.
+- `storypane-web` serves the domain and runs the minute publishing/webhook cron.
+
+The initial deployment uses the existing Clerk development instance by explicit
+choice. Clerk requires new accounts to complete organization selection before
+their sessions become active. Use production Clerk keys before a production launch.
 
 `pnpm build` emits both Workers and static assets under
-`apps/web/.cloudflare/output`. Before deployment, provision a reachable Postgres
-database (Neon is the intended target), apply auth/content migrations, provision
-accounts, and configure:
+`apps/web/.cloudflare/output`. Deployment bindings and optional overrides are:
 
 - `HYPERDRIVE_ID`: a real Hyperdrive configuration with **query caching disabled**,
   so session, permission, and content reads remain current. The zero ID in local
@@ -283,11 +294,26 @@ accounts, and configure:
 - `STORYPANE_APP_URL`: the deployed HTTPS origin, matching cookie/origin validation.
 - `CLERK_SECRET_KEY` and `VITE_CLERK_PUBLISHABLE_KEY`: Clerk keys for the target instance; the secret stays on the Worker.
 - `EXTERNAL_OPTION_HOSTS`: approved option-source hostnames, if used.
+- `WEBHOOK_ENCRYPTION_KEY`: configured as a Worker secret. Preserve it across
+  deployments; existing endpoint secrets depend on it.
+- `WEBHOOK_HOSTS`: approved receiver hostnames. It starts empty; configure it
+  before adding outbound endpoints. See [the webhook guide](docs/webhooks.md).
 
-Rebuild with deployment settings before deploying the generated output using
-`cf` from `apps/web`. Deployed Workers cannot connect to this machine's localhost.
-Cloud resource creation, Neon setup, and staging verification are the next
-deployment step, not part of the local bootstrap.
+Rebuild and deploy the realtime Worker before the web Worker:
+
+```sh
+pnpm build
+pnpm --filter @storypane/web exec cf deploy --prebuilt --mode production --worker storypane-realtime
+pnpm --filter @storypane/web exec cf deploy --prebuilt --mode production --worker storypane-web --secrets-file "$HOME/.config/storypane/production-secrets.json"
+```
+
+The private JSON secrets file contains the two Clerk keys and webhook encryption
+key; it is stored outside the repository with owner-only permissions. For later
+deployments that do not change secrets, omit `--secrets-file` to retain them.
+Use `--dry-run` to inspect either deployment before uploading. Apply future database
+migrations with the exported `@storypane/db/migrate` runner against Neon before
+deploying code that requires them; `db:setup` is deliberately local-only.
+Production starts with a new database; local development content was not copied.
 
 See [the SDK integration guide](packages/sdk/README.md) for static Next.js/Astro
 pages, preview authentication, client rendering requirements, and SDK limitations.
