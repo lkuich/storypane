@@ -20,6 +20,8 @@ import type { AssetFolder, AssetRecord } from '@storypane/assets';
 import { assetApi, assetContentUrl, assetThumbnailUrl, formatBytes } from './api';
 import { useAssetUploads } from './upload';
 import './assets.css';
+import { FocalPointEditor } from './focal-point-editor';
+import { AssetUsage } from './asset-usage';
 
 export interface AssetLibraryProps {
   onSelect?: (asset: AssetRecord) => void;
@@ -30,6 +32,7 @@ export function AssetLibrary({ onSelect }: AssetLibraryProps = {}) {
     [folders, setFolders] = useState<AssetFolder[]>([]);
   const [folderId, setFolderId] = useState<string | null>(null),
     [search, setSearch] = useState(''),
+    [archived, setArchived] = useState(false),
     [cursor, setCursor] = useState<string | null>(null);
   const [loading, setLoading] = useState(true),
     [error, setError] = useState(''),
@@ -59,6 +62,7 @@ export function AssetLibrary({ onSelect }: AssetLibraryProps = {}) {
       try {
         const query = new URLSearchParams();
         if (search) query.set('search', search);
+        if (archived) query.set('archived', 'true');
         if (folderId) query.set('folder', folderId);
         if (next) query.set('cursor', next);
         const [result, folderResult] = await Promise.all([
@@ -76,7 +80,7 @@ export function AssetLibrary({ onSelect }: AssetLibraryProps = {}) {
         if (request === requestId.current) setLoading(false);
       }
     },
-    [search, folderId],
+    [search, folderId, archived],
   );
   useEffect(() => {
     const timer = setTimeout(() => void load(), 180);
@@ -196,6 +200,26 @@ export function AssetLibrary({ onSelect }: AssetLibraryProps = {}) {
           </button>
         </div>
       </header>
+      {!onSelect && (
+        <div className="asset-detail-tabs" aria-label="Library view">
+          <button
+            type="button"
+            className="button secondary"
+            aria-pressed={!archived}
+            onClick={() => setArchived(false)}
+          >
+            Active assets
+          </button>
+          <button
+            type="button"
+            className="button secondary"
+            aria-pressed={archived}
+            onClick={() => setArchived(true)}
+          >
+            Archived assets
+          </button>
+        </div>
+      )}
       <nav className="asset-breadcrumbs" aria-label="Asset folders">
         <button onClick={() => setFolderId(null)} aria-current={!folderId ? 'page' : undefined}>
           <ImageIcon aria-hidden="true" />
@@ -490,7 +514,9 @@ function AssetDetails({
   const [title, setTitle] = useState(asset.title),
     [alt, setAlt] = useState(asset.alt),
     [notes, setNotes] = useState(asset.notes),
-    [tags, setTags] = useState(asset.tags.join(', '));
+    [tags, setTags] = useState(asset.tags.join(', ')),
+    [focalPoint, setFocalPoint] = useState(asset.focalPoint),
+    [section, setSection] = useState<'details' | 'usage'>('details');
   const [placements, setPlacements] = useState(asset.folderIds),
     [error, setError] = useState(''),
     [busy, setBusy] = useState(false);
@@ -510,6 +536,8 @@ function AssetDetails({
           title,
           alt,
           notes,
+          focalPoint,
+          metadataRevision: asset.metadataRevision,
           tags: tags
             .split(',')
             .map((t) => t.trim())
@@ -560,93 +588,123 @@ function AssetDetails({
           Close
         </button>
       </header>
-      <div className="asset-detail-layout">
-        <div>
-          <AssetPreview asset={asset} large />
-          <p>
-            {asset.filename} · {formatBytes(asset.byteSize)}
-          </p>
-          <a
-            className="button secondary"
-            href={assetContentUrl(asset.id)}
-            download={asset.filename}
-          >
-            Download original
-          </a>
-        </div>
-        <form onSubmit={save}>
-          <fieldset disabled={!canWrite || busy} className="space-settings-fields">
-            <label className="field">
-              Title
-              <input
-                value={title}
-                maxLength={200}
-                onChange={(e) => setTitle(e.target.value)}
-                required
-              />
-            </label>
-            {asset.mimeType.startsWith('image/') && (
-              <label className="field">
-                Default alt text
-                <input value={alt} maxLength={1000} onChange={(e) => setAlt(e.target.value)} />
-                <small>Describe the image for people using screen readers.</small>
-              </label>
-            )}
-            <label className="field">
-              Notes
-              <textarea
-                value={notes}
-                maxLength={5000}
-                onChange={(e) => setNotes(e.target.value)}
-                rows={3}
-              />
-            </label>
-            <label className="field">
-              Tags
-              <input
-                value={tags}
-                onChange={(e) => setTags(e.target.value)}
-                placeholder="campaign, summer, product"
-              />
-              <small>Separate tags with commas.</small>
-            </label>
-            {folders.length > 0 && (
-              <fieldset>
-                <legend>Folders</legend>
-                {folders.map((f) => (
-                  <label key={f.id} className="asset-folder-check">
-                    <input
-                      type="checkbox"
-                      checked={placements.includes(f.id)}
-                      disabled={busy}
-                      onChange={(e) => void placement(f.id, e.target.checked)}
-                    />
-                    {f.name}
-                  </label>
-                ))}
-              </fieldset>
-            )}
-            {error && (
-              <p className="asset-error" role="alert">
-                {error}
-              </p>
-            )}
-            <div className="asset-actions">
-              <button type="submit" className="button" disabled={busy}>
-                Save details
-              </button>
-              <button
-                type="button"
-                className="button subtle"
-                disabled={busy}
-                onClick={() => void archive()}
-              >
-                Archive
-              </button>
-            </div>
-          </fieldset>
-        </form>
+      <div className="asset-detail-tabs" aria-label="Asset detail sections">
+        <button
+          type="button"
+          className="button secondary"
+          aria-pressed={section === 'details'}
+          onClick={() => setSection('details')}
+        >
+          Details
+        </button>
+        <button
+          type="button"
+          className="button secondary"
+          aria-pressed={section === 'usage'}
+          onClick={() => setSection('usage')}
+        >
+          Used in
+        </button>
       </div>
+      {section === 'usage' ? (
+        <AssetUsage assetId={asset.id} />
+      ) : (
+        <div className="asset-detail-layout">
+          <div>
+            <AssetPreview asset={asset} large />
+            <p>
+              {asset.filename} · {formatBytes(asset.byteSize)}
+            </p>
+            <a
+              className="button secondary"
+              href={assetContentUrl(asset.id)}
+              download={asset.filename}
+            >
+              Download original
+            </a>
+          </div>
+          <form onSubmit={save}>
+            <fieldset disabled={!canWrite || busy} className="space-settings-fields">
+              <label className="field">
+                Title
+                <input
+                  value={title}
+                  maxLength={200}
+                  onChange={(e) => setTitle(e.target.value)}
+                  required
+                />
+              </label>
+              {asset.mimeType.startsWith('image/') && (
+                <label className="field">
+                  Default alt text
+                  <input value={alt} maxLength={1000} onChange={(e) => setAlt(e.target.value)} />
+                  <small>Describe the image for people using screen readers.</small>
+                </label>
+              )}
+              {asset.mimeType.startsWith('image/') && (
+                <FocalPointEditor
+                  asset={asset}
+                  value={focalPoint}
+                  onChange={setFocalPoint}
+                  disabled={!canWrite || busy}
+                />
+              )}
+              <label className="field">
+                Notes
+                <textarea
+                  value={notes}
+                  maxLength={5000}
+                  onChange={(e) => setNotes(e.target.value)}
+                  rows={3}
+                />
+              </label>
+              <label className="field">
+                Tags
+                <input
+                  value={tags}
+                  onChange={(e) => setTags(e.target.value)}
+                  placeholder="campaign, summer, product"
+                />
+                <small>Separate tags with commas.</small>
+              </label>
+              {folders.length > 0 && (
+                <fieldset>
+                  <legend>Folders</legend>
+                  {folders.map((f) => (
+                    <label key={f.id} className="asset-folder-check">
+                      <input
+                        type="checkbox"
+                        checked={placements.includes(f.id)}
+                        disabled={busy}
+                        onChange={(e) => void placement(f.id, e.target.checked)}
+                      />
+                      {f.name}
+                    </label>
+                  ))}
+                </fieldset>
+              )}
+              {error && (
+                <p className="asset-error" role="alert">
+                  {error}
+                </p>
+              )}
+              <div className="asset-actions">
+                <button type="submit" className="button" disabled={busy}>
+                  Save details
+                </button>
+                <button
+                  type="button"
+                  className="button subtle"
+                  disabled={busy || !!asset.archivedAt}
+                  onClick={() => void archive()}
+                >
+                  {asset.archivedAt ? 'Archived' : 'Archive'}
+                </button>
+              </div>
+            </fieldset>
+          </form>
+        </div>
+      )}
     </dialog>
   );
 }

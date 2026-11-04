@@ -1,11 +1,12 @@
 # 008 — Content-scoped read, edit, and publish permissions
 
-Status: TODO  
+Status: IN PROGRESS — implemented; authenticated collaboration verification pending
+
 Source: comparison gap 8  
 Related: [lifecycle](001-story-lifecycle.md), [webhooks](002-webhooks.md),
 [scheduling](003-scheduled-publishing.md), [media](004-production-media.md)
 
-## Problem and current implementation
+## Problem and starting implementation
 
 Custom roles can choose broad capabilities, but cannot express “edit French only,”
 “manage the blog folder,” or “edit copy but not the pricing field.” Every member
@@ -152,24 +153,56 @@ this issue DONE; write-only UI restrictions do not satisfy the specification.
 
 ## Acceptance tests
 
-- [ ] Upgrade preserves Admin/Editor/Viewer and all existing custom-role behavior.
-- [ ] Folder ancestry, explicit story exceptions, locale/block/field combinations,
+- [x] Upgrade preserves Admin/Editor/Viewer and all existing custom-role behavior.
+- [x] Folder ancestry, explicit story exceptions, locale/block/field combinations,
       empty scopes, missing IDs, and renames obey the documented matching rules.
-- [ ] A French-only editor cannot change/publish another locale through direct API,
+- [x] A French-only editor cannot change/publish another locale through direct API,
       import, duplicate, restore, bulk operation, old receipt, or scheduled job.
-- [ ] Hidden content is absent from lists/counts, direct reads, history/review JSON,
+- [x] Hidden content is absent from lists/counts, direct reads, history/review JSON,
       errors, options, reference expansion, asset usage, clipboard, and live commits.
-- [ ] Saving a visible field preserves hidden fields; structural operations cannot
+- [x] Saving a visible field preserves hidden fields; structural operations cannot
       delete or relocate protected descendants. Whole-checkpoint publish fails when
       any required read/publish permission is missing.
-- [ ] Revocation during an active lease/socket/preview ends unauthorized access
+- [x] Revocation during an active lease/socket/preview ends unauthorized access
       before further data is delivered; unrelated authorized editors keep working.
-- [ ] Moving folders/stories changes effective access consistently; old slug URLs,
+- [x] Moving folders/stories changes effective access consistently; old slug URLs,
       stale clients, and deferred jobs cannot retain the old grant.
-- [ ] Restricted users cannot obtain broad credentials or read migration data as
+- [x] Restricted users cannot obtain broad credentials or read migration data as
       a bypass. Public delivery retains its separately documented semantics.
 - [ ] Browser tests demonstrate a full-access editor and restricted collaborator
       editing together without data disclosure, hidden-field loss, or unsafe retries.
+
+## Implementation and local verification
+
+Migration 019 preserves existing role capabilities and adds explicit read grants.
+The core allow-scope policy uses stable IDs and real folder ancestry. Custom-role
+controls configure independent read/edit/publish scopes; empty dimensions deny.
+The store rechecks membership and scoped targets, projects HTTP/history responses,
+preserves omitted protected fields, rejects hidden-value guessing, and fences
+whole-content actions. Moving, restoring, publishing old checkpoints, scheduling,
+receipt replay, and asset usage use current scope; usage filters precede pagination.
+
+Realtime snapshots are loaded per subscriber, including unchanged-revision
+heartbeats; inaccessible subscribers close. Restricted form fields and previews
+reflect server access. Buffered input survives field-level revocation without
+repeated forbidden saves. A locale-limited reader opens an available locale from
+a bare story link. Role changes invalidate editing leases.
+
+Coverage lives in [policy tests](../../packages/core/src/content-permissions.test.ts),
+[store tests](../../packages/db/src/store.test.ts),
+[lifecycle/scoped integration tests](../../packages/db/src/lifecycle.test.ts),
+[realtime tests](../../apps/realtime/src/index.test.ts), and
+[draft recovery tests](../../apps/web/src/features/editor/draft-buffer.test.ts).
+The real role-settings component has three passing
+[browser journeys](../../tests/permissions.browser.e2e.ts), including renamed
+choices, independent payload scopes, and empty/no-read warnings. These use mocked
+HTTP responses; they do not substitute for the unchecked authenticated two-user
+journey. See [the tracker](README.md) for combined verification and release checks.
+
+Service delivery tokens intentionally remain space-wide. Scoped readers cannot
+mint broad credentials or inspect schema migration payloads. CMS roles do not
+make already-published sites or opted-in media private. Content already received
+before a permission change cannot be recalled.
 
 ## Reference
 

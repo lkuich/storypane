@@ -129,7 +129,7 @@ test('two editors work on separate blocks, autosave, publish a fixed checkpoint,
     await page.keyboard.press('Escape');
     expect(
       await page.evaluate(() =>
-        Object.keys(localStorage).some((key) => key.startsWith('blok:drafts:')),
+        Object.keys(localStorage).some((key) => key.startsWith('storypane:drafts:')),
       ),
     ).toBeTruthy();
     await admin.setOffline(false);

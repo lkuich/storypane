@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Pool } from 'pg';
 import { readFile } from 'node:fs/promises';
-import { handleAssets, PART_BYTES } from './index';
+import { handleAssets, handlePublicMedia, PART_BYTES } from './index';
 import type {
   AssetBucket,
   AssetContext,
@@ -88,7 +88,9 @@ class MemoryBucket implements AssetBucket {
   }
 }
 
-const url = process.env.TEST_DATABASE_URL ?? 'postgresql://blok:blok@127.0.0.1:55432/blok_test';
+const url =
+  process.env.TEST_DATABASE_URL ??
+  'postgresql://storypane:storypane@127.0.0.1:55432/storypane_test';
 const schema = `assets_test_${crypto.randomUUID().replaceAll('-', '')}`;
 const admin = new Pool({ connectionString: url });
 const db = new Pool({ connectionString: url, options: `-c search_path=${schema}` });
@@ -140,16 +142,88 @@ async function finish(id: string) {
   return call('POST', `/uploads/${id}/complete`);
 }
 
+async function publishAsset(assetId: string) {
+  const storyId = crypto.randomUUID(),
+    localeId = crypto.randomUUID(),
+    checkpointId = crypto.randomUUID(),
+    publicationId = crypto.randomUUID();
+  await db.query(
+    'INSERT INTO stories(id,space_id,name,slug) VALUES($1::uuid,$2,$1::text,$1::text)',
+    [storyId, spaceId],
+  );
+  await db.query(
+    "INSERT INTO story_locales(id,story_id,slug,name,url_slug,root_block_id) VALUES($1,$2::uuid,'en','English',$2::text,$3)",
+    [localeId, storyId, crypto.randomUUID()],
+  );
+  const content = JSON.stringify({ image: { assetId } });
+  await db.query(
+    "INSERT INTO checkpoints(id,locale_id,revision,actor_id,reason,snapshot,content) VALUES($1,$2,1,'editor','test','{}',$3)",
+    [checkpointId, localeId, content],
+  );
+  await db.query(
+    "INSERT INTO publications(id,locale_id,checkpoint_id,revision,actor_id,snapshot,content) VALUES($1,$2,$3,1,'editor','{}',$4)",
+    [publicationId, localeId, checkpointId, content],
+  );
+  await db.query('UPDATE story_locales SET published_version_id=$2 WHERE id=$1', [
+    localeId,
+    publicationId,
+  ]);
+  return { storyId, localeId, publicationId };
+}
+function publicMedia(
+  assetId: string,
+  suffix = 'image?width=320',
+  method = 'GET',
+  headers: Record<string, string> = {},
+  requestedSpace = spaceId,
+) {
+  const request = new Request(`http://localhost/media/${requestedSpace}/${assetId}/${suffix}`, {
+    method,
+    headers,
+  });
+  return handlePublicMedia(
+    request,
+    { spaceId: requestedSpace, assetId, kind: suffix.split('?')[0] },
+    context,
+  );
+}
+function installImages() {
+  const output = vi.fn(async () => ({
+    response: () => new Response('transformed', { headers: { 'Content-Type': 'image/webp' } }),
+  }));
+  const transform = vi.fn(() => ({ output }));
+  context.images = { input: vi.fn(() => ({ transform })) } as unknown as AssetContext['images'];
+  const cached = new Map<string, ArrayBuffer>();
+  const key = (request: RequestInfo | URL) =>
+    request instanceof Request ? request.url : String(request);
+  const match = vi.fn(async (request: RequestInfo | URL) => {
+    const bytes = cached.get(key(request));
+    return bytes ? new Response(bytes.slice(0)) : undefined;
+  });
+  context.cache = {
+    match,
+    put: async (request, response) => {
+      cached.set(key(request), await response.arrayBuffer());
+    },
+  };
+  return { output, transform, match };
+}
+
 beforeAll(async () => {
   if (
     !['127.0.0.1', 'localhost'].includes(new URL(url).hostname) ||
-    new URL(url).pathname !== '/blok_test'
-  )
-    throw new Error('Asset integration tests require the disposable local blok_test database');
+    new URL(url).pathname !== `/${process.env.POSTGRES_DB ?? 'storypane'}_test`
+  ) {
+    throw new Error('Asset integration tests require the disposable local test database');
+  }
   await admin.query(`CREATE SCHEMA ${schema}`);
   await db.query(
     await readFile(new URL('../../db/migrations/001_initial.sql', import.meta.url), 'utf8'),
   );
+  for (const name of ['015_story_lifecycle', '016_webhooks', '018_production_media'])
+    await db.query(
+      await readFile(new URL(`../../db/migrations/${name}.sql`, import.meta.url), 'utf8'),
+    );
   await db.query('INSERT INTO spaces(id,name) VALUES($1,$2),($3,$4)', [
     spaceId,
     'Assets',
@@ -157,7 +231,8 @@ beforeAll(async () => {
     'Other',
   ]);
 });
-beforeEach(() => {
+beforeEach(async () => {
+  await db.query('UPDATE spaces SET public_media=false');
   context = {
     db,
     canWrite: true,
@@ -172,6 +247,280 @@ afterAll(async () => {
 });
 
 describe('asset service with Postgres and R2 contract', () => {
+  it('requires current publication and explicit opt-in before cache hits or conditional responses', async () => {
+    const upload = await begin();
+    await send(upload.id);
+    await finish(upload.id);
+    const { match, output } = installImages();
+    expect((await publicMedia(upload.assetId)).status).toBe(404);
+    const first = await publishAsset(upload.assetId),
+      second = await publishAsset(upload.assetId);
+    expect((await publicMedia(upload.assetId)).status).toBe(404);
+    await db.query('UPDATE spaces SET public_media=true WHERE id=$1', [spaceId]);
+    expect((await publicMedia(upload.assetId, 'original', 'GET', {}, otherSpaceId)).status).toBe(
+      404,
+    );
+    const response = await publicMedia(upload.assetId);
+    expect(response.status).toBe(200);
+    expect(response.headers.get('cache-control')).toBe('no-store');
+    expect(await response.text()).toBe('transformed');
+    const etag = response.headers.get('etag')!;
+    expect(
+      (await publicMedia(upload.assetId, 'image?width=320&quality=80&fit=contain&aspect=original'))
+        .status,
+    ).toBe(200);
+    expect(output).toHaveBeenCalledTimes(1);
+    const uppercase = await publicMedia(
+      upload.assetId.toUpperCase(),
+      'image?width=320',
+      'GET',
+      {},
+      spaceId.toUpperCase(),
+    );
+    expect(uppercase.status).toBe(200);
+    expect(uppercase.headers.get('etag')).toBe(etag);
+    expect(output).toHaveBeenCalledTimes(1);
+    expect(
+      (await publicMedia(upload.assetId, 'image?width=320', 'GET', { 'If-None-Match': etag }))
+        .status,
+    ).toBe(304);
+    await call('DELETE', `/${upload.assetId}`);
+    expect((await publicMedia(upload.assetId)).status).toBe(200);
+    await db.query('UPDATE story_locales SET published_version_id=NULL WHERE id=$1', [
+      first.localeId,
+    ]);
+    expect((await publicMedia(upload.assetId)).status).toBe(200);
+    await db.query('UPDATE stories SET deleted_at=now() WHERE id=$1', [second.storyId]);
+    match.mockClear();
+    expect(
+      (await publicMedia(upload.assetId, 'image?width=320', 'GET', { 'If-None-Match': etag }))
+        .status,
+    ).toBe(404);
+    expect(match).not.toHaveBeenCalled();
+    await db.query('UPDATE stories SET deleted_at=NULL WHERE id=$1', [second.storyId]);
+    await db.query('UPDATE spaces SET public_media=false WHERE id=$1', [spaceId]);
+    expect((await publicMedia(upload.assetId)).status).toBe(404);
+    expect((await call('GET', `/${upload.assetId}/content`)).status).toBe(200);
+    await db.query('UPDATE spaces SET public_media=true WHERE id=$1', [spaceId]);
+    await db.query('UPDATE story_locales SET published_version_id=NULL WHERE id=$1', [
+      second.localeId,
+    ]);
+    expect((await publicMedia(upload.assetId)).status).toBe(404); // Historical publications still exist.
+  });
+  it('revises focal metadata atomically with its webhook, invalidates crop identity, and preserves original bytes', async () => {
+    const upload = await begin();
+    await send(upload.id);
+    await finish(upload.id);
+    await publishAsset(upload.assetId);
+    await db.query('UPDATE spaces SET public_media=true WHERE id=$1', [spaceId]);
+    await db.query(
+      "INSERT INTO webhook_endpoints(space_id,name,url,events,encrypted_secret) VALUES($1,'Assets','https://example.com/hook',ARRAY['asset.updated'],'test')",
+      [spaceId],
+    );
+    const { output, transform } = installImages();
+    const before = await publicMedia(upload.assetId, 'image?width=640&aspect=1:1');
+    expect(transform).toHaveBeenLastCalledWith({
+      width: 640,
+      height: 640,
+      fit: 'cover',
+      gravity: { x: 0.5, y: 0.5, mode: 'remainder' },
+    });
+    const patch = await call('PATCH', `/${upload.assetId}`, {
+      focalPoint: { x: 0, y: 1 },
+      metadataRevision: 1,
+    });
+    expect(patch.status).toBe(200);
+    expect(((await patch.json()) as { asset: AssetRecord }).asset).toMatchObject({
+      focalPoint: { x: 0, y: 1 },
+      metadataRevision: 2,
+    });
+    expect(
+      (
+        await call('PATCH', `/${upload.assetId}`, {
+          focalPoint: { x: 1, y: 1 },
+          metadataRevision: 1,
+        })
+      ).status,
+    ).toBe(409);
+    expect(
+      (
+        await call('PATCH', `/${upload.assetId}`, {
+          focalPoint: { x: 0, y: 1 },
+          metadataRevision: 2,
+        })
+      ).status,
+    ).toBe(200);
+    const events = (
+      await db.query('SELECT payload FROM webhook_events WHERE event_key=$1', [
+        `asset.updated:${upload.assetId}:2`,
+      ])
+    ).rows;
+    expect(events).toHaveLength(1);
+    expect(JSON.parse(events[0].payload).data).toEqual({
+      assetId: upload.assetId,
+      metadataRevision: 2,
+    });
+    const after = await publicMedia(upload.assetId, 'image?width=640&aspect=1:1');
+    expect(after.headers.get('etag')).not.toBe(before.headers.get('etag'));
+    expect(output).toHaveBeenCalledTimes(2);
+    expect(transform).toHaveBeenLastCalledWith({
+      width: 640,
+      height: 640,
+      fit: 'cover',
+      gravity: { x: 0, y: 1, mode: 'remainder' },
+    });
+    expect(output).toHaveBeenLastCalledWith({ format: 'image/webp', quality: 80, anim: false });
+    expect(
+      new Uint8Array(await (await publicMedia(upload.assetId, 'original')).arrayBuffer()),
+    ).toEqual(png);
+    const reset = await call('PATCH', `/${upload.assetId}`, { focalPoint: null });
+    expect(((await reset.json()) as { asset: AssetRecord }).asset).toMatchObject({
+      focalPoint: null,
+      metadataRevision: 3,
+    });
+    expect(
+      (await call('PATCH', `/${upload.assetId}`, { focalPoint: { x: -1, y: 0 } })).status,
+    ).toBe(400);
+  });
+  it('streams safe public originals and rejects invalid transforms without caching failures', async () => {
+    const upload = await begin();
+    await send(upload.id);
+    await finish(upload.id);
+    await publishAsset(upload.assetId);
+    await db.query('UPDATE spaces SET public_media=true WHERE id=$1', [spaceId]);
+    const original = await publicMedia(upload.assetId, 'original');
+    expect(original.headers.get('content-type')).toBe('image/png');
+    expect(original.headers.get('x-content-type-options')).toBe('nosniff');
+    expect(original.headers.get('content-security-policy')).toContain('sandbox');
+    const head = await publicMedia(upload.assetId, 'original', 'HEAD');
+    expect(head.headers.get('content-length')).toBe(String(png.length));
+    expect(await head.text()).toBe('');
+    expect(
+      (await publicMedia(upload.assetId, 'original', 'GET', { 'If-None-Match': 'W/"test-etag"' }))
+        .status,
+    ).toBe(304);
+    const range = await publicMedia(upload.assetId, 'original', 'GET', { Range: 'bytes=-4' });
+    expect(range.status).toBe(206);
+    expect(new Uint8Array(await range.arrayBuffer())).toEqual(png.slice(-4));
+    for (const range of ['bytes=99-', 'bytes=0-1,4-5', 'bytes=-0', 'bytes=8-2']) {
+      const rejected = await publicMedia(upload.assetId, 'original', 'GET', { Range: range });
+      expect(rejected.status).toBe(416);
+      expect(rejected.headers.get('cache-control')).toBe('no-store');
+    }
+    expect((await publicMedia(upload.assetId)).status).toBe(503);
+    const { output } = installImages();
+    expect((await publicMedia(upload.assetId, 'image?width=999999')).status).toBe(400);
+    expect(
+      (await publicMedia(upload.assetId, 'image?width=320&quality=80&format=png')).status,
+    ).toBe(400);
+    expect(output).not.toHaveBeenCalled();
+    const transformedHead = await publicMedia(upload.assetId, 'image?width=320', 'HEAD');
+    expect(transformedHead.status).toBe(200);
+    expect(await transformedHead.text()).toBe('');
+    await db.query("UPDATE assets SET mime_type='text/plain' WHERE id=$1", [upload.assetId]);
+    expect((await publicMedia(upload.assetId)).status).toBe(415);
+    expect((await call('PATCH', `/${upload.assetId}`, { focalPoint: { x: 0, y: 0 } })).status).toBe(
+      400,
+    );
+    expect(
+      (await call('PATCH', `/${upload.assetId}`, { title: 'Text remains editable' })).status,
+    ).toBe(200);
+    await db.query("UPDATE assets SET mime_type='image/png',byte_size=20971521 WHERE id=$1", [
+      upload.assetId,
+    ]);
+    expect((await publicMedia(upload.assetId)).status).toBe(413);
+    await db.query('UPDATE assets SET byte_size=$2 WHERE id=$1', [upload.assetId, png.length]);
+    output.mockRejectedValueOnce(new Error('unsupported image'));
+    expect((await publicMedia(upload.assetId, 'image?width=640')).status).toBe(422);
+    expect((await publicMedia(upload.assetId, 'image?width=640')).status).toBe(200);
+  });
+  it('fails closed when the eligibility query is unavailable', async () => {
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const query = vi.spyOn(db, 'query').mockRejectedValueOnce(new Error('database down'));
+    const { match } = installImages();
+    try {
+      const response = await publicMedia(crypto.randomUUID());
+      expect(response.status).toBe(503);
+      expect(response.headers.get('cache-control')).toBe('no-store');
+      expect(match).not.toHaveBeenCalled();
+    } finally {
+      query.mockRestore();
+      log.mockRestore();
+    }
+  });
+  it('keeps public HEAD errors bodyless and passes format/contain options without crop gravity', async () => {
+    const missing = await publicMedia(crypto.randomUUID(), 'original', 'HEAD');
+    expect(missing.status).toBe(404);
+    expect(await missing.text()).toBe('');
+    expect(missing.headers.get('cache-control')).toBe('no-store');
+    const upload = await begin();
+    await send(upload.id);
+    await finish(upload.id);
+    await publishAsset(upload.assetId);
+    await db.query('UPDATE spaces SET public_media=true WHERE id=$1', [spaceId]);
+    const { transform, output } = installImages();
+    const pngVariant = await publicMedia(
+      upload.assetId,
+      'image?width=320&aspect=3:4&fit=contain&format=png',
+    );
+    expect(pngVariant.status).toBe(200);
+    expect(pngVariant.headers.get('content-type')).toBe('image/png');
+    expect(transform).toHaveBeenLastCalledWith({ width: 320, height: 427, fit: 'contain' });
+    expect(output).toHaveBeenLastCalledWith({
+      format: 'image/png',
+      quality: undefined,
+      anim: false,
+    });
+    const jpegVariant = await publicMedia(
+      upload.assetId,
+      'image?width=1920&format=jpeg&quality=60',
+    );
+    expect(jpegVariant.status).toBe(200);
+    expect(jpegVariant.headers.get('content-type')).toBe('image/jpeg');
+    expect(transform).toHaveBeenLastCalledWith({
+      width: 1920,
+      height: undefined,
+      fit: 'scale-down',
+    });
+    expect(output).toHaveBeenLastCalledWith({ format: 'image/jpeg', quality: 60, anim: false });
+    const invalid = await publicMedia(upload.assetId, 'image?width=9000', 'HEAD');
+    expect(invalid.status).toBe(400);
+    expect(await invalid.text()).toBe('');
+  });
+  it('rolls metadata back when its webhook outbox write fails', async () => {
+    const upload = await begin();
+    await send(upload.id);
+    await finish(upload.id);
+    await db.query(
+      "INSERT INTO webhook_endpoints(space_id,name,url,events,encrypted_secret) VALUES($1,'Atomic save','https://example.com/hook',ARRAY['asset.updated'],'test')",
+      [spaceId],
+    );
+    await db.query(
+      `ALTER TABLE webhook_events ADD CONSTRAINT media_outbox_failure CHECK(event_key <> 'asset.updated:${upload.assetId}:2')`,
+    );
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const response = await call('PATCH', `/${upload.assetId}`, {
+        focalPoint: { x: 1, y: 0 },
+        metadataRevision: 1,
+      });
+      expect(response.status).toBe(503);
+      const unchanged = (await (await call('GET', `/${upload.assetId}`)).json()) as {
+        asset: AssetRecord;
+      };
+      expect(unchanged.asset).toMatchObject({ focalPoint: null, metadataRevision: 1 });
+      expect(
+        (
+          await db.query('SELECT id FROM webhook_events WHERE event_key=$1', [
+            `asset.updated:${upload.assetId}:2`,
+          ])
+        ).rowCount,
+      ).toBe(0);
+    } finally {
+      await db.query('ALTER TABLE webhook_events DROP CONSTRAINT media_outbox_failure');
+      log.mockRestore();
+    }
+  });
   it('caches resized previews behind space authorization without exposing originals', async () => {
     const output = vi.fn(async () => ({
       response: () => new Response('resized-webp', { headers: { 'Content-Type': 'image/webp' } }),

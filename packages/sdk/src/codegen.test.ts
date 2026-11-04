@@ -47,7 +47,7 @@ it('generates deterministic discriminated types with constrained nesting and rea
   expect(output).toContain('"body": Array<HeroBlock>');
   expect(output).toContain('"theme": "light" | "dark" | ' + JSON.stringify('quote"\n'));
   expect(output).toContain('export type StorypaneNestable = HeroBlock;');
-  const dir = mkdtempSync(join(tmpdir(), 'blok-types-'));
+  const dir = mkdtempSync(join(tmpdir(), 'storypane-types-'));
   try {
     const source = join(dir, 'check.ts');
     // Use the SDK's real field types without depending on temporary-directory package resolution.

@@ -399,6 +399,9 @@ importers:
       '@storypane/core':
         specifier: workspace:*
         version: link:../core
+      '@storypane/db':
+        specifier: workspace:*
+        version: link:../db
       pg:
         specifier: ^8.16.3
         version: 8.23.1

@@ -3,6 +3,7 @@
 import { useSyncExternalStore } from 'react';
 import { ChevronDown, Moon, Sun, SunMoon } from 'lucide-react';
 import { themeStorageKey } from '../lib/theme';
+import { readMigratedStorage, writeMigratedStorage } from '../lib/storage-migration';
 
 type Theme = 'system' | 'light' | 'dark';
 function applyTheme(value: string | null) {
@@ -16,7 +17,7 @@ function currentTheme(): Theme {
 function subscribe(notify: () => void) {
   // Catch changes from another tab while the session screen was still loading.
   try {
-    applyTheme(localStorage.getItem(themeStorageKey));
+    applyTheme(readMigratedStorage(localStorage, themeStorageKey));
   } catch {
     /* Keep the current appearance when storage is unavailable. */
   }
@@ -26,10 +27,10 @@ function subscribe(notify: () => void) {
     notify();
   }
   window.addEventListener('storage', storage);
-  window.addEventListener('blok:theme-change', notify);
+  window.addEventListener('storypane:theme-change', notify);
   return () => {
     window.removeEventListener('storage', storage);
-    window.removeEventListener('blok:theme-change', notify);
+    window.removeEventListener('storypane:theme-change', notify);
   };
 }
 export function ThemePicker() {
@@ -45,11 +46,11 @@ export function ThemePicker() {
           const value = event.target.value;
           applyTheme(value);
           try {
-            localStorage.setItem(themeStorageKey, value);
+            writeMigratedStorage(localStorage, themeStorageKey, value);
           } catch {
             /* Keep the choice for this page if storage is unavailable. */
           }
-          window.dispatchEvent(new Event('blok:theme-change'));
+          window.dispatchEvent(new Event('storypane:theme-change'));
         }}
       >
         <option value="system">System</option>

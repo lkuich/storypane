@@ -78,6 +78,28 @@ export function metadata(input: Record<string, unknown>, fallbackTitle = '') {
   };
 }
 
+export function focalPoint(value: unknown): { x: number; y: number } | null {
+  if (value === null) return null;
+  assert(value && typeof value === 'object' && !Array.isArray(value), 'Invalid focal point');
+  const point = value as Record<string, unknown>;
+  assert(
+    Object.keys(point).length === 2 && Object.hasOwn(point, 'x') && Object.hasOwn(point, 'y'),
+    'Use focal coordinates x and y',
+  );
+  assert(
+    typeof point.x === 'number' &&
+      Number.isFinite(point.x) &&
+      point.x >= 0 &&
+      point.x <= 1 &&
+      typeof point.y === 'number' &&
+      Number.isFinite(point.y) &&
+      point.y >= 0 &&
+      point.y <= 1,
+    'Focal coordinates must be between 0 and 1',
+  );
+  return { x: point.x, y: point.y };
+}
+
 export function signatureMatches(mime: string, bytes: Uint8Array): boolean {
   const starts = (...values: number[]) => values.every((value, i) => bytes[i] === value);
   const at = (offset: number, value: string) =>

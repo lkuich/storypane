@@ -15,14 +15,15 @@ test('Next.js renders publications and authenticates live previews, including un
   test.setTimeout(90000);
   const env = parseEnv(readFileSync('apps/example-next/.env', 'utf8'));
   expect(
-    env.STORYPANE_PREVIEW_TOKEN ?? env.BLOK_PREVIEW_TOKEN,
+    env.STORYPANE_PREVIEW_TOKEN,
     'Set a preview token in the Next.js .env for this browser test.',
   ).toBeTruthy();
-  const cms = env.STORYPANE_URL ?? env.BLOK_URL!,
-    spaceId = env.STORYPANE_SPACE_ID ?? env.BLOK_SPACE_ID!;
+  const cms = env.STORYPANE_URL!,
+    spaceId = env.STORYPANE_SPACE_ID!;
   const site = 'http://127.0.0.1:3133';
   expect(cms).toBe('http://127.0.0.1:3130');
-  const database = process.env.DATABASE_URL ?? 'postgresql://blok:blok@127.0.0.1:55432/blok';
+  const database =
+    process.env.DATABASE_URL ?? 'postgresql://storypane:storypane@127.0.0.1:55432/storypane';
   expect(['127.0.0.1', 'localhost']).toContain(new URL(database).hostname);
   const pool = new Pool({ connectionString: database });
   const settings: DeliverySettings = await pool
@@ -61,7 +62,7 @@ test('Next.js renders publications and authenticates live previews, including un
   expect((await page.request.get(`${site}/media/not-a-published-asset`)).status()).toBe(404);
   await page.goto(`${site}/preview?slug=work-in-progress`);
   await expect(page.getByRole('status')).toContainText('Open a story in Storypane');
-  await expect(page.locator('[data-blok-id]')).toHaveCount(0);
+  await expect(page.locator('[data-storypane-id]')).toHaveCount(0);
 
   await context.grantPermissions(['local-network-access'], { origin: cms });
   await page.setViewportSize({ width: 1400, height: 1000 });
@@ -71,7 +72,7 @@ test('Next.js renders publications and authenticates live previews, including un
     ['work-in-progress', ''],
   ]) {
     const response = await page.request.post(`${cms}/api/delivery/preview?space=${spaceId}`, {
-      headers: { Authorization: `Bearer ${env.STORYPANE_PREVIEW_TOKEN ?? env.BLOK_PREVIEW_TOKEN}` },
+      headers: { Authorization: `Bearer ${env.STORYPANE_PREVIEW_TOKEN}` },
       data: { slug, locale, previewId: target.id },
     });
     expect(response.ok()).toBe(true);
@@ -96,7 +97,7 @@ test('Next.js renders publications and authenticates live previews, including un
     await page.route(parentUrl, (route) =>
       route.fulfill({
         contentType: 'text/html',
-        body: `<!doctype html><html><head><style>body{margin:0}iframe{width:100vw;height:100vh;border:0}</style></head><body><iframe title="Live application preview" src="${src}"></iframe><script>const session=${JSON.stringify(session)};window.addEventListener('message',event=>{if(event.origin!==${JSON.stringify(site)}||event.source!==document.querySelector('iframe').contentWindow)return;if(event.data?.type==='blok:ready')event.source.postMessage({type:'blok:init',session},event.origin);if(event.data?.type==='blok:click')document.body.dataset.selected=event.data.blockId;});</script></body></html>`,
+        body: `<!doctype html><html><head><style>body{margin:0}iframe{width:100vw;height:100vh;border:0}</style></head><body><iframe title="Live application preview" src="${src}"></iframe><script>const session=${JSON.stringify(session)};window.addEventListener('message',event=>{if(event.origin!==${JSON.stringify(site)}||event.source!==document.querySelector('iframe').contentWindow)return;if(event.data?.type==='storypane:ready')event.source.postMessage({type:'storypane:init',session},event.origin);if(event.data?.type==='storypane:click')document.body.dataset.selected=event.data.blockId;});</script></body></html>`,
       }),
     );
     await page.goto(parentUrl);
@@ -117,17 +118,17 @@ test('Next.js renders publications and authenticates live previews, including un
         await expect(frame.locator('.footer-credit')).toContainText('Next.js');
       }
     }
-    const block = frame.locator('[data-blok-id]').last(),
-      blockId = await block.getAttribute('data-blok-id');
+    const block = frame.locator('[data-storypane-id]').last(),
+      blockId = await block.getAttribute('data-storypane-id');
     await block.click();
     await expect(page.locator('body')).toHaveAttribute('data-selected', blockId!);
-    await expect(block).toHaveAttribute('data-blok-selected', '');
+    await expect(block).toHaveAttribute('data-storypane-selected', '');
     if (slug === 'home' && !locale)
       await page.screenshot({ path: '/tmp/storypane-next-live-preview.png', fullPage: true });
     // Client-side URL changes must clear the old draft and disconnect its subscription.
     const previewFrame = page.frames().find((frame) => frame.url().startsWith(`${site}/preview`))!;
     await previewFrame.evaluate(() => window.history.pushState(null, '', '/preview'));
-    await expect(frame.locator('[data-blok-id]')).toHaveCount(0);
+    await expect(frame.locator('[data-storypane-id]')).toHaveCount(0);
     await expect(frame.getByRole('status')).toContainText('Open a story in Storypane');
     await expect.poll(() => closed.length > 0 && closed.every(Boolean)).toBe(true);
   }
@@ -136,12 +137,7 @@ test('Next.js renders publications and authenticates live previews, including un
       (file): file is string => typeof file === 'string' && /\.(js|html|rsc)$/.test(file),
     )) {
       const contents = readFileSync(`apps/example-next/${dir}/${file}`, 'utf8');
-      for (const name of [
-        'STORYPANE_DELIVERY_TOKEN',
-        'STORYPANE_PREVIEW_TOKEN',
-        'BLOK_DELIVERY_TOKEN',
-        'BLOK_PREVIEW_TOKEN',
-      ])
+      for (const name of ['STORYPANE_DELIVERY_TOKEN', 'STORYPANE_PREVIEW_TOKEN'])
         if (env[name]) expect(contents.includes(env[name])).toBe(false);
     }
   expect(errors).toEqual([]);

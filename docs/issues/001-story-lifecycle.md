@@ -1,11 +1,12 @@
 # 001 — Story lifecycle and bulk actions
 
-Status: TODO  
+Status: IN PROGRESS — implemented; release verification pending
+
 Source: comparison gap 1  
 Related: [webhooks](002-webhooks.md), [scheduling](003-scheduled-publishing.md),
 [media](004-production-media.md), [permissions](008-scoped-permissions.md)
 
-## Problem and current implementation
+## Problem and starting implementation
 
 Editors can create, move, edit, and publish stories, but cannot unpublish,
 duplicate, or delete whole stories, or select several stories for an action.
@@ -107,18 +108,40 @@ After 008, blockers from unreadable stories are reported without their names/pat
 
 ## Acceptance tests
 
-- [ ] Unpublishing one locale preserves other locales, drafts, and history.
-- [ ] Reviewed IDs fence concurrent edits/publications; failed operations roll back.
-- [ ] A lost response and retry never duplicate a story or repeat side effects.
-- [ ] Duplication preserves locale structure with fresh IDs and no live publication.
-- [ ] Delete preserves history/bytes, rejects incoming active references, and
+- [x] Unpublishing one locale preserves other locales, drafts, and history.
+- [x] Reviewed IDs fence concurrent edits/publications; failed operations roll back.
+- [x] A lost response and retry never duplicate a story or repeat side effects.
+- [x] Duplication preserves locale structure with fresh IDs and no live publication.
+- [x] Delete preserves history/bytes, rejects incoming active references, and
       prevents new references, stale-tab saves, preview access, and delivery access.
-- [ ] Restore stays unpublished, handles intervening schema migrations, and keeps
+- [x] Restore stays unpublished, handles intervening schema migrations, and keeps
       old schedules cancelled. Reserved-slug errors explain the deleted owner safely.
-- [ ] Bulk failures are per-story, actionable, and safe to retry; locale selection
+- [x] Bulk failures are per-story, actionable, and safe to retry; locale selection
       never silently publishes or unpublishes other translations.
 - [ ] Viewer, cross-space, scoped-role, active-lease, and schedule-race cases fail
       closed. Browser coverage exercises selection, review, partial failure, and recovery.
+
+## Implementation and verification
+
+Implemented and integrated in the working tree: core contracts, migrations
+015/017, transactional store operations, CMS routes, content selection and review,
+Deleted/Restore, editor actions, and fixed-checkpoint scheduling controls.
+
+Automated checks: existing store regression suite plus
+[the lifecycle integration suite](../../packages/db/src/lifecycle.test.ts) and
+[DST resolution tests](../../packages/core/src/scheduling-time.test.ts); TypeScript
+and lint pass. Tests cover immutable publications, locale isolation, stale review
+rollback, receipts, references/leases, deletion recovery through schema changes,
+delivery/preview visibility, concurrent ticks, expired sessions, revoked permission,
+retry exhaustion, URL collisions, cancellation races, and transactional webhook events.
+
+[Browser scenarios](../../tests/lifecycle-scheduling.e2e.ts) cover partial batch
+failure/recovery and scheduling/cancellation. They require authenticated Clerk
+storage state and have not been executed. Scoped access and per-subscriber realtime
+invalidation are integrated and covered by DB/realtime tests. Actual local cron
+ran twice with one publication/event and no duplicate; combined tests, typechecking,
+and production build pass. Deployed cron and authenticated browser verification
+remain pending; see [the tracker](README.md).
 
 ## Reference
 

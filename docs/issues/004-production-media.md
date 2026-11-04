@@ -1,11 +1,12 @@
 # 004 — Production media delivery and image controls
 
-Status: TODO  
+Status: IN PROGRESS — implemented; authenticated/deployed verification pending
+
 Source: comparison gap 4  
 Related: [lifecycle](001-story-lifecycle.md), [webhooks](002-webhooks.md),
 [permissions](008-scoped-permissions.md)
 
-## Problem and current implementation
+## Problem and starting implementation
 
 Websites need usable media URLs and responsive image variants without exposing a
 delivery token. Editors need focal-point control and a way to find asset usage.
@@ -130,19 +131,61 @@ and uses a still frame). Original downloads continue to preserve animation/bytes
 
 ## Acceptance tests
 
-- [ ] A clean upgrade and new space expose no unauthenticated media until opted in.
-- [ ] URLs work without credentials only for eligible current published assets;
+- [x] A clean upgrade and new space expose no unauthenticated media until opted in.
+- [x] URLs work without credentials only for eligible current published assets;
       wrong-space, draft-only, history-only, deleted-story, and disabled-space cases fail.
-- [ ] Revocation works after warming the transform cache; shared live references
+- [x] Revocation works after warming the transform cache; shared live references
       preserve access and archived-but-published assets remain usable.
 - [ ] Allowed sizes/formats/crops have the expected dimensions and focal placement;
       unknown/unbounded inputs and unsupported MIME/size fail predictably.
-- [ ] Focal editing is keyboard accessible, preserves source bytes, invalidates
+- [x] Focal editing is keyboard accessible, preserves source bytes, invalidates
       variant identity, and emits the asset event. Non-image metadata remains editable.
-- [ ] Original byte ranges/HEAD and authenticated SDK export remain compatible;
+- [x] Original byte ranges/HEAD and authenticated SDK export remain compatible;
       public helper output and example HTML contain no credentials.
 - [ ] Usage results accurately distinguish draft/live references without leaking
       hidden content. Local image simulation and a real deployed Images smoke test pass.
+
+## Implementation and verification notes
+
+Migration 018 defaults public media off and adds focal coordinates plus metadata
+revision. The existing `MEDIA` and `IMAGES` bindings are reused. Public originals
+and variants live at the routes above; `publicAssetUrl` is exported by the SDK.
+Space delivery settings expose the admin-only opt-in. Asset details now have focal
+controls, a crop preview, a paginated Used in section, and an archived-library view.
+Metadata updates and `asset.updated` outbox events commit in one transaction. No-op
+saves preserve the revision; stale editor revisions return 409.
+
+The asset service tests cover warm-cache revocation, shared and historical
+references, tombstones, wrong space, archived references, conditional ETags,
+HEAD/ranges, transform validation/errors, metadata revision/event behavior, and
+unchanged original bytes. DB tests cover upgrade defaults, admin-only opt-in,
+schema-typed usage, draft/publication state, tombstones and pagination. SDK tests
+cover canonical URLs and reject credential-bearing base URLs and arbitrary options.
+The asset browser test has been extended for keyboard focal editing, crop preview,
+saved metadata, preserved bytes, and usage links.
+
+Local verification on 2026-11-04: 112 asset/service/DB/SDK tests, TypeScript,
+production build, and lint pass. A Chrome component harness verified arrow/Shift-arrow/Home controls,
+edge clamping, pointer coordinates, reset, and preview positioning with the existing
+1200×800 landscape fixture. The authenticated browser flow is not yet run because
+no Clerk Playwright storage state is available.
+
+Installed Miniflare 5.20261101.0-beta produces 320×320 PNG crops and its center crop
+matches the expected pixels (mean absolute channel error 0.001). Its local Images
+implementation ignores coordinate-object gravity: `resolveGravity` only recognizes
+named sides/center, so edge-coordinate outputs incorrectly remain centered. The
+production binding receives `{ x, y, mode: 'remainder' }`, matching documented
+coordinate alignment and the editor's CSS `object-position`. This simulator limit
+must not be mistaken for a passing focal-placement check. Verify x/y edge crops,
+all formats/aspects, and animation on a deployed test Worker with a new opted-in
+test space before marking the issue done. Do not enable public caching in front of
+`/media/`: v1 deliberately checks eligibility on every request.
+
+Integration complete: 008 applies location, locale, definition, and field read filters
+inside `listAssetUsage` before pagination, with a scoped pagination regression test.
+No inaccessible count is returned. The hidden-content regression passes; the
+authenticated asset browser test remains unverified.
+No deployment or setting change on an existing space was performed.
 
 ## References
 

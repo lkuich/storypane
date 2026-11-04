@@ -1,4 +1,10 @@
-import { commandSchema, type BlockDraft, type Command, type Json } from '@storypane/core';
+import {
+  commandSchema,
+  type BlockDraft,
+  type BlockAccess,
+  type Command,
+  type Json,
+} from '@storypane/core';
 
 export type SaveAttempt = {
   migrationVersion?: number;
@@ -15,6 +21,23 @@ export type DraftBuffer = {
   attempt?: SaveAttempt;
 };
 export type DraftBuffers = Record<string, DraftBuffer>;
+
+export function hasForbiddenDraftFields(
+  buffer: DraftBuffer,
+  block: BlockDraft | undefined,
+  access: BlockAccess | undefined,
+): boolean {
+  if (!access) return false;
+  return (
+    !access.edit ||
+    Object.entries(buffer.fields).some(
+      ([name, value]) =>
+        access.fields[name]?.read === false ||
+        (access.fields[name]?.edit === false &&
+          JSON.stringify(value) !== JSON.stringify(block?.fields[name])),
+    )
+  );
+}
 
 export function editBuffer(
   previous: DraftBuffer | undefined,

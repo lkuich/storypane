@@ -13,6 +13,8 @@ export interface AssetRecord {
   folderIds: string[];
   archivedAt: string | null;
   createdAt: string;
+  focalPoint: { x: number; y: number } | null;
+  metadataRevision: number;
 }
 
 export interface AssetFolder {

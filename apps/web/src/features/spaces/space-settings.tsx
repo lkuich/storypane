@@ -11,13 +11,14 @@ import { DeliverySettings } from './delivery-settings';
 import { LocaleSettings } from './locale-settings';
 import { MemberSettings } from './member-settings';
 import { RoleSettings } from './role-settings';
+import { WebhookSettings } from './webhook-settings';
 
 export function SpaceSettings({
   onUpdate,
   registerGuard,
   access,
 }: {
-  access: Pick<Space, 'role' | 'roleName' | 'permissions'>;
+  access: Pick<Space, 'role' | 'roleName' | 'permissions' | 'contentScopes'>;
   onUpdate: (space: Space) => void;
   registerGuard: RegisterGuard;
 }) {
@@ -38,6 +39,8 @@ export function SpaceSettings({
     setRoles(await api<SpaceRole[]>('/roles'));
   }, []);
   const [memberBusy, setMemberBusy] = useState(false);
+  const [webhookDirty, setWebhookDirty] = useState(false),
+    [webhookBusy, setWebhookBusy] = useState(false);
   const [localeDirty, setLocaleDirty] = useState(false),
     [localeBusy, setLocaleBusy] = useState(false);
   const load = useCallback(async () => {
@@ -66,10 +69,11 @@ export function SpaceSettings({
             role: access.role,
             roleName: access.roleName,
             permissions: access.permissions,
+            contentScopes: access.contentScopes,
           }
         : current,
     );
-  }, [access.role, access.roleName, access.permissions]);
+  }, [access.role, access.roleName, access.permissions, access.contentScopes]);
   useEffect(() => {
     registerGuard(
       () =>
@@ -78,7 +82,8 @@ export function SpaceSettings({
         !localeBusy &&
         !memberBusy &&
         !roleBusy &&
-        (!(dirty || deliveryDirty || localeDirty) ||
+        !webhookBusy &&
+        (!(dirty || deliveryDirty || localeDirty || webhookDirty) ||
           window.confirm('Discard unsaved space settings?')),
     );
     const warn = (event: BeforeUnloadEvent) => {
@@ -90,7 +95,9 @@ export function SpaceSettings({
         localeDirty ||
         localeBusy ||
         memberBusy ||
-        roleBusy
+        roleBusy ||
+        webhookDirty ||
+        webhookBusy
       )
         event.preventDefault();
     };
@@ -108,6 +115,8 @@ export function SpaceSettings({
     localeBusy,
     memberBusy,
     roleBusy,
+    webhookDirty,
+    webhookBusy,
     registerGuard,
   ]);
   return (
@@ -240,9 +249,13 @@ export function SpaceSettings({
               />
               <DeliverySettings
                 canManage={can(space, 'settings:write')}
+                isAdmin={space.role === 'admin'}
                 onDirty={setDeliveryDirty}
                 onBusy={setDeliveryBusy}
               />
+              {space.role === 'admin' && (
+                <WebhookSettings onDirty={setWebhookDirty} onBusy={setWebhookBusy} />
+              )}
             </div>
             <aside className="space-settings-aside">
               <section className="panel">

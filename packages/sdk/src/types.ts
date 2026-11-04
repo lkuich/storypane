@@ -1,14 +1,3 @@
-export type {
-  StorypaneBlock as BlokBlock,
-  StorypaneLocale as BlokLocale,
-  StorypaneAsset as BlokAsset,
-  StorypaneLink as BlokLink,
-  StorypaneRichText as BlokRichText,
-  StorypaneSchemaField as BlokSchemaField,
-  StorypaneSchema as BlokSchema,
-  StorypaneStory as BlokStory,
-};
-
 export interface StorypaneBlock {
   _uid: string;
   component: string;
@@ -98,7 +87,8 @@ export function isPreviewMode(
   const url =
     context?.url ?? (typeof window !== 'undefined' ? window.location.href : 'http://localhost/');
   const cookie = context?.cookie ?? (typeof document !== 'undefined' ? document.cookie : '');
-  const queryRule = mode.query === undefined ? { name: 'blok_preview', value: '1' } : mode.query;
+  const queryRule =
+    mode.query === undefined ? { name: 'storypane_preview', value: '1' } : mode.query;
   if (queryRule) {
     const value = new URL(url).searchParams.get(queryRule.name);
     if (value !== null && (queryRule.value === undefined || value === queryRule.value)) return true;
@@ -123,5 +113,5 @@ export function isPreviewMode(
 }
 
 export function editable(block: Pick<StorypaneBlock, '_uid'>, field?: string) {
-  return { 'data-blok-id': block._uid, ...(field ? { 'data-blok-field': field } : {}) };
+  return { 'data-storypane-id': block._uid, ...(field ? { 'data-storypane-field': field } : {}) };
 }

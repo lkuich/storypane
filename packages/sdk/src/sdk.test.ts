@@ -111,10 +111,10 @@ describe('delivery and preview activation', () => {
     expect(isPreviewMode({ query: { name: 'review', value: '1' } }, context)).toBe(false);
     expect(isPreviewMode({ cookie: { name: 'editorial', value: 'on' } }, context)).toBe(true);
     expect(isPreviewMode({ cookie: { name: 'missing' } }, context)).toBe(false);
-    expect(isPreviewMode({ query: false }, { url: 'https://site.test/?blok_preview=1' })).toBe(
+    expect(isPreviewMode({ query: false }, { url: 'https://site.test/?storypane_preview=1' })).toBe(
       false,
     );
-    expect(isPreviewMode({}, { url: 'https://site.test/?blok_preview=1' })).toBe(true);
+    expect(isPreviewMode({}, { url: 'https://site.test/?storypane_preview=1' })).toBe(true);
   });
   it('makes no browser connection when preview is disabled', () => {
     vi.stubGlobal('window', { location: { href: 'https://site.test/' } });

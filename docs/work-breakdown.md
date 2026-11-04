@@ -217,7 +217,7 @@ Verified on 2026-11-03:
   locale imports/restoration, and typed schema/datasource publishing.
 - Local setup was rerun successfully without resetting content. The lockfile
   installs with `--frozen-lockfile`; local credentials and runtime state are ignored.
-- Docker Compose configuration validates; `blok-postgres-1` is healthy on
+- Docker Compose configuration validates; the local Postgres container is healthy on
   127.0.0.1:55432, running PostgreSQL 18.6. A transactional JSONB round-trip passed.
 - Existing Wrangler authentication identifies the selected Gmail account and
   includes `workers:write` and `workers_scripts:write` scopes.

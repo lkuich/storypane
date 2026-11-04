@@ -1,6 +1,11 @@
 import { defineConfig } from '@playwright/test';
 import { existsSync } from 'node:fs';
 
+const envFile = new URL('./.env', import.meta.url);
+if (existsSync(envFile)) {
+  process.loadEnvFile(envFile);
+}
+
 export default defineConfig({
   testDir: './tests',
   testMatch: '**/*.e2e.ts',

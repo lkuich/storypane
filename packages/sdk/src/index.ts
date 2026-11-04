@@ -1,8 +1,6 @@
 import { migrationWarning } from './migration-warning.js';
 export * from './types.js';
-// Keep existing integrations working when they adopt the renamed package.
-export { createStorypaneClient as createBlokClient, StorypaneError as BlokError };
-export type { StorypaneClientOptions as BlokClientOptions };
+export { publicAssetUrl, type PublicImageOptions } from './media.js';
 import type {
   StorypaneStory,
   StorypaneSchema,

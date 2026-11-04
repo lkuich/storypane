@@ -7,7 +7,7 @@ export function selectedSpaceId(): string | null {
 
 export function spaceHeaders(): Record<string, string> {
   const id = selectedSpaceId();
-  return id ? { 'x-blok-space-id': id } : {};
+  return id ? { 'x-storypane-space-id': id } : {};
 }
 
 export function spaceUrl(path: string): string {

@@ -64,7 +64,7 @@ it('renders the new hero image, adjacent feature cards, links and selected share
   const html = render();
   expect(html).toContain('src="/media/image"');
   expect(html).toContain('alt="Studio garden"');
-  expect(html).toContain('data-blok-field="hero_image"');
+  expect(html).toContain('data-storypane-field="hero_image"');
   expect(html.match(/class="feature-grid"/g)).toHaveLength(1);
   expect(html).toContain('href="/fr/about"');
   expect(html).toContain('<p><strong>Our approach</strong></p>');

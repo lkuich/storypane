@@ -1,24 +1,31 @@
 # Internal issue tracker
 
-Implementation TODOs for Storypane. These are proposed specifications, not shipped
-features. Investigated against the working tree and official documentation on
-2026-11-04, including uncommitted asset-delivery changes.
+The five selected gaps are implemented in the working tree. The backend, UI,
+migrations, and tests are integrated. They remain IN PROGRESS until the listed
+release checks are completed; no deployment or public-media opt-in has occurred.
 
-Issue numbers preserve the numbered gaps from the product comparison. Only gaps
-1–4 and 8 are queued here; the missing numbers are intentional.
+Issue numbers preserve the product comparison. Only gaps 1–4 and 8 are in scope.
 
-| Issue                                                            | Status | Outcome                                                                       | Dependencies                                                                 |
-| ---------------------------------------------------------------- | ------ | ----------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
-| [001 — Story lifecycle and bulk actions](001-story-lifecycle.md) | TODO   | Unpublish, duplicate, safely delete/restore, and act on selected stories      | Existing checkpoints, publications, folders, and leases                      |
-| [002 — Outbound webhooks](002-webhooks.md)                       | TODO   | Reliably notify sites and services after committed changes                    | Hooks into 001 as its actions land; adds a durable delivery runner           |
-| [003 — Scheduled publishing](003-scheduled-publishing.md)        | TODO   | Publish an explicitly reviewed locale checkpoint at a future time             | Coordinate lifecycle races with 001; reuse 002's cron entry point if present |
-| [004 — Production media delivery](004-production-media.md)       | TODO   | Public published-media URLs, optimized images, focal points, and usage lookup | Existing R2/Images bindings; respect 001's publication/deletion state        |
-| [008 — Scoped content permissions](008-scoped-permissions.md)    | TODO   | Restrict reading, editing, and publishing by content location and identity    | Integrate every content path, including 001–004                              |
+| Issue                                                            | Status      | Implemented                                                                         | Remaining verification                                                     |
+| ---------------------------------------------------------------- | ----------- | ----------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
+| [001 — Story lifecycle and bulk actions](001-story-lifecycle.md) | IN PROGRESS | Unpublish, duplicate, delete/restore, reviewed bulk actions                         | Authenticated selection/recovery browser flows                             |
+| [002 — Outbound webhooks](002-webhooks.md)                       | IN PROGRESS | Admin controls, signed transactional outbox, retries, logs, receiver example        | Authenticated admin flow and external HTTPS receiver/deployed delivery     |
+| [003 — Scheduled publishing](003-scheduled-publishing.md)        | IN PROGRESS | Fixed checkpoints, timezone/DST validation, durable minute runner                   | Connected-editor browser flow and deployed cron                            |
+| [004 — Production media delivery](004-production-media.md)       | IN PROGRESS | Opt-in public URLs, bounded transforms, focal editor, scoped usage, SDK helper      | Authenticated asset flow and deployed Images focal/aspect/animation checks |
+| [008 — Scoped content permissions](008-scoped-permissions.md)    | IN PROGRESS | Read/edit/publish scopes, server projection, safe mutations, per-recipient realtime | Authenticated two-user collaboration/revocation browser flow               |
 
-Suggested implementation order: 001, 002, 003, 004, then 008. Issue 008 is the
-largest change; review its authorization contract before implementing the other
-issues so new entry points use the same store-level authorization boundary.
-There is no requirement to build a generic job system or policy framework first.
+Local verification: 311 unit/Postgres tests pass, plus full typechecking, lint, a
+production build, five role/webhook browser component journeys, focal-control browser checks,
+and two actual local Worker cron invocations. The cron fixture confirmed one
+publication/event/delivery attempt without duplicates or external requests.
+Authenticated browser suites require Clerk storage-state files; none are available.
+Miniflare ignores numeric image gravity, so local center-crop success does not
+verify deployed focal-point placement.
+
+Migrations 015–019 add the feature storage and backfill existing roles without
+removing access. Webhooks require `WEBHOOK_ENCRYPTION_KEY` and `WEBHOOK_HOSTS`;
+see [configuration and receiver instructions](../webhooks.md). Public media remains
+disabled until an administrator explicitly enables it for a space.
 
 ## Working conventions
 

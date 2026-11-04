@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import {
   Pin,
   Plus,
@@ -31,6 +31,7 @@ import {
   type Story,
   type StorySummary,
 } from '@storypane/core';
+import { StoryActionsDialog, type StoryActionKind } from './story-actions-dialog';
 import { FolderDialog } from './folder-dialog';
 import { StoryLocationDialog } from './story-location-dialog';
 import { OptionInput } from '../editor/option-input';
@@ -39,14 +40,25 @@ import { api, dateLabel, errorMessage, jsonRequest, slugify } from '../editor/ap
 
 export function ContentList({
   canCreate,
+  canPublish,
   onOpen,
   onBlocks,
 }: {
   canCreate: boolean;
+  canPublish: boolean;
   onOpen: (story: Story, locale?: string) => void;
   onBlocks: () => void;
 }) {
   const editors = usePageEditors();
+  const [deleted, setDeleted] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [action, setAction] = useState<StoryActionKind | null>(null);
+  const [scheduleFilter, setScheduleFilter] = useState('');
+  const actionStories = useRef<Story[]>([]);
+  function openAction(next: StoryActionKind) {
+    actionStories.current = stories.filter((story) => selectedIds.includes(story.id));
+    setAction(next);
+  }
   const [stories, setStories] = useState<StorySummary[]>([]);
   const [definitions, setDefinitions] = useState<BlockDefinition[]>([]);
   const [folders, setFolders] = useState<ContentFolder[]>([]);
@@ -73,33 +85,36 @@ export function ContentList({
   const [slug, setSlug] = useState('');
   const [definitionId, setDefinitionId] = useState('');
   const [createError, setCreateError] = useState<string | null>(null);
-  const load = useCallback(async (quiet = false) => {
-    if (!quiet) setLoading(true);
-    setError(null);
-    try {
-      const [content, schemas, availableFolders, availableLocales] = await Promise.all([
-        api<StorySummary[]>('/stories'),
-        api<BlockDefinition[]>('/definitions?deployed=true'),
-        api<ContentFolder[]>('/folders'),
-        api<SpaceLocale[]>('/locales'),
-      ]);
-      setStories(content);
-      setDefinitions(schemas);
-      setFolders(availableFolders);
-      setLocales(availableLocales);
-      const currentFolder = new URLSearchParams(window.location.search).get('folder');
-      if (currentFolder && !availableFolders.some((item) => item.id === currentFolder)) {
-        setFolderId(null);
-        const url = new URL(window.location.href);
-        url.searchParams.delete('folder');
-        window.history.replaceState(window.history.state, '', url);
+  const load = useCallback(
+    async (quiet = false) => {
+      if (!quiet) setLoading(true);
+      setError(null);
+      try {
+        const [content, schemas, availableFolders, availableLocales] = await Promise.all([
+          api<StorySummary[]>(`/stories${deleted ? '?deleted=true' : ''}`),
+          api<BlockDefinition[]>('/definitions?deployed=true'),
+          api<ContentFolder[]>('/folders'),
+          api<SpaceLocale[]>('/locales'),
+        ]);
+        setStories(content);
+        setDefinitions(schemas);
+        setFolders(availableFolders);
+        setLocales(availableLocales);
+        const currentFolder = new URLSearchParams(window.location.search).get('folder');
+        if (currentFolder && !availableFolders.some((item) => item.id === currentFolder)) {
+          setFolderId(null);
+          const url = new URL(window.location.href);
+          url.searchParams.delete('folder');
+          window.history.replaceState(window.history.state, '', url);
+        }
+      } catch (error) {
+        setError(errorMessage(error));
+      } finally {
+        setLoading(false);
       }
-    } catch (error) {
-      setError(errorMessage(error));
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+    },
+    [deleted],
+  );
   useEffect(() => {
     void load();
   }, [load]);
@@ -121,7 +136,10 @@ export function ContentList({
   const scopedStories = currentFolder
     ? stories.filter((story) => scopedFolders.some((item) => item.id === story.folderId))
     : stories;
-  const filtered = filterStories(scopedStories, filters);
+  const filtered = filterStories(scopedStories, filters).filter(
+    (story) =>
+      !scheduleFilter || story.schedules?.some((schedule) => schedule.status === scheduleFilter),
+  );
   const trail: ContentFolder[] = [];
   for (
     let item = currentFolder;
@@ -256,6 +274,57 @@ export function ContentList({
           </Button>
         )}
       </nav>
+      <div className="dialog-actions">
+        <Button
+          aria-pressed={deleted}
+          onClick={() => {
+            setDeleted((value) => !value);
+            setScheduleFilter('');
+            setSelectedIds([]);
+          }}
+        >
+          {deleted ? 'Show active stories' : 'Deleted stories'}
+        </Button>
+        {!deleted && (
+          <label>
+            Schedules{' '}
+            <select
+              aria-label="Filter schedules"
+              value={scheduleFilter}
+              onChange={(event) => setScheduleFilter(event.target.value)}
+            >
+              <option value="">All</option>
+              <option value="pending">Scheduled</option>
+              <option value="failed">Failed</option>
+            </select>
+          </label>
+        )}
+        {!!selectedIds.length && (
+          <>
+            <span>{selectedIds.length} selected (maximum 50)</span>
+            {deleted ? (
+              canCreate && <Button onClick={() => openAction('restore')}>Restore</Button>
+            ) : (
+              <>
+                {canPublish && (
+                  <>
+                    <Button onClick={() => openAction('publish')}>Publish</Button>
+                    <Button onClick={() => openAction('unpublish')}>Unpublish</Button>
+                  </>
+                )}
+                {canCreate && (
+                  <>
+                    <Button onClick={() => openAction('duplicate')}>Duplicate</Button>
+                    <Button onClick={() => openAction('move')}>Move</Button>
+                    <Button onClick={() => openAction('delete')}>Delete</Button>
+                  </>
+                )}
+              </>
+            )}
+            <Button onClick={() => setSelectedIds([])}>Clear selection</Button>
+          </>
+        )}
+      </div>
       <ContentFilterBar
         filters={filters}
         onChange={changeFilters}
@@ -298,6 +367,23 @@ export function ContentList({
               <table className="data-table">
                 <thead>
                   <tr>
+                    <th>
+                      <input
+                        type="checkbox"
+                        aria-label="Select up to 50 visible stories"
+                        checked={
+                          !!filtered.length &&
+                          filtered.slice(0, 50).every((story) => selectedIds.includes(story.id))
+                        }
+                        onChange={(event) =>
+                          setSelectedIds(
+                            event.target.checked
+                              ? filtered.slice(0, 50).map((story) => story.id)
+                              : [],
+                          )
+                        }
+                      />
+                    </th>
                     <th>Story</th>
                     <th>Status</th>
                     <th className="table-mobile-hide">Path</th>
@@ -312,9 +398,25 @@ export function ContentList({
                   {filtered.map((story) => (
                     <tr key={story.id}>
                       <td>
+                        <input
+                          type="checkbox"
+                          aria-label={`Select ${story.name}`}
+                          checked={selectedIds.includes(story.id)}
+                          disabled={!selectedIds.includes(story.id) && selectedIds.length >= 50}
+                          onChange={(event) =>
+                            setSelectedIds((current) =>
+                              event.target.checked
+                                ? [...current, story.id]
+                                : current.filter((id) => id !== story.id),
+                            )
+                          }
+                        />
+                      </td>
+                      <td>
                         <div className="entity-name">
                           <button
                             type="button"
+                            disabled={deleted}
                             className="entity-icon story-pin"
                             aria-label={`Pin ${story.name} for yourself`}
                             aria-pressed={story.pinned}
@@ -329,7 +431,11 @@ export function ContentList({
                           </button>
                           <div>
                             <div className="content-story-title">
-                              <button className="entity-title" onClick={() => onOpen(story)}>
+                              <button
+                                disabled={deleted}
+                                className="entity-title"
+                                onClick={() => onOpen(story)}
+                              >
                                 {story.name}
                               </button>
                               {story.pinned && (
@@ -348,6 +454,18 @@ export function ContentList({
                       </td>
                       <td className="publication-cell">
                         <PublicationStatus status={story.publicationStatus} />
+                        {story.schedules
+                          ?.filter(
+                            (schedule) =>
+                              schedule.status === 'pending' || schedule.status === 'failed',
+                          )
+                          .slice(0, 3)
+                          .map((schedule) => (
+                            <div className="entity-subtitle" key={schedule.id}>
+                              {schedule.status === 'pending' ? 'Scheduled' : 'Schedule failed'} ·
+                              revision {schedule.checkpointRevision} · {dateLabel(schedule.dueAt)}
+                            </div>
+                          ))}
                         <div className="entity-subtitle">
                           {story.publicationStatus === 'draft'
                             ? 'Not published'
@@ -385,7 +503,7 @@ export function ContentList({
                       </td>
                       <td>
                         <div className="content-row-actions">
-                          {canCreate && (
+                          {canCreate && !deleted && (
                             <Button
                               variant="ghost"
                               className="icon-button"
@@ -399,6 +517,7 @@ export function ContentList({
                           <Button
                             variant="ghost"
                             className="icon-button"
+                            disabled={deleted}
                             aria-label={`Open ${story.name}`}
                             onClick={() => onOpen(story)}
                           >
@@ -447,6 +566,17 @@ export function ContentList({
           </EmptyState>
         )}
       </div>
+      {action && (
+        <StoryActionsDialog
+          stories={actionStories.current}
+          action={action}
+          onClose={() => setAction(null)}
+          onComplete={(ids) => {
+            setSelectedIds((current) => current.filter((id) => !ids.includes(id)));
+            void load(true);
+          }}
+        />
+      )}
       {editingFolder !== undefined && (
         <FolderDialog
           key={editingFolder?.id ?? 'new'}

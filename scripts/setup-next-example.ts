@@ -6,23 +6,26 @@ import { deliverySettingsSchema } from '@storypane/core';
 
 const envPath = 'apps/example-next/.env';
 const source = existsSync(envPath) ? envPath : 'apps/example-astro/.env';
-if (!existsSync(source))
+if (!existsSync(source)) {
   throw new Error('Run pnpm example:setup to configure the shared Fieldwork space first.');
+}
 const env = parseEnv(readFileSync(source, 'utf8'));
-const cmsUrl = (env.STORYPANE_URL ?? env.BLOK_URL) || 'http://127.0.0.1:3130';
-const spaceId = env.STORYPANE_SPACE_ID ?? env.BLOK_SPACE_ID;
-const deliveryToken = env.STORYPANE_DELIVERY_TOKEN ?? env.BLOK_DELIVERY_TOKEN;
-const previewToken = env.STORYPANE_PREVIEW_TOKEN ?? env.BLOK_PREVIEW_TOKEN;
-const connectionString = process.env.DATABASE_URL ?? 'postgresql://blok:blok@127.0.0.1:55432/blok';
+const cmsUrl = env.STORYPANE_URL || 'http://127.0.0.1:3130';
+const spaceId = env.STORYPANE_SPACE_ID;
+const deliveryToken = env.STORYPANE_DELIVERY_TOKEN;
+const previewToken = env.STORYPANE_PREVIEW_TOKEN;
+const connectionString =
+  process.env.DATABASE_URL ?? 'postgresql://storypane:storypane@127.0.0.1:55432/storypane';
 const database = new URL(connectionString);
 if (
   !['localhost', '127.0.0.1'].includes(new URL(cmsUrl).hostname) ||
   !['localhost', '127.0.0.1'].includes(database.hostname) ||
-  database.pathname !== '/blok'
-)
+  database.pathname !== `/${process.env.POSTGRES_DB ?? 'storypane'}`
+) {
   throw new Error(
-    'This setup only configures the local CMS and local blok database. Configure remote previews in Storypane settings.',
+    'This setup only configures the local CMS and its database. Configure remote previews in Storypane settings.',
   );
+}
 assert(
   spaceId && deliveryToken,
   'Configure a Storypane space and published delivery token in apps/example-next/.env.',

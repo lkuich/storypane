@@ -307,8 +307,28 @@ test('an uploaded library image can be picked for a Hero and persists as an asse
     await card.click();
     const details = page.getByRole('dialog', { name: filename, exact: true });
     await details.getByLabel('Title', { exact: true }).fill(title);
+    const focal = details.getByRole('button', { name: 'Image focal point', exact: true });
+    await focal.focus();
+    await focal.press('ArrowRight');
+    await focal.press('Shift+ArrowDown');
+    await expect(details.locator('output')).toHaveText('Horizontal 51%, vertical 60%');
+    await expect(details.getByRole('img', { name: 'Crop preview' })).toHaveCSS(
+      'object-position',
+      '51% 60%',
+    );
+    await focal.press('Home');
+    await expect(details.locator('output')).toHaveText('Horizontal 50%, vertical 50%');
+    await focal.press('Shift+ArrowLeft');
     await details.getByRole('button', { name: 'Save details', exact: true }).click();
     await expect(details).not.toBeVisible();
+    const metadata = await cms<{
+      asset: { focalPoint: { x: number; y: number }; metadataRevision: number };
+    }>(`/assets/${assetId}`);
+    expect(metadata.asset.focalPoint).toEqual({ x: 0.4, y: 0.5 });
+    expect(metadata.asset.metadataRevision).toBe(2);
+    expect(await (await page.request.get(`${apiPath}/${assetId}/content`)).body()).toEqual(
+      landscape,
+    );
 
     await navigation.getByRole('button', { name: 'Content', exact: true }).click();
     await page.getByRole('button', { name: story.name, exact: true }).click();
@@ -345,6 +365,18 @@ test('an uploaded library image can be picked for a Hero and persists as an asse
     );
     await expect(preview).toHaveJSProperty('naturalWidth', 320);
     await expect(page.getByLabel('Alt text for this use')).toHaveValue(alt);
+    await navigation.getByRole('button', { name: 'Assets', exact: true }).click();
+    await page.getByRole('searchbox', { name: 'Search assets' }).fill(title);
+    await page.getByRole('button', { name: `Edit ${title}`, exact: true }).click();
+    const savedDetails = page.getByRole('dialog', { name: title, exact: true });
+    await savedDetails.getByRole('button', { name: 'Used in', exact: true }).click();
+    const usage = savedDetails.getByRole('region', { name: 'Asset usage' });
+    await expect(usage.getByRole('link', { name: new RegExp(story.name) })).toHaveAttribute(
+      'href',
+      new RegExp(`story=${story.id}.*block=${heroId}`),
+    );
+    await expect(usage.getByText('Draft', { exact: true })).toBeVisible();
+    await savedDetails.getByRole('button', { name: 'Close asset details' }).click();
     await navigation.getByRole('button', { name: 'Content', exact: true }).click();
   } finally {
     if (assetId)

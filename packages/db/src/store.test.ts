@@ -5,14 +5,19 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { StorypaneStore } from './store.js';
 import { migrate } from './migrate.js';
 import { acceptVerifiedEmailInvitations } from './invitations.js';
-import { createBlockClipboard, definitionInput } from '@storypane/core';
+import { createBlockClipboard, contentScopesSchema, definitionInput } from '@storypane/core';
 import type { Actor, BlockDraft, Command, Lease, LocaleSnapshot } from '@storypane/core';
 
 const databaseUrl =
-  process.env.TEST_DATABASE_URL ?? 'postgresql://blok:blok@127.0.0.1:55432/blok_test';
+  process.env.TEST_DATABASE_URL ??
+  'postgresql://storypane:storypane@127.0.0.1:55432/storypane_test';
 const target = new URL(databaseUrl);
-if (!['localhost', '127.0.0.1'].includes(target.hostname) || target.pathname !== '/blok_test')
-  throw new Error('Integration tests require the disposable local blok_test database');
+if (
+  !['localhost', '127.0.0.1'].includes(target.hostname) ||
+  target.pathname !== `/${process.env.POSTGRES_DB ?? 'storypane'}_test`
+) {
+  throw new Error('Integration tests require the disposable local test database');
+}
 const schemaName = `data_test_${randomUUID().replaceAll('-', '')}`;
 const admin = new Pool({ connectionString: databaseUrl });
 const pool = new Pool({
@@ -139,8 +144,32 @@ beforeAll(async () => {
     'CREATE TABLE blok_migrations(name text PRIMARY KEY, applied_at timestamptz NOT NULL DEFAULT now())',
   );
   await pool.query("INSERT INTO blok_migrations(name) VALUES('003_delivery_preview')");
+  const customPreviewSpace = (
+    await pool.query(
+      "INSERT INTO spaces(name,preview_parameter) VALUES('Custom preview','review') RETURNING id",
+    )
+  ).rows[0].id;
   await migrate(pool);
   await migrate(pool);
+  expect(
+    (await pool.query('SELECT preview_parameter FROM spaces WHERE id=$1', [legacySpaceId])).rows[0]
+      .preview_parameter,
+  ).toBe('storypane_preview');
+  expect(
+    (await pool.query('SELECT preview_parameter FROM spaces WHERE id=$1', [customPreviewSpace]))
+      .rows[0].preview_parameter,
+  ).toBe('review');
+  expect(
+    (await pool.query("SELECT name FROM storypane_migrations WHERE name='003_delivery_preview'"))
+      .rowCount,
+  ).toBe(1);
+  expect(
+    (
+      await pool.query(
+        "SELECT 1 FROM pg_tables WHERE schemaname=current_schema() AND tablename='blok_migrations'",
+      )
+    ).rowCount,
+  ).toBe(0);
   await pool.query(
     `INSERT INTO cms_sessions VALUES('alice-session','alice',now()+interval '1 hour'),('bob-session','bob',now()+interval '1 hour')`,
   );
@@ -164,6 +193,121 @@ afterAll(async () => {
 });
 
 describe('Postgres collaboration and immutable history', () => {
+  it('keeps public media disabled on upgrade and requires an administrator to enable it', async () => {
+    expect(
+      (await pool.query('SELECT public_media FROM spaces WHERE id=$1', [legacySpaceId])).rows[0]
+        .public_media,
+    ).toBe(false);
+    expect(await store.getPublicMediaSettings(alice)).toEqual({ enabled: false });
+    await expect(store.updatePublicMediaSettings(bob, { enabled: true })).rejects.toMatchObject({
+      code: 'forbidden',
+    });
+    expect(await store.updatePublicMediaSettings(alice, { enabled: true })).toEqual({
+      enabled: true,
+    });
+    expect(await store.getPublicMediaSettings(bob)).toEqual({ enabled: true });
+    expect(await store.updatePublicMediaSettings(alice, { enabled: false })).toEqual({
+      enabled: false,
+    });
+  });
+  it('lists typed draft and current publication asset usage with stable IDs and bounded pagination', async () => {
+    const assetId = randomUUID();
+    await pool.query(
+      "INSERT INTO assets(id,space_id,object_key,filename,mime_type,byte_size,title) VALUES($1::uuid,$2,$1::text,'image.png','image/png',10,'Image')",
+      [assetId, alice.spaceId],
+    );
+    const footer = blockNamed(snapshot, 'footer');
+    const saved = await save(alice, snapshot, footer, {
+      ...footer.fields,
+      link: { type: 'asset', assetId },
+    });
+    const draft = await store.listAssetUsage(alice, assetId);
+    expect(draft.items).toHaveLength(1);
+    expect(draft.items[0]).toMatchObject({
+      storyId: snapshot.story.id,
+      localeId: snapshot.locale.id,
+      blockId: footer.id,
+      definitionId: footer.definitionId,
+      fieldName: 'link',
+      state: 'draft',
+    });
+    expect(draft.items[0].fieldId).toBeTruthy();
+    expect(draft.nextCursor).toBeNull();
+    const published = await run(alice, saved.snapshot, {
+      ...commandBase(),
+      type: 'publishCheckpoint',
+      payload: { checkpointId: saved.checkpointId },
+    });
+    expect((await store.listAssetUsage(alice, assetId)).items.map((item) => item.state)).toEqual([
+      'draft',
+      'published',
+    ]);
+    const edited = await save(alice, published.snapshot, blockNamed(published.snapshot, 'footer'), {
+      ...footer.fields,
+      link: { type: 'external', url: 'https://example.com' },
+    });
+    expect((await store.listAssetUsage(alice, assetId)).items.map((item) => item.state)).toEqual([
+      'published',
+    ]);
+    await run(alice, edited.snapshot, {
+      ...commandBase(),
+      type: 'publishCheckpoint',
+      payload: { checkpointId: edited.checkpointId },
+    });
+    expect((await store.listAssetUsage(alice, assetId)).items).toEqual([]);
+    // A lookalike value in a text field does not count as an asset reference.
+    await pool.query('UPDATE block_drafts SET fields=fields || $2 WHERE id=$1', [
+      footer.id,
+      JSON.stringify({ text: { assetId } }),
+    ]);
+    expect((await store.listAssetUsage(alice, assetId)).items).toEqual([]);
+    const definition = (
+      await pool.query('SELECT schema_version_id FROM block_drafts WHERE id=$1', [footer.id])
+    ).rows[0].schema_version_id;
+    for (let index = 0; index < 42; index++) {
+      const story = await pool.query(
+        'INSERT INTO stories(space_id,name,slug) VALUES($1,$2,$2) RETURNING id',
+        [alice.spaceId, `usage-${index}`],
+      );
+      const rootId = randomUUID();
+      const locale = await pool.query(
+        'INSERT INTO story_locales(story_id,slug,name,url_slug,root_block_id,space_locale_id) VALUES($1::uuid,$4,$5,$1::text,$2,$3) RETURNING id',
+        [
+          story.rows[0].id,
+          rootId,
+          snapshot.locale.spaceLocaleId,
+          snapshot.locale.slug,
+          snapshot.locale.name,
+        ],
+      );
+      await pool.query(
+        'INSERT INTO block_drafts(id,locale_id,schema_version_id,fields) VALUES($1,$2,$3,$4)',
+        [
+          rootId,
+          locale.rows[0].id,
+          definition,
+          JSON.stringify({ link: { type: 'asset', assetId } }),
+        ],
+      );
+    }
+    const first = await store.listAssetUsage(alice, assetId);
+    expect(first.items).toHaveLength(40);
+    expect(first.nextCursor).toBe('40');
+    const second = await store.listAssetUsage(alice, assetId, { cursor: first.nextCursor });
+    expect(second.items).toHaveLength(2);
+    expect(second.nextCursor).toBeNull();
+    expect(new Set([...first.items, ...second.items].map((item) => item.storyId)).size).toBe(42);
+    await pool.query('UPDATE stories SET deleted_at=now() WHERE id=$1', [second.items[0].storyId]);
+    expect((await store.listAssetUsage(alice, assetId, { cursor: '40' })).items).toHaveLength(1);
+    await pool.query('UPDATE assets SET archived_at=now() WHERE id=$1', [assetId]);
+    expect((await store.listAssetUsage(alice, assetId)).items).toHaveLength(40);
+    await expect(store.listAssetUsage(alice, assetId, { cursor: '-1' })).rejects.toMatchObject({
+      code: 'invalid',
+    });
+    await expect(
+      store.listAssetUsage({ ...alice, spaceId: legacySpaceId }, assetId),
+    ).rejects.toMatchObject({ code: 'not_found' });
+  });
   it('limits asset delivery to current publications in the token’s space', async () => {
     const key = await store.createDeliveryToken(alice, { name: 'Website', scope: 'published' }),
       assetId = randomUUID(),
@@ -1004,7 +1148,7 @@ describe('Postgres collaboration and immutable history', () => {
     expect(await store.getDeliverySettings(alice)).toEqual({
       previewUrls: [],
       defaultPreviewId: null,
-      previewParameter: 'blok_preview',
+      previewParameter: 'storypane_preview',
     });
     const local = { id: randomUUID(), name: 'Local', url: 'http://localhost:3131/{locale}/{slug}' };
     const staging = {
@@ -1370,7 +1514,7 @@ describe('Postgres collaboration and immutable history', () => {
       (await store.getSnapshot(alice, snapshot.story.id, snapshot.locale.id)).blocks,
     ).toHaveLength(3);
   });
-  it('restores one blok without reverting another editor’s sibling work', async () => {
+  it('restores one block without reverting another editor’s sibling work', async () => {
     const originalCheckpoint = snapshot.checkpointId!;
     const hero = blockNamed(snapshot, 'hero');
     const footer = blockNamed(snapshot, 'footer');
@@ -1883,7 +2027,7 @@ describe('Space roles and permissions', () => {
   it('preserves built-ins and only allows admins to configure roles', async () => {
     const roles = await store.listSpaceRoles(alice);
     expect(roles.map((role) => role.id).sort()).toEqual(['admin', 'editor', 'viewer']);
-    expect(roles.find((role) => role.id === 'viewer')!.permissions).toEqual([]);
+    expect(roles.find((role) => role.id === 'viewer')!.permissions).toEqual(['content:read']);
     await expect(
       store.saveSpaceRole(bob, { name: 'Escalate', permissions: ['schemas:write'] }),
     ).rejects.toMatchObject({ code: 'forbidden' });
@@ -1934,7 +2078,7 @@ describe('Space roles and permissions', () => {
     );
     const role = await store.getSpace(forged);
     expect(role.roleName).toBe('Viewer');
-    expect(role.permissions).toEqual([]);
+    expect(role.permissions).toEqual(['content:read']);
     await expect(
       store.acquireLease(forged, snapshot.story.id, snapshot.locale.id, root.id),
     ).rejects.toMatchObject({ code: 'forbidden' });
@@ -2248,6 +2392,8 @@ describe('Active editor avatars', () => {
     await store.updateSpaceMember(alice, 'bob', { role: 'viewer' });
     expect(await store.listPageEditors(alice)).toEqual({});
     await store.updateSpaceMember(alice, 'bob', { role: 'editor' });
+    expect(await store.listPageEditors(alice)).toEqual({});
+    await lease(bob, snapshot, hero);
     expect((await store.listPageEditors(alice))[snapshot.story.id]).toHaveLength(1);
     await store.removeSpaceMember(alice, 'bob');
     expect(await store.listPageEditors(alice)).toEqual({});
@@ -2702,4 +2848,249 @@ describe('shared schema migrations', () => {
       await pool.query('DROP FUNCTION fail_migration()');
     }
   });
+});
+
+describe('scoped content permissions', () => {
+  async function restrict(
+    scopes: ReturnType<typeof contentScopesSchema.parse>,
+    permissions = [
+      'content:read',
+      'content:edit',
+      'content:publish',
+      'settings:write',
+      'schemas:write',
+    ],
+  ) {
+    await store.saveSpaceRole(alice, {
+      name: 'Scoped contributor',
+      permissions,
+      contentScopes: scopes,
+    });
+    const role = (await store.listSpaceRoles(alice)).find(
+      (role) => role.name === 'Scoped contributor',
+    )!;
+    await store.updateSpaceMember(alice, bob.userId, { role: role.id });
+    return role;
+  }
+  it('redacts current and historical fields, preserves hidden values on save and rejects whole-page actions', async () => {
+    const hero = blockNamed(snapshot, 'hero');
+    const title = snapshot.definitions
+      .find((d) => d.id === hero.definitionId)!
+      .fields.find((f) => f.name === 'title')!;
+    const scopes = contentScopesSchema.parse({});
+    scopes.read.fieldIds = [title.id!];
+    scopes.edit.fieldIds = [title.id!];
+    await restrict(scopes);
+    const visible = await store.getSnapshot(bob, snapshot.story.id, snapshot.locale.id);
+    expect(blockNamed(visible, 'hero').fields).toEqual({ title: hero.fields.title });
+    expect(visible.access).toMatchObject({ complete: false, preview: false, publish: false });
+    const history = await store.getCheckpoint(
+      bob,
+      snapshot.story.id,
+      snapshot.locale.id,
+      snapshot.checkpointId!,
+    );
+    expect(JSON.stringify(history)).not.toContain('Your next story starts here.');
+    expect(history.actorId).toBe('');
+    expect(
+      (await store.listCheckpoints(bob, snapshot.story.id, snapshot.locale.id)).every(
+        (item) => item.actorId === '',
+      ),
+    ).toBe(true);
+    expect(JSON.stringify(await store.listDefinitions(bob))).not.toContain(
+      'Your next story starts here.',
+    );
+    const saved = await save(bob, visible, blockNamed(visible, 'hero'), { title: 'Allowed edit' });
+    expect(blockNamed(saved.snapshot, 'hero').fields).toEqual({ title: 'Allowed edit' });
+    const full = await store.getSnapshot(alice, snapshot.story.id, snapshot.locale.id);
+    expect(blockNamed(full, 'hero').fields.description).toBe(hero.fields.description);
+    await expect(
+      save(bob, saved.snapshot, blockNamed(saved.snapshot, 'hero'), {
+        title: 'Allowed edit',
+        description: 'Forbidden edit',
+      }),
+    ).rejects.toMatchObject({ code: 'forbidden' });
+    await expect(
+      run(bob, saved.snapshot, {
+        ...commandBase(),
+        type: 'publishCheckpoint',
+        payload: { checkpointId: saved.checkpointId },
+      }),
+    ).rejects.toMatchObject({ code: 'forbidden' });
+    await expect(
+      store.createEditorPreview(bob, snapshot.story.id, snapshot.locale.id),
+    ).rejects.toMatchObject({ code: 'forbidden' });
+    await expect(
+      store.createDeliveryToken(bob, { name: 'Escalation', scope: 'preview' }),
+    ).rejects.toMatchObject({ code: 'forbidden' });
+    await expect(store.listMigrations(bob)).rejects.toMatchObject({ code: 'forbidden' });
+    expect(() => createBlockClipboard(visible, bob.spaceId, hero.id)).toThrow('every field');
+  });
+  it('filters story lists and direct access, and prevents moving a story outside the edit scope', async () => {
+    const folder = await store.saveFolder(alice, { name: 'Allowed', slug: 'allowed' });
+    const other = await store.saveFolder(alice, { name: 'Private', slug: 'private' });
+    await store.updateStoryLocation(alice, snapshot.story.id, {
+      folderId: folder.id,
+      slug: 'home',
+    });
+    const scopes = contentScopesSchema.parse({});
+    scopes.read.locations = { folderIds: [folder.id], storyIds: [] };
+    scopes.edit.locations = { folderIds: [folder.id], storyIds: [] };
+    await restrict(scopes);
+    expect((await store.listStories(bob)).map((story) => story.id)).toContain(snapshot.story.id);
+    expect((await store.listFolders(bob)).map((item) => item.id)).not.toContain(other.id);
+    await expect(
+      store.updateStoryLocation(bob, snapshot.story.id, { folderId: other.id, slug: 'home' }),
+    ).rejects.toMatchObject({ code: 'forbidden' });
+    await store.updateStoryLocation(alice, snapshot.story.id, { folderId: other.id, slug: 'home' });
+    expect(await store.listStories(bob)).toEqual([]);
+    await expect(
+      store.getSnapshot(bob, snapshot.story.id, snapshot.locale.id),
+    ).rejects.toMatchObject({ code: 'not_found' });
+    expect(
+      (await store.listSpaces(bob)).find((space) => space.id === bob.spaceId)?.storyCount,
+    ).toBe(0);
+  });
+  it('combines locale and location scopes and preserves hidden references during permitted saves', async () => {
+    const french = await store.createSpaceLocale(alice, { name: 'French', slug: 'fr' });
+    const translated = await store.createLocale(alice, snapshot.story.id, {
+      spaceLocaleId: french.id,
+    });
+    const scopes = contentScopesSchema.parse({});
+    scopes.read.localeIds = [french.id];
+    scopes.edit.localeIds = [french.id];
+    const role = await restrict(scopes);
+    expect((await store.listLocales(bob, snapshot.story.id)).map((locale) => locale.id)).toEqual([
+      translated.locale.id,
+    ]);
+    await expect(
+      store.getSnapshot(bob, snapshot.story.id, snapshot.locale.id),
+    ).rejects.toMatchObject({ code: 'not_found' });
+    const fullScopes = contentScopesSchema.parse({});
+    fullScopes.read.locations = { folderIds: [], storyIds: [snapshot.story.id] };
+    await store.saveSpaceRole(
+      alice,
+      { name: role.name, permissions: role.permissions, contentScopes: fullScopes },
+      role.id,
+    );
+    const target = await store.createStory(alice, {
+      name: 'Private target',
+      slug: 'private-target',
+      definitionId: snapshot.blocks.find((block) => block.id === snapshot.locale.rootBlockId)!
+        .definitionId,
+    });
+    const footer = blockNamed(snapshot, 'footer');
+    const saved = await save(alice, snapshot, footer, {
+      ...footer.fields,
+      link: { type: 'story', storyId: target.story.id },
+    });
+    await store.releaseLease(
+      alice,
+      snapshot.story.id,
+      snapshot.locale.id,
+      footer.id,
+      (await lease(alice, saved.snapshot, blockNamed(saved.snapshot, 'footer'))).token!,
+    );
+    const visible = await store.getSnapshot(bob, snapshot.story.id, snapshot.locale.id);
+    expect(blockNamed(visible, 'footer').fields.link).toBeUndefined();
+    expect(visible.access?.preview).toBe(false);
+    expect(
+      (await store.resolveOptions(bob, { source: { type: 'stories' }, values: [target.story.id] }))
+        .items,
+    ).toEqual([]);
+    const result = await save(bob, visible, blockNamed(visible, 'footer'), { text: 'New footer' });
+    expect(blockNamed(result.snapshot, 'footer').fields).toEqual({ text: 'New footer' });
+    expect(
+      blockNamed(await store.getSnapshot(alice, snapshot.story.id, snapshot.locale.id), 'footer')
+        .fields.link,
+    ).toEqual({ type: 'story', storyId: target.story.id });
+    await expect(
+      store.createEditorPreview(bob, snapshot.story.id, snapshot.locale.id),
+    ).rejects.toMatchObject({ code: 'forbidden' });
+  });
+  it('denies empty read grants, rejects foreign targets and rechecks leases after a role change', async () => {
+    const hero = blockNamed(snapshot, 'hero');
+    const held = await lease(bob, snapshot, hero);
+    const scopes = contentScopesSchema.parse({});
+    scopes.read.fieldIds = [];
+    const role = await restrict(scopes);
+    expect(await store.listStories(bob)).toEqual([]);
+    expect(await store.listDefinitions(bob)).toEqual([]);
+    await expect(
+      store.renewLease(bob, snapshot.story.id, snapshot.locale.id, hero.id, held.token!),
+    ).rejects.toMatchObject({ code: 'not_found' });
+    await expect(
+      store.saveSpaceRole(alice, {
+        name: 'Invalid scope',
+        permissions: ['content:read'],
+        contentScopes: { ...scopes, read: { ...scopes.read, fieldIds: [randomUUID()] } },
+      }),
+    ).rejects.toMatchObject({ code: 'invalid' });
+    await store.saveSpaceRole(
+      alice,
+      {
+        name: role.name,
+        permissions: ['content:read'],
+        contentScopes: contentScopesSchema.parse({}),
+      },
+      role.id,
+    );
+    expect(
+      (await store.getSnapshot(bob, snapshot.story.id, snapshot.locale.id)).access?.complete,
+    ).toBe(true);
+    await expect(save(bob, snapshot, hero, hero.fields)).rejects.toMatchObject({
+      code: 'forbidden',
+    });
+  });
+});
+
+it('backfills legacy custom roles without adding edit or publish authority', async () => {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const isolated = `role_upgrade_${randomUUID().replaceAll('-', '')}`;
+    await client.query(`CREATE SCHEMA ${isolated}`);
+    await client.query(`SET LOCAL search_path TO ${isolated},public`);
+    await client.query('CREATE TABLE spaces(id uuid PRIMARY KEY)');
+    await client.query(
+      "CREATE TABLE memberships(space_id uuid,role text CONSTRAINT memberships_role_check CHECK(role IN ('admin','editor','viewer')))",
+    );
+    await client.query(
+      "CREATE TABLE space_invitations(space_id uuid,role text CONSTRAINT space_invitations_role_check CHECK(role IN ('admin','editor','viewer')))",
+    );
+    await client.query(
+      await readFile(new URL('../migrations/008_space_roles.sql', import.meta.url), 'utf8'),
+    );
+    const spaceId = randomUUID();
+    await client.query('INSERT INTO spaces(id) VALUES($1)', [spaceId]);
+    await client.query(
+      "INSERT INTO space_roles(space_id,id,name,permissions) VALUES($1,'custom-reader','Reader','{}'),($1,'custom-copy','Copy editor',ARRAY['content:edit','datasources:write']),($1,'custom-publisher','Publisher',ARRAY['content:publish'])",
+      [spaceId],
+    );
+    const before = (await client.query('SELECT id,permissions FROM space_roles')).rows;
+    await client.query(
+      await readFile(new URL('../migrations/019_content_scopes.sql', import.meta.url), 'utf8'),
+    );
+    for (const role of (await client.query('SELECT id,permissions,content_scopes FROM space_roles'))
+      .rows) {
+      expect(role.permissions).toEqual([
+        'content:read',
+        ...before.find((previous) => previous.id === role.id)!.permissions,
+      ]);
+      expect(role.content_scopes).toEqual(contentScopesSchema.parse({}));
+    }
+    const created = randomUUID();
+    await client.query('INSERT INTO spaces(id) VALUES($1)', [created]);
+    expect(
+      (
+        await client.query(
+          "SELECT permissions FROM space_roles WHERE space_id=$1 AND id='viewer'",
+          [created],
+        )
+      ).rows[0].permissions,
+    ).toEqual(['content:read']);
+  } finally {
+    await client.query('ROLLBACK');
+    client.release();
+  }
 });

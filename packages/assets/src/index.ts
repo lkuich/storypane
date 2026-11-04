@@ -1,14 +1,17 @@
 import type { PoolClient } from 'pg';
+import { isPublishedAsset, recordWebhookEvent } from '@storypane/db';
 import {
   AssetError,
   assert,
   metadata,
+  focalPoint,
   PART_BYTES,
   signatureMatches,
   text,
   uploadInput,
 } from './validation';
 import type { AssetContext, AssetPart, AssetRecord } from './types';
+import { imageOptions } from './image-options';
 export type {
   AssetBucket,
   AssetContext,
@@ -34,6 +37,9 @@ interface AssetRow {
   archived_at: Date | null;
   created_at: Date;
   object_key: string;
+  focal_x: number | null;
+  focal_y: number | null;
+  metadata_revision: number;
 }
 interface UploadRow {
   id: string;
@@ -65,6 +71,8 @@ function asset(row: AssetRow): AssetRecord {
     folderIds: row.folder_ids ?? [],
     archivedAt: row.archived_at?.toISOString() ?? null,
     createdAt: row.created_at.toISOString(),
+    focalPoint: row.focal_x == null ? null : { x: row.focal_x, y: row.focal_y! },
+    metadataRevision: row.metadata_revision,
   };
 }
 
@@ -105,12 +113,17 @@ async function folder(context: AssetContext, id: unknown) {
   return result.rows[0] as { id: string; parent_id: string | null };
 }
 
-async function getAsset(context: AssetContext, id: string, db = context.db) {
+async function getAsset(
+  context: AssetContext,
+  id: string,
+  db: AssetContext['db'] | PoolClient = context.db,
+  lock = false,
+) {
   assert(uuid(id), 'Invalid asset ID');
-  const result = await db.query<AssetRow>('SELECT * FROM assets WHERE id=$1 AND space_id=$2', [
-    id,
-    context.actor.spaceId,
-  ]);
+  const result = await db.query<AssetRow>(
+    `SELECT * FROM assets WHERE id=$1 AND space_id=$2${lock ? ' FOR UPDATE' : ''}`,
+    [id, context.actor.spaceId],
+  );
   if (!result.rows[0]) throw new AssetError(404, 'not_found', 'Asset not found');
   return result.rows[0];
 }
@@ -319,10 +332,10 @@ async function listAssets(request: Request, context: AssetContext) {
   if (folderId && folderId !== 'root') await folder(context, folderId);
   const result = await context.db.query<AssetRow>(
     `SELECT a.*,ARRAY(SELECT p.folder_id FROM asset_folder_placements p WHERE p.asset_id=a.id) folder_ids FROM assets a
-    WHERE a.space_id=$1 AND a.archived_at IS NULL AND ($2='' OR a.title ILIKE '%'||$2||'%' OR a.filename ILIKE '%'||$2||'%' OR a.tags::text ILIKE '%'||$2||'%')
+    WHERE a.space_id=$1 AND (a.archived_at IS NOT NULL)=$6 AND ($2='' OR a.title ILIKE '%'||$2||'%' OR a.filename ILIKE '%'||$2||'%' OR a.tags::text ILIKE '%'||$2||'%')
     AND ($3::text IS NULL OR ($3='root' AND NOT EXISTS(SELECT 1 FROM asset_folder_placements p WHERE p.asset_id=a.id)) OR EXISTS(SELECT 1 FROM asset_folder_placements p WHERE p.asset_id=a.id AND p.folder_id::text=$3))
     ORDER BY a.created_at DESC,a.id LIMIT $4 OFFSET $5`,
-    [context.actor.spaceId, search, folderId, limit + 1, offset],
+    [context.actor.spaceId, search, folderId, limit + 1, offset, params.get('archived') === 'true'],
   );
   return json({
     items: result.rows.slice(0, limit).map(asset),
@@ -330,8 +343,12 @@ async function listAssets(request: Request, context: AssetContext) {
   });
 }
 
-async function serveAsset(request: Request, context: AssetContext, id: string) {
-  const row = await getAsset(context, id);
+async function serveAsset(
+  request: Request,
+  context: Pick<AssetContext, 'bucket'>,
+  row: AssetRow,
+  cacheControl = 'private, max-age=300',
+) {
   const total = Number(row.byte_size),
     requested = request.headers.get('range');
   let range: { offset: number; length: number } | undefined;
@@ -357,10 +374,14 @@ async function serveAsset(request: Request, context: AssetContext, id: string) {
     ETag: object.httpEtag,
     'Accept-Ranges': 'bytes',
     'X-Content-Type-Options': 'nosniff',
-    'Cache-Control': 'private, max-age=300',
+    'Cache-Control': cacheControl,
     'Content-Security-Policy': "default-src 'none'; sandbox",
     'Content-Disposition': `${inline ? 'inline' : 'attachment'}; filename*=UTF-8''${encodeURIComponent(row.filename)}`,
   });
+  if (!range && matchesEtag(request, object.httpEtag)) {
+    await object.body.cancel();
+    return new Response(null, { status: 304, headers });
+  }
   let status = 200;
   if (range) {
     const start = range.offset;
@@ -405,6 +426,139 @@ async function serveThumbnail(request: Request, context: AssetContext, id: strin
   headers.set('Content-Disposition', 'inline');
   if (request.method === 'HEAD') await response.body?.cancel();
   return new Response(request.method === 'HEAD' ? null : response.body, { headers });
+}
+
+function matchesEtag(request: Request, etag: string) {
+  return (
+    request.headers
+      .get('if-none-match')
+      ?.split(',')
+      .some(
+        (value) =>
+          value.trim() === '*' || value.trim().replace(/^W\//, '') === etag.replace(/^W\//, ''),
+      ) ?? false
+  );
+}
+
+export async function handlePublicMedia(
+  request: Request,
+  params: { spaceId: string; assetId: string; kind: string },
+  context: Pick<AssetContext, 'db' | 'bucket' | 'images' | 'cache'>,
+): Promise<Response> {
+  try {
+    // Postgres UUID identity is case-insensitive; cache identity must be canonical too.
+    const spaceId = params.spaceId.toLowerCase(),
+      assetId = params.assetId.toLowerCase(),
+      kind = params.kind;
+    if (
+      !uuid(spaceId) ||
+      !uuid(assetId) ||
+      !['original', 'image'].includes(kind) ||
+      !['GET', 'HEAD'].includes(request.method)
+    )
+      throw new AssetError(404, 'not_found', 'Media not found');
+    // Eligibility is checked before any edge hit, including conditional responses.
+    if (!(await isPublishedAsset(context.db, spaceId, assetId, true)))
+      throw new AssetError(404, 'not_found', 'Media not found');
+    const row = (
+      await context.db.query<AssetRow>('SELECT * FROM assets WHERE id=$1 AND space_id=$2', [
+        assetId,
+        spaceId,
+      ])
+    ).rows[0];
+    if (!row) throw new AssetError(404, 'not_found', 'Media not found');
+    const url = new URL(request.url);
+    if (kind === 'original') {
+      assert(!url.search, 'Original media does not accept image parameters');
+      const response = await serveAsset(request, context, row, 'no-store');
+      response.headers.set('Cache-Control', 'no-store');
+      return response;
+    }
+    const options = imageOptions(url.searchParams);
+    if (!row.mime_type.startsWith('image/'))
+      throw new AssetError(415, 'invalid', 'Image transformations require an image');
+    if (Number(row.byte_size) > 20 * 1024 * 1024)
+      throw new AssetError(413, 'invalid', 'Image exceeds the 20 MiB transformation limit');
+    if (!context.images)
+      throw new AssetError(503, 'unavailable', 'Image processing is unavailable');
+    const head = await context.bucket.head(row.object_key);
+    if (!head) throw new AssetError(404, 'not_found', 'Media file unavailable');
+    const identity = JSON.stringify([
+      'v1',
+      spaceId,
+      assetId,
+      head.httpEtag,
+      row.metadata_revision,
+      options,
+    ]);
+    const hash = [
+      ...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(identity))),
+    ]
+      .map((value) => value.toString(16).padStart(2, '0'))
+      .join('');
+    const etag = `"${hash}"`;
+    const headers = new Headers({
+      'Cache-Control': 'no-store',
+      'Content-Type': options.format,
+      ETag: etag,
+      'Content-Disposition': 'inline',
+      'X-Content-Type-Options': 'nosniff',
+      'Content-Security-Policy': "default-src 'none'; sandbox",
+    });
+    if (matchesEtag(request, etag)) return new Response(null, { status: 304, headers });
+    const key = new Request(`${url.origin}/_media-variants/v1/${spaceId}/${assetId}/${hash}`);
+    let response = await context.cache?.match(key);
+    if (!response) {
+      const original = await context.bucket.get(row.object_key);
+      if (!original) throw new AssetError(404, 'not_found', 'Media file unavailable');
+      try {
+        const output = await context.images
+          .input(original.body)
+          .transform({
+            width: options.width,
+            height: options.height,
+            fit: options.fit,
+            ...(options.fit === 'cover'
+              ? {
+                  gravity: {
+                    x: row.focal_x ?? 0.5,
+                    y: row.focal_y ?? 0.5,
+                    mode: 'remainder' as const,
+                  },
+                }
+              : {}),
+          })
+          .output({ format: options.format, quality: options.quality, anim: false });
+        response = output.response();
+      } catch {
+        throw new AssetError(
+          422,
+          'invalid',
+          'This image cannot be transformed; the original remains available',
+        );
+      }
+      if (!response.ok) throw new AssetError(503, 'unavailable', 'Image processing failed');
+      response.headers.set('Cache-Control', 'public, max-age=31536000, immutable');
+      await context.cache?.put(key, response.clone());
+    }
+    const length = response.headers.get('Content-Length');
+    if (length) headers.set('Content-Length', length);
+    if (request.method === 'HEAD') await response.body?.cancel();
+    return new Response(request.method === 'HEAD' ? null : response.body, { headers });
+  } catch (error) {
+    if (!(error instanceof AssetError))
+      console.error('Public media unavailable', {
+        error: error instanceof Error ? error.message : 'unknown',
+      });
+    const response =
+      error instanceof AssetError
+        ? json({ error: { code: error.code, message: error.message } }, error.status)
+        : json(
+            { error: { code: 'unavailable', message: 'Media is temporarily unavailable' } },
+            503,
+          );
+    return request.method === 'HEAD' ? new Response(null, response) : response;
+  }
 }
 
 async function folders(request: Request, segments: string[], context: AssetContext) {
@@ -494,7 +648,7 @@ export async function handleAssets(
     }
     if (!id && request.method === 'GET') return await listAssets(request, context);
     if (id && action === 'content' && ['GET', 'HEAD'].includes(request.method))
-      return await serveAsset(request, context, id);
+      return await serveAsset(request, context, await getAsset(context, id));
     if (id && action === 'thumbnail' && ['GET', 'HEAD'].includes(request.method))
       return await serveThumbnail(request, context, id);
     if (id && id !== 'uploads') {
@@ -502,12 +656,64 @@ export async function handleAssets(
       if (!action && request.method === 'GET') return json({ asset: asset(row) });
       if (!action && request.method === 'PATCH') {
         const input = await body(request);
-        const meta = metadata({ ...row, ...input });
-        const result = await context.db.query<AssetRow>(
-          'UPDATE assets SET title=$1,alt=$2,notes=$3,tags=$4,updated_at=now() WHERE id=$5 AND space_id=$6 RETURNING *',
-          [meta.title, meta.alt, meta.notes, JSON.stringify(meta.tags), id, context.actor.spaceId],
-        );
-        return json({ asset: asset(result.rows[0]!) });
+        const client = await context.db.connect();
+        try {
+          await client.query('BEGIN');
+          const current = await getAsset(context, id, client, true);
+          if (
+            input.metadataRevision !== undefined &&
+            input.metadataRevision !== current.metadata_revision
+          )
+            throw new AssetError(
+              409,
+              'stale_revision',
+              'Asset details changed. Reopen the asset before saving.',
+            );
+          const meta = metadata({ ...current, ...input });
+          const point =
+            input.focalPoint === undefined
+              ? current.focal_x === null
+                ? null
+                : { x: current.focal_x, y: current.focal_y! }
+              : focalPoint(input.focalPoint);
+          assert(
+            !point || current.mime_type.startsWith('image/'),
+            'Only images support a focal point',
+          );
+          const result = await client.query<AssetRow>(
+            `UPDATE assets SET title=$1,alt=$2,notes=$3,tags=$4,focal_x=$7,focal_y=$8,
+              metadata_revision=metadata_revision+1,updated_at=now()
+             WHERE id=$5 AND space_id=$6 AND
+               (title,alt,notes,tags,focal_x,focal_y) IS DISTINCT FROM ($1,$2,$3,$4::jsonb,$7::float8,$8::float8)
+             RETURNING *`,
+            [
+              meta.title,
+              meta.alt,
+              meta.notes,
+              JSON.stringify(meta.tags),
+              id,
+              context.actor.spaceId,
+              point?.x ?? null,
+              point?.y ?? null,
+            ],
+          );
+          const updated = result.rows[0] ?? current;
+          if (result.rowCount)
+            await recordWebhookEvent(client, {
+              spaceId: context.actor.spaceId,
+              actorId: context.actor.userId,
+              type: 'asset.updated',
+              key: `asset.updated:${id}:${updated.metadata_revision}`,
+              data: { assetId: id, metadataRevision: updated.metadata_revision },
+            });
+          await client.query('COMMIT');
+          return json({ asset: asset(updated) });
+        } catch (error) {
+          await client.query('ROLLBACK');
+          throw error;
+        } finally {
+          client.release();
+        }
       }
       if (!action && request.method === 'DELETE') {
         await context.db.query(

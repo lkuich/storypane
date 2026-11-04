@@ -153,9 +153,9 @@ describe('realtime recovery and authorization', () => {
       new Request('http://room/notify', {
         method: 'POST',
         headers: {
-          'x-blok-actor': JSON.stringify(actor),
-          'x-blok-story-id': 'story',
-          'x-blok-locale-id': 'locale',
+          'x-storypane-actor': JSON.stringify(actor),
+          'x-storypane-story-id': 'story',
+          'x-storypane-locale-id': 'locale',
           'content-type': 'application/json',
         },
         body: JSON.stringify(result),
@@ -169,15 +169,17 @@ describe('realtime recovery and authorization', () => {
     });
   });
   it('rechecks subscribers before broadcasting content after permissions are revoked', async () => {
-    mocks.assertActor.mockRejectedValue(new StorypaneError('forbidden', 'Removed from space'));
+    mocks.snapshot
+      .mockResolvedValueOnce(snapshot)
+      .mockRejectedValueOnce(new StorypaneError('forbidden', 'Removed from space'));
     const { socket, room } = fixture();
     await room.fetch(
       new Request('http://room/notify', {
         method: 'POST',
         headers: {
-          'x-blok-actor': JSON.stringify(actor),
-          'x-blok-story-id': 'story',
-          'x-blok-locale-id': 'locale',
+          'x-storypane-actor': JSON.stringify(actor),
+          'x-storypane-story-id': 'story',
+          'x-storypane-locale-id': 'locale',
         },
         body: JSON.stringify({ type: 'leases' }),
       }),
@@ -188,4 +190,89 @@ describe('realtime recovery and authorization', () => {
     });
     expect(socket.close).toHaveBeenCalledWith(1008, 'Authentication expired');
   });
+});
+
+it('projects each committed broadcast for its recipient and invalidates without a creator session', async () => {
+  const sockets = ['alice', 'bob'].map((userId) => ({
+    send: vi.fn(),
+    close: vi.fn(),
+    deserializeAttachment: () => ({ ...connection, actor: { ...actor, userId } }),
+  }));
+  mocks.snapshot.mockImplementation(async (recipient: Actor) => ({
+    ...snapshot,
+    blocks: [
+      {
+        id: 'hero',
+        fields: { title: recipient.userId === 'alice' ? 'Private value' : 'Visible value' },
+      },
+    ],
+  }));
+  const room = new StoryRoom({ getWebSockets: () => sockets } as never, {
+    HYPERDRIVE: { connectionString: 'unused' },
+  });
+  const response = await room.fetch(
+    new Request('http://room/invalidate', {
+      method: 'POST',
+      headers: {
+        'x-storypane-space-id': 'space',
+        'x-storypane-story-id': 'story',
+        'x-storypane-locale-id': 'locale',
+      },
+    }),
+  );
+  expect(response.status).toBe(200);
+  expect(sockets[0].send.mock.calls[0][0]).toContain('Private value');
+  expect(sockets[1].send.mock.calls[0][0]).not.toContain('Private value');
+  expect(sockets[1].send.mock.calls[0][0]).toContain('Visible value');
+  expect(sockets[1].send.mock.calls[0][0]).not.toContain('secret-lease');
+});
+it('refreshes field permissions on a heartbeat even without a new revision', async () => {
+  const { room, socket } = fixture();
+  await room.webSocketMessage(socket as never, JSON.stringify({ type: 'heartbeat', revision: 7 }));
+  expect(JSON.parse(socket.send.mock.calls[0][0]).type).toBe('snapshot');
+});
+
+it('never forwards changed IDs or field values from another subscriber’s full snapshot', async () => {
+  const recipient = { ...actor, userId: 'bob' };
+  const restricted = {
+    ...snapshot,
+    blocks: [{ id: 'visible', fields: { title: 'Visible' } }],
+    access: { blocks: { visible: { read: true } } },
+  };
+  mocks.snapshot.mockImplementation(async (current: Actor) =>
+    current.userId === 'bob' ? restricted : snapshot,
+  );
+  const socket = {
+    send: vi.fn(),
+    close: vi.fn(),
+    deserializeAttachment: () => ({ ...connection, actor: recipient }),
+  };
+  const room = new StoryRoom({ getWebSockets: () => [socket] } as never, {
+    HYPERDRIVE: { connectionString: 'unused' },
+  });
+  const response = await room.fetch(
+    new Request('http://room/notify', {
+      method: 'POST',
+      headers: {
+        'x-storypane-actor': JSON.stringify(actor),
+        'x-storypane-story-id': 'story',
+        'x-storypane-locale-id': 'locale',
+      },
+      body: JSON.stringify({
+        mutationId: 'mutation',
+        localeRevision: 7,
+        checkpointId: 'checkpoint',
+        changedBlockIds: ['visible', 'private', 'deleted-private'],
+        snapshot: {
+          ...snapshot,
+          blocks: [{ id: 'private', fields: { title: 'Private content' } }],
+        },
+      }),
+    }),
+  );
+  expect(response.status).toBe(200);
+  const message = JSON.parse(socket.send.mock.calls[0][0]);
+  expect(message.changedBlockIds).toEqual(['visible']);
+  expect(JSON.stringify(message)).not.toContain('Private content');
+  expect(JSON.stringify(message)).not.toContain('deleted-private');
 });

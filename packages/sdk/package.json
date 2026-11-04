@@ -9,8 +9,7 @@
     "README.md"
   ],
   "bin": {
-    "storypane": "./bin/storypane.mjs",
-    "blok": "./bin/storypane.mjs"
+    "storypane": "./bin/storypane.mjs"
   },
   "sideEffects": false,
   "exports": {

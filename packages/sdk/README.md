@@ -2,11 +2,6 @@
 
 Use `createStorypaneClient` for publications and `useStorypanePreview` for a
 separate preview route. `useStorypaneStory` adds preview to an existing publication.
-The previous `createBlokClient`, `useBlokStory`, and `Blok*` type exports remain
-aliases within this package. The `blok` CLI alias and legacy `BLOK_*` environment
-variables also continue to work; `STORYPANE_*` settings take precedence.
-Preview messages, editable attributes, and the default `blok_preview` parameter
-retain their existing identifiers so previously built preview apps still connect.
 
 TypeScript SDK for published content and live, read-only draft preview. Works with
 Node, Workers, browsers, Next.js client components, and Astro islands/scripts.
@@ -32,7 +27,7 @@ Default locale contributes an empty path segment; the editor removes doubled
 slashes. `{slug}` is the selected locale's URL slug. Query placeholders also work:
 `https://site.example/preview?slug={slug}&locale={locale}`.
 
-The default preview parameter is `blok_preview=1`. You can change its name in
+The default preview parameter is `storypane_preview=1`. You can change its name in
 settings; use the same name in your SDK options. Your app must permit the CMS
 origin in its CSP `frame-ancestors` policy and must not send a conflicting
 `X-Frame-Options` header. An HTTPS CMS requires an HTTPS app; localhost HTTP is
@@ -221,7 +216,7 @@ const stop = connectPreview({
   spaceId: 'your-space-id',
   migrationVersion: storypaneMigrationVersion,
   story: { slug: 'home', locale: '' },
-  mode: { query: { name: 'blok_preview', value: '1' } },
+  mode: { query: { name: 'storypane_preview', value: '1' } },
   onChange: (story) => renderWithYourClientComponents(story.content),
 });
 // Call stop() when the page/island unmounts, including Astro client navigation.
@@ -292,8 +287,8 @@ revisions are ignored. Errors are exposed through `onStatus` / the React hook.
 ## Current limits
 
 - Live changes arrive after autosave commits (not on each uncommitted keystroke).
-- Media and link fields retain their structured references; a public media
-  delivery adapter is not part of this SDK version.
+- Media and link fields retain their structured references. Use `publicAssetUrl`
+  for opted-in public media or `client.getAsset` for server-side static export.
 - Component rendering, authentication for standalone preview, application CSP,
   published-site rebuild/revalidation, and unpublished route handling belong to
   the consuming app. The Astro example is built and tested through its real React
@@ -395,6 +390,57 @@ only serves assets referenced by a current publication in that token's space;
 draft-only and historical references do not grant access. Keep the token on the
 server. Static copies must be rebuilt or removed when their publications change.
 
+### Public media URLs
+
+An administrator can enable **API & preview → Public media delivery** for a space.
+It is disabled by default. Only assets referenced by an active current publication
+become public; draft-only and historical references do not qualify. Archiving an
+asset preserves its live references and original bytes.
+
+`publicAssetUrl` is browser-safe and does not construct a client, make a request,
+or accept a delivery token. For example, in a React renderer:
+
+```tsx
+import { publicAssetUrl, type PublicImageOptions } from '@storypane/sdk';
+
+const source = { url: 'https://cms.example.com', spaceId, assetId: hero.image.assetId };
+const image = (width: PublicImageOptions['width']) =>
+  publicAssetUrl(source, { width, aspect: '16:9' });
+
+<img
+  src={image(640)}
+  srcSet={`${image(320)} 320w, ${image(640)} 640w, ${image(1280)} 1280w`}
+  sizes="(max-width: 640px) 100vw, 50vw"
+  width={1280}
+  height={720}
+  alt={hero.image.alt ?? ''}
+/>;
+
+const originalDownload = publicAssetUrl(source);
+```
+
+Widths are limited to 160, 320, 640, 1280, 1920 and 2560. Optional aspect ratios are
+`original`, `1:1`, `4:3`, `3:4`, `16:9` and `9:16`. Explicit ratios support `cover`
+(default) or `contain`; original aspect uses scale-down. Output formats are `webp`
+(default), `jpeg` and `png`. Lossy output accepts quality 60, 80 (default) or 90;
+PNG rejects a quality option. The helper normalizes defaults and rejects unsupported
+options. Originals support HEAD, ETags, and a single byte range. Variants support
+HEAD and ETags; they do not expose partial image ranges.
+
+Cover crops use the asset's saved focal point, defaulting to center. Saving focal
+metadata changes every public crop of that asset immediately; it does not wait for
+story publication. The `asset.updated` webhook includes the metadata revision so
+static exporters can rebuild. Transformed animations use a still frame; originals
+preserve animation. Images larger than 20 MiB, unsupported inputs, or unavailable
+image processing return an error rather than substituting the original.
+
+Public responses use `Cache-Control: no-store`. The Worker caches transformed bytes
+internally, checks live eligibility before serving each request, and changes variant
+identity after a metadata revision. Disabling the setting or removing the last live
+reference returns 404 on the next request, including cached and conditional requests.
+Previously downloaded files and static copies cannot be recalled. Keep the existing
+authenticated `getAsset` integration for static export when public media is disabled.
+
 The original commands still work with `STORYPANE_PREVIEW_TOKEN`:
 
 ```sh
@@ -406,4 +452,3 @@ The schema endpoint returns only the latest deployed metadata, without content,
 defaults, or source URLs. A published-only token cannot read schemas. Codegen is
 offline and writes atomically; invalid input preserves the previous output.
 Both workflows require the initial schema migration to be deployed first.
-The `blok` executable and legacy `BLOK_*` environment names remain supported.

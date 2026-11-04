@@ -1,5 +1,4 @@
 import type { StorypaneSchema, StorypaneSchemaField } from './types.js';
-export { parseStorypaneSchema as parseBlokSchema };
 
 const kinds = ['nestable', 'content-type', 'universal'];
 const fieldTypes = [

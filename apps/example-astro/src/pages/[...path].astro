@@ -20,11 +20,7 @@ const { story, references } = Astro.props;
     references={references}
     cmsUrl={cmsUrl}
     spaceId={spaceId}
-    previewParameter={
-      (import.meta.env.PUBLIC_STORYPANE_PREVIEW_PARAMETER ??
-        import.meta.env.PUBLIC_BLOK_PREVIEW_PARAMETER) ||
-      'blok_preview'
-    }
-    previewEnabled={import.meta.env.PUBLIC_STORYPANE_PREVIEW ?? import.meta.env.PUBLIC_BLOK_PREVIEW}
+    previewParameter={import.meta.env.PUBLIC_STORYPANE_PREVIEW_PARAMETER || 'storypane_preview'}
+    previewEnabled={import.meta.env.PUBLIC_STORYPANE_PREVIEW}
   />
 </Layout>

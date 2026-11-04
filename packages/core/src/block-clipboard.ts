@@ -21,6 +21,11 @@ export function createBlockClipboard(
       throw new StorypaneError('invalid', 'This block is too large or too deeply nested to copy');
     const block = snapshot.blocks.find((item) => item.id === id);
     if (!block) throw new StorypaneError('not_found', 'The block to copy no longer exists');
+    if (snapshot.access?.blocks[id]?.complete === false)
+      throw new StorypaneError(
+        'forbidden',
+        'Copying a block requires access to every field in its subtree',
+      );
     seen.add(id);
     const index = blocks.length;
     blocks.push({

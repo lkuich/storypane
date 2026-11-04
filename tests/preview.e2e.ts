@@ -18,7 +18,10 @@ test('a static app receives live drafts, selects blocks in the editor, and leave
   context,
 }) => {
   test.setTimeout(90000);
-  const db = new Pool({ connectionString: 'postgresql://blok:blok@127.0.0.1:55432/blok' });
+  const db = new Pool({
+    connectionString:
+      process.env.DATABASE_URL ?? 'postgresql://storypane:storypane@127.0.0.1:55432/storypane',
+  });
   let spaceId: string | undefined;
   const servers: Server[] = [];
   try {
@@ -37,7 +40,7 @@ test('a static app receives live drafts, selects blocks in the editor, and leave
       role: 'admin',
     };
     await new StorypaneStore(db).seed(actor);
-    const headers = { Origin: cmsUrl, 'x-blok-space-id': spaceId! };
+    const headers = { Origin: cmsUrl, 'x-storypane-space-id': spaceId! };
     const [story] = (await (
       await page.request.get('/api/cms/stories', { headers })
     ).json()) as Story[];
@@ -127,7 +130,7 @@ test('a static app receives live drafts, selects blocks in the editor, and leave
     const html = (await readFile(new URL('./fixtures/preview-app.html', import.meta.url), 'utf8'))
       .replace(
         '__HTML__',
-        `<section data-blok-id="${hero.id}" tabindex="0"><h1>${escapeHTML(String(hero.fields.title))}</h1></section><section data-blok-id="${footer.id}" tabindex="0">${escapeHTML(String(footer.fields.text))}</section>`,
+        `<section data-storypane-id="${hero.id}" tabindex="0"><h1>${escapeHTML(String(hero.fields.title))}</h1></section><section data-storypane-id="${footer.id}" tabindex="0">${escapeHTML(String(footer.fields.text))}</section>`,
       )
       .replace(
         '__INITIAL__',
@@ -199,8 +202,8 @@ test('a static app receives live drafts, selects blocks in the editor, and leave
     await expect(frame.getByRole('heading', { level: 1 })).toHaveText(
       'Updated live without rebuilding',
     );
-    await expect(frame.locator(`[data-blok-id="${hero.id}"]`)).toHaveAttribute(
-      'data-blok-selected',
+    await expect(frame.locator(`[data-storypane-id="${hero.id}"]`)).toHaveAttribute(
+      'data-storypane-selected',
       '',
     );
     await switcher.selectOption({ label: 'Staging' });
@@ -212,8 +215,8 @@ test('a static app receives live drafts, selects blocks in the editor, and leave
     await expect(frame.getByRole('heading', { level: 1 })).toHaveText(
       'Updated live without rebuilding',
     );
-    await expect(frame.locator(`[data-blok-id="${hero.id}"]`)).toHaveAttribute(
-      'data-blok-selected',
+    await expect(frame.locator(`[data-storypane-id="${hero.id}"]`)).toHaveAttribute(
+      'data-storypane-selected',
       '',
     );
     await page.getByRole('button', { name: 'Reload preview', exact: true }).click();
@@ -249,7 +252,7 @@ test('a static app receives live drafts, selects blocks in the editor, and leave
       .getByRole('region', { name: 'Application preview' })
       .screenshot({ path: '/tmp/storypane-preview-url-switcher-mobile.png' });
     await page.setViewportSize({ width: 1440, height: 1000 });
-    await frame.locator(`[data-blok-id="${footer.id}"]`).click();
+    await frame.locator(`[data-storypane-id="${footer.id}"]`).click();
     await expect(page.getByLabel('Footer text', { exact: true })).toBeEditable();
     await expect(
       page

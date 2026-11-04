@@ -7,7 +7,7 @@ import { generateTypes, parseStorypaneSchema } from '../dist/codegen.js';
 import { localMigrations, runMigrations, schemaFromMigration, writeAtomic } from './migrations.mjs';
 
 function setting(name) {
-  const value = process.env[`STORYPANE_${name}`] ?? process.env[`BLOK_${name}`];
+  const value = process.env[`STORYPANE_${name}`];
   if (!value) throw new Error(`Missing STORYPANE_${name}`);
   return value;
 }
@@ -34,7 +34,7 @@ Migrations use STORYPANE_URL, STORYPANE_SPACE_ID, STORYPANE_MANAGEMENT_TOKEN.
 Local migrations live in storypane/migrations; commit them with your app.
 Default codegen uses the latest pulled deployed migration, never active.json.
 CI deployment requires --deploy --yes and a deploy-capable management token.
-Legacy pull-components uses STORYPANE_PREVIEW_TOKEN. BLOK_* settings are also accepted.`);
+Legacy pull-components uses STORYPANE_PREVIEW_TOKEN.`);
   } else if (command === 'migrations') await runMigrations(positionals.slice(1), values, setting);
   else {
     if (

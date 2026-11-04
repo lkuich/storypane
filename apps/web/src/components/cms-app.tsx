@@ -33,7 +33,7 @@ import type { NavigationGuard, RegisterGuard } from '../features/editor/navigati
 export type CMSSession = {
   sessionId: string;
   user: { id: string; name: string; email: string };
-  space: Pick<Space, 'id' | 'name' | 'role' | 'roleName' | 'permissions'>;
+  space: Pick<Space, 'id' | 'name' | 'role' | 'roleName' | 'permissions' | 'contentScopes'>;
 };
 type Tab = 'content' | 'blocks' | 'datasources' | 'assets' | 'settings';
 const tabs = [
@@ -328,6 +328,7 @@ export function CMSApp({ session: initialSession }: { session: CMSSession }) {
             ) : (
               <ContentList
                 canCreate={can(session.space, 'content:edit')}
+                canPublish={can(session.space, 'content:publish')}
                 onOpen={openStory}
                 onBlocks={() => void navigate('blocks')}
               />

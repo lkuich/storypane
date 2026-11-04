@@ -62,7 +62,7 @@ test('system and saved appearance apply before the app hydrates, even when stora
   }
   const slow = await browser.newContext({ colorScheme: 'light' });
   try {
-    await slow.addInitScript(() => localStorage.setItem('blok:theme', 'dark'));
+    await slow.addInitScript(() => localStorage.setItem('storypane:theme', 'dark'));
     await slow.route('**/*', (route) =>
       route.request().resourceType() === 'script' ? route.abort() : route.continue(),
     );

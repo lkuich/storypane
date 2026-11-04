@@ -17,7 +17,7 @@ async function handle(request: Request, route: { params: Promise<{ path: string[
       authenticated?.actor ??
       (await services.store.authenticateManagement(
         managementToken!,
-        request.headers.get('x-blok-space-id') ??
+        request.headers.get('x-storypane-space-id') ??
           new URL(request.url).searchParams.get('space') ??
           '',
       ));
@@ -28,6 +28,40 @@ async function handle(request: Request, route: { params: Promise<{ path: string[
       assertOrigin(request, env.APP_URL);
     const [resource, id, child, localeId, action, targetId] = path;
     const store = services.store;
+    if (resource === 'webhooks') {
+      if (!id && method === 'GET') return jsonResponse(await store.listWebhooks(actor));
+      if (!id && method === 'POST')
+        return jsonResponse(await store.saveWebhook(actor, await readJson(request)), 201);
+      if (id && !child && method === 'PUT')
+        return jsonResponse(await store.saveWebhook(actor, await readJson(request), id));
+      if (id && !child && method === 'DELETE') {
+        await store.deleteWebhook(actor, id, await readJson(request));
+        return jsonResponse({ ok: true });
+      }
+      if (id && child === 'rotate-secret' && !localeId && method === 'POST')
+        return jsonResponse(await store.rotateWebhookSecret(actor, id, await readJson(request)));
+      if (id && child === 'test' && !localeId && method === 'POST')
+        return jsonResponse(await store.testWebhook(actor, id), 202);
+      if (id && child === 'deliveries' && !localeId && method === 'GET')
+        return jsonResponse(
+          await store.listWebhookDeliveries(
+            actor,
+            id,
+            Number(new URL(request.url).searchParams.get('offset') ?? 0),
+          ),
+        );
+      if (
+        id &&
+        child === 'deliveries' &&
+        localeId &&
+        action === 'retry' &&
+        !targetId &&
+        method === 'POST'
+      ) {
+        await store.retryWebhook(actor, id, localeId);
+        return jsonResponse({ ok: true }, 202);
+      }
+    }
     if (resource === 'migrations') {
       if (method === 'GET' && !id)
         return jsonResponse(
@@ -131,6 +165,17 @@ async function handle(request: Request, route: { params: Promise<{ path: string[
         return jsonResponse({ ok: true });
       }
     }
+    if (resource === 'public-media' && !id) {
+      if (method === 'GET') return jsonResponse(await store.getPublicMediaSettings(actor));
+      if (method === 'PUT')
+        return jsonResponse(await store.updatePublicMediaSettings(actor, await readJson(request)));
+    }
+    if (resource === 'assets' && id && child === 'usage' && !localeId && method === 'GET')
+      return jsonResponse(
+        await store.listAssetUsage(actor, id, {
+          cursor: new URL(request.url).searchParams.get('cursor') ?? 0,
+        }),
+      );
     if (resource === 'delivery-settings' && !id) {
       if (method === 'GET') return jsonResponse(await store.getDeliverySettings(actor));
       if (method === 'PUT')
@@ -157,7 +202,7 @@ async function handle(request: Request, route: { params: Promise<{ path: string[
         canWrite: space!.permissions.includes('assets:write'),
         bucket: env.MEDIA,
         images: env.IMAGES,
-        cache: await caches.open('blok-thumbnails-v1'),
+        cache: await caches.open('storypane-thumbnails-v1'),
       });
     if (resource === 'definitions') {
       if (method === 'GET' && !id)
@@ -203,7 +248,55 @@ async function handle(request: Request, route: { params: Promise<{ path: string[
         await store.resolveOptions(actor, { ...rest, query: search ?? rest.query }),
       );
     }
+    async function invalidate(storyId: string, localeIds: string[]) {
+      await Promise.all(
+        localeIds.map(async (localeId) => {
+          try {
+            await env.ROOMS.getByName(`${actor.spaceId}:${storyId}:${localeId}`).fetch(
+              new Request('https://room/invalidate', {
+                method: 'POST',
+                headers: {
+                  'x-blok-space-id': actor.spaceId,
+                  'x-blok-story-id': storyId,
+                  'x-blok-locale-id': localeId,
+                },
+              }),
+            );
+          } catch {
+            console.warn('Room invalidation unavailable; clients will resync');
+          }
+        }),
+      );
+    }
     if (resource === 'stories') {
+      if (id === 'bulk' && method === 'POST') {
+        const result = await store.bulkStoryAction(actor, await readJson(request));
+        await Promise.all(
+          result
+            .filter((item) => item.result)
+            .map((item) => invalidate(item.result!.story.id, item.result!.localeIds)),
+        );
+        return jsonResponse(result);
+      }
+      if (id && child === 'review' && method === 'GET')
+        return jsonResponse(await store.reviewStoryAction(actor, id));
+      if (
+        id &&
+        ((child === 'duplicate' && method === 'POST') ||
+          (child === 'restore' && method === 'POST') ||
+          (!child && method === 'DELETE'))
+      ) {
+        const input = await readJson(request);
+        if (!input || typeof input !== 'object' || Array.isArray(input))
+          throw new StorypaneError('invalid', 'Invalid story action');
+        const result = await store.storyAction(actor, id, {
+          ...input,
+          action: child === 'duplicate' ? 'duplicate' : child === 'restore' ? 'restore' : 'delete',
+        });
+        await invalidate(result.story.id, result.localeIds);
+        return jsonResponse(result);
+      }
+
       if (id && child === 'location' && !localeId && method === 'PUT')
         return jsonResponse(await store.updateStoryLocation(actor, id, await readJson(request)));
       if (id && child === 'pin' && !localeId && (method === 'PUT' || method === 'DELETE')) {
@@ -211,7 +304,13 @@ async function handle(request: Request, route: { params: Promise<{ path: string[
         await store.setStoryPinned(actor, id, pinned);
         return jsonResponse({ pinned });
       }
-      if (method === 'GET' && !id) return jsonResponse(await store.listStories(actor));
+      if (method === 'GET' && !id)
+        return jsonResponse(
+          await store.listStories(
+            actor,
+            new URL(request.url).searchParams.get('deleted') === 'true',
+          ),
+        );
       if (method === 'GET' && id && !child) return jsonResponse(await store.getStory(actor, id));
       if (method === 'POST' && !id)
         return jsonResponse((await store.createStory(actor, await readJson(request))).story, 201);
@@ -223,6 +322,32 @@ async function handle(request: Request, route: { params: Promise<{ path: string[
             201,
           );
         if (localeId) {
+          if (action === 'schedules') {
+            if (method === 'GET' && !targetId)
+              return jsonResponse(await store.listSchedules(actor, id, localeId));
+            if (method === 'POST' && !targetId) {
+              const result = await store.schedulePublication(
+                actor,
+                id,
+                localeId,
+                await readJson(request),
+              );
+              await invalidate(id, [localeId]);
+              return jsonResponse(result, 201);
+            }
+            if (method === 'DELETE' && targetId) {
+              const result = await store.cancelSchedule(
+                actor,
+                id,
+                localeId,
+                targetId,
+                await readJson(request),
+              );
+              await invalidate(id, [localeId]);
+              return jsonResponse(result);
+            }
+          }
+
           if (action === 'preview' && method === 'POST')
             return jsonResponse(
               await store.createEditorPreview(actor, id, localeId, await readJson(request)),
@@ -232,9 +357,9 @@ async function handle(request: Request, route: { params: Promise<{ path: string[
             return jsonResponse(await store.getSnapshot(actor, id, localeId));
           const room = env.ROOMS.getByName(`${actor.spaceId}:${id}:${localeId}`);
           const internalHeaders = new Headers({
-            'x-blok-actor': JSON.stringify(actor),
-            'x-blok-story-id': id,
-            'x-blok-locale-id': localeId,
+            'x-storypane-actor': JSON.stringify(actor),
+            'x-storypane-story-id': id,
+            'x-storypane-locale-id': localeId,
           });
           async function notify(payload: unknown) {
             try {

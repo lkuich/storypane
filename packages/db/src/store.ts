@@ -1,3 +1,16 @@
+import { recordWebhookEvent } from './webhooks.js';
+import {
+  storyActionSchema,
+  bulkStoryActionSchema,
+  scheduleInputSchema,
+  cancelScheduleSchema,
+  scheduleInstants,
+  pathSlugSchema,
+  type LifecycleReview,
+  type StoryActionResult,
+  type BulkStoryActionResult,
+  type PublicationSchedule,
+} from '@storypane/core';
 import { createHash, randomUUID, randomBytes } from 'node:crypto';
 import { Pool, type PoolClient, type QueryResultRow } from 'pg';
 import { z } from 'zod';
@@ -44,6 +57,27 @@ import {
   type ManagementToken,
 } from '@storypane/core';
 import { fetchExternalOptions } from './external-options.js';
+import * as webhooks from './webhooks.js';
+import {
+  loadContentAccess,
+  assertLocationAccess,
+  assertSnapshotAccess,
+  assertUnrestrictedRead,
+  projectSnapshot,
+  projectedContent,
+  projectResult,
+  hasContentResult,
+  assertContentChanges,
+  type StoreContentAccess,
+} from './content-access.js';
+import {
+  locationAllowed,
+  blockAllowed,
+  unrestrictedRead,
+  type ContentPermission,
+} from '@storypane/core';
+import { isPublishedAsset } from './media.js';
+import type { AssetUsage, AssetUsagePage } from '@storypane/core';
 import {
   folderPath,
   folderInputSchema,
@@ -97,6 +131,22 @@ const deliveredRow = (row: Row): DeliveredStory => ({
   publishedAt: row.published_at ? iso(row.published_at) : null,
 });
 
+const scheduleRow = (row: Row): PublicationSchedule => ({
+  id: row.id,
+  storyId: row.story_id,
+  localeId: row.locale_id,
+  checkpointId: row.checkpoint_id,
+  checkpointRevision: Number(row.checkpoint_revision),
+  creatorId: row.creator_id,
+  dueAt: iso(row.due_at),
+  timezone: row.timezone,
+  status: row.status,
+  revision: row.revision,
+  attemptCount: row.attempt_count,
+  publicationId: row.publication_id,
+  error: row.error,
+});
+
 type AccountActor = Pick<Actor, 'userId' | 'sessionId'>;
 async function spacesFor(
   client: PoolClient,
@@ -104,14 +154,23 @@ async function spacesFor(
   spaceId: string | null = null,
 ): Promise<Space[]> {
   const result = await client.query(
-    `SELECT s.id,s.name,s.description,m.role,r.name AS "roleName",r.permissions,s.created_at AS "createdAt",
-    (SELECT count(*)::integer FROM stories WHERE space_id=s.id) AS "storyCount",
+    `SELECT s.id,s.name,s.description,m.role,r.name AS "roleName",r.permissions,r.content_scopes AS "contentScopes",s.created_at AS "createdAt",
+    (SELECT count(*)::integer FROM stories WHERE space_id=s.id AND deleted_at IS NULL) AS "storyCount",
     (SELECT count(*)::integer FROM memberships WHERE space_id=s.id) AS "memberCount"
     FROM spaces s JOIN memberships m ON m.space_id=s.id JOIN space_roles r ON r.space_id=m.space_id AND r.id=m.role
     WHERE m.user_id=$1 AND ($2::uuid IS NULL OR s.id=$2) ORDER BY s.created_at,s.id`,
     [userId, spaceId],
   );
-  return result.rows.map((row) => ({ ...row, createdAt: iso(row.createdAt) }));
+  const spaces: Space[] = [];
+  for (const row of result.rows) {
+    const access = await loadContentAccess(client, { spaceId: row.id, userId });
+    spaces.push({
+      ...row,
+      storyCount: new Set(access.locales.map((locale) => locale.storyId)).size,
+      createdAt: iso(row.createdAt),
+    });
+  }
+  return spaces;
 }
 
 type Row = QueryResultRow;
@@ -123,6 +182,7 @@ const storyRow = (r: Row): Story => ({
   folderId: r.folder_id ?? null,
   slugSegment: r.slug_segment ?? r.slug,
   formOnly: r.form_only ?? false,
+  deletedAt: r.deleted_at ? iso(r.deleted_at) : null,
   createdAt: iso(r.created_at),
   updatedAt: iso(r.updated_at),
 });
@@ -255,7 +315,11 @@ export class StorypaneStore {
   readonly pool: Pool;
   constructor(
     connection: Pool | string,
-    private options: { externalOptionHosts?: string[] } = {},
+    private options: {
+      externalOptionHosts?: string[];
+      webhookHosts?: string[];
+      webhookEncryptionKey?: string;
+    } = {},
   ) {
     this.pool =
       typeof connection === 'string'
@@ -294,7 +358,7 @@ export class StorypaneStore {
         throw new StorypaneError('forbidden', 'Management token does not allow this action');
     } else await this.authorizeSession(client, actor);
     const membership = await client.query(
-      'SELECT m.role,r.permissions FROM memberships m JOIN space_roles r ON r.space_id=m.space_id AND r.id=m.role WHERE m.space_id=$1 AND m.user_id=$2',
+      'SELECT m.role,r.permissions FROM memberships m JOIN "user" u ON u.id=m.user_id JOIN space_roles r ON r.space_id=m.space_id AND r.id=m.role WHERE m.space_id=$1 AND m.user_id=$2',
       [actor.spaceId, actor.userId],
     );
     if (
@@ -310,9 +374,132 @@ export class StorypaneStore {
           ? 'Your role does not allow this action'
           : 'You do not have access to this space',
       );
+    if (permission && ['schemas:write', 'settings:write'].includes(permission))
+      assertUnrestrictedRead(await loadContentAccess(client, actor));
+  }
+  private async contentAccess(client: PoolClient, actor: Actor) {
+    return loadContentAccess(client, actor);
+  }
+  private assertCompleteAccess(
+    access: StoreContentAccess,
+    snapshot: LocaleSnapshot,
+    permission: ContentPermission,
+  ) {
+    assertSnapshotAccess(access, snapshot, permission);
+    if (!projectSnapshot(access, snapshot).access.complete)
+      throw new StorypaneError(
+        'forbidden',
+        'This action requires read access to all affected content and references',
+      );
+  }
+  private async requirePublicationAccess(
+    client: PoolClient,
+    actor: Actor,
+    snapshot: LocaleSnapshot,
+  ) {
+    const current = (
+      await client.query(
+        'SELECT * FROM stories WHERE id=$1 AND space_id=$2 AND deleted_at IS NULL',
+        [snapshot.story.id, actor.spaceId],
+      )
+    ).rows[0];
+    if (!current) throw new StorypaneError('not_found', 'Story not found');
+    const access = await this.contentAccess(client, actor);
+    this.assertCompleteAccess(access, { ...snapshot, story: storyRow(current) }, 'content:publish');
+  }
+  private async requireStoryAccess(client: PoolClient, actor: Actor, storyId: string) {
+    const access = await this.contentAccess(client, actor);
+    if (!access.locales.some((locale) => locale.storyId === storyId))
+      throw new StorypaneError('not_found', 'Story not found');
+    return access;
+  }
+  private async requireAllStoryAccess(
+    client: PoolClient,
+    actor: Actor,
+    storyId: string,
+    permission: ContentPermission,
+  ) {
+    const access = await this.requireStoryAccess(client, actor, storyId);
+    const locales = (
+      await client.query('SELECT id FROM story_locales WHERE story_id=$1', [storyId])
+    ).rows;
+    for (const locale of locales)
+      assertSnapshotAccess(
+        access,
+        await this.snapshot(client, actor, storyId, locale.id),
+        permission,
+      );
+    return access;
   }
   async assertActor(actor: Actor, permission?: Permission | 'admin'): Promise<void> {
     await this.tx(actor, async () => undefined, permission);
+  }
+  private webhookOptions() {
+    return {
+      allowedHosts: this.options.webhookHosts ?? [],
+      encryptionKey: this.options.webhookEncryptionKey,
+    };
+  }
+  async listWebhooks(actor: Actor) {
+    return this.tx(
+      actor,
+      (client) => webhooks.listWebhooks(client, actor.spaceId, this.webhookOptions()),
+      'admin',
+    );
+  }
+  async saveWebhook(actor: Actor, raw: unknown, id?: string) {
+    if (id) parseInput(z.uuid(), id);
+    return this.tx(
+      actor,
+      (client) => webhooks.saveWebhook(client, actor.spaceId, raw, this.webhookOptions(), id),
+      'admin',
+      true,
+    );
+  }
+  async rotateWebhookSecret(actor: Actor, id: string, raw: unknown) {
+    parseInput(z.uuid(), id);
+    return this.tx(
+      actor,
+      (client) =>
+        webhooks.rotateWebhookSecret(client, actor.spaceId, id, raw, this.webhookOptions()),
+      'admin',
+    );
+  }
+  async deleteWebhook(actor: Actor, id: string, raw: unknown) {
+    parseInput(z.uuid(), id);
+    return this.tx(
+      actor,
+      (client) => webhooks.deleteWebhook(client, actor.spaceId, id, raw),
+      'admin',
+    );
+  }
+  async testWebhook(actor: Actor, id: string) {
+    parseInput(z.uuid(), id);
+    return this.tx(
+      actor,
+      (client) =>
+        webhooks.testWebhook(client, actor.spaceId, id, actor.userId, this.webhookOptions()),
+      'admin',
+    );
+  }
+  async retryWebhook(actor: Actor, id: string, deliveryId: string) {
+    parseInput(z.uuid(), id);
+    parseInput(z.uuid(), deliveryId);
+    return this.tx(
+      actor,
+      (client) =>
+        webhooks.retryWebhook(client, actor.spaceId, id, deliveryId, this.webhookOptions()),
+      'admin',
+    );
+  }
+  async listWebhookDeliveries(actor: Actor, id: string, offset = 0) {
+    parseInput(z.uuid(), id);
+    parseInput(z.number().int().min(0).max(100000), offset);
+    return this.tx(
+      actor,
+      (client) => webhooks.listWebhookDeliveries(client, actor.spaceId, id, offset),
+      'admin',
+    );
   }
   async listSpaces(actor: AccountActor): Promise<Space[]> {
     const client = await this.pool.connect();
@@ -489,8 +676,13 @@ export class StorypaneStore {
             [actor.spaceId, userId],
           );
         }
+        await client.query(
+          'DELETE FROM edit_leases e USING story_locales l,stories s WHERE e.locale_id=l.id AND l.story_id=s.id AND s.space_id=$1 AND e.user_id=$2',
+          [actor.spaceId, userId],
+        );
       },
       'admin',
+      true,
     );
   }
   private async requireRole(client: PoolClient, spaceId: string, role: string) {
@@ -507,7 +699,7 @@ export class StorypaneStore {
       async (client) =>
         (
           await client.query(
-            `SELECT r.id,r.name,r.permissions,r.system,
+            `SELECT r.id,r.name,r.permissions,r.content_scopes AS "contentScopes",r.system,
       (SELECT count(*)::integer FROM memberships m WHERE m.space_id=r.space_id AND m.role=r.id) AS "memberCount",
       (SELECT count(*)::integer FROM space_invitations i WHERE i.space_id=r.space_id AND i.role=r.id) AS "invitationCount"
       FROM space_roles r WHERE r.space_id=$1 ORDER BY r.system DESC,r.name`,
@@ -522,6 +714,49 @@ export class StorypaneStore {
       actor,
       async (client) => {
         await this.lockMembers(client, actor);
+        const idsByKind = {
+          folder: new Set(
+            (
+              await client.query('SELECT id FROM content_folders WHERE space_id=$1', [
+                actor.spaceId,
+              ])
+            ).rows.map((row) => row.id),
+          ),
+          story: new Set(
+            (
+              await client.query('SELECT id FROM stories WHERE space_id=$1', [actor.spaceId])
+            ).rows.map((row) => row.id),
+          ),
+          locale: new Set(
+            (
+              await client.query('SELECT id FROM space_locales WHERE space_id=$1', [actor.spaceId])
+            ).rows.map((row) => row.id),
+          ),
+          definition: new Set(
+            (
+              await client.query('SELECT id FROM definitions WHERE space_id=$1', [actor.spaceId])
+            ).rows.map((row) => row.id),
+          ),
+          field: new Set(
+            (
+              await client.query(
+                "SELECT f->>'id' AS id FROM definition_versions v JOIN definitions d ON d.id=v.definition_id CROSS JOIN LATERAL jsonb_array_elements(v.schema->'fields') f WHERE d.space_id=$1",
+                [actor.spaceId],
+              )
+            ).rows.map((row) => row.id),
+          ),
+        };
+        for (const scope of Object.values(input.contentScopes)) {
+          for (const [kind, ids] of [
+            ['folder', scope.locations?.folderIds],
+            ['story', scope.locations?.storyIds],
+            ['locale', scope.localeIds],
+            ['definition', scope.definitionIds],
+            ['field', scope.fieldIds],
+          ] as const)
+            if (ids?.some((id) => id !== null && !idsByKind[kind].has(id)))
+              throw new StorypaneError('invalid', 'Choose permission targets from this space');
+        }
         if (id) {
           const role = await client.query(
             'SELECT system FROM space_roles WHERE space_id=$1 AND id=$2',
@@ -534,16 +769,28 @@ export class StorypaneStore {
               'Built-in roles cannot be changed. Create a custom role instead.',
             );
           await client.query(
-            'UPDATE space_roles SET name=$3,permissions=$4 WHERE space_id=$1 AND id=$2',
-            [actor.spaceId, id, input.name, input.permissions],
+            'UPDATE space_roles SET name=$3,permissions=$4,content_scopes=$5 WHERE space_id=$1 AND id=$2',
+            [actor.spaceId, id, input.name, input.permissions, JSON.stringify(input.contentScopes)],
           );
         } else
           await client.query(
-            'INSERT INTO space_roles(space_id,id,name,permissions) VALUES($1,$2,$3,$4)',
-            [actor.spaceId, randomUUID(), input.name, input.permissions],
+            'INSERT INTO space_roles(space_id,id,name,permissions,content_scopes) VALUES($1,$2,$3,$4,$5)',
+            [
+              actor.spaceId,
+              randomUUID(),
+              input.name,
+              input.permissions,
+              JSON.stringify(input.contentScopes),
+            ],
+          );
+        if (id)
+          await client.query(
+            'DELETE FROM edit_leases e USING story_locales l,stories s,memberships m WHERE e.locale_id=l.id AND l.story_id=s.id AND s.space_id=$1 AND m.space_id=s.space_id AND m.user_id=e.user_id AND m.role=$2',
+            [actor.spaceId, id],
           );
       },
       'admin',
+      true,
     );
   }
   async deleteSpaceRole(actor: Actor, id: string): Promise<void> {
@@ -594,17 +841,26 @@ export class StorypaneStore {
     );
   }
   async listSpaceLocales(actor: Actor): Promise<SpaceLocale[]> {
-    return this.tx(
-      actor,
-      async (client) =>
-        (
-          await client.query(
-            `SELECT c.id,c.name,c.slug,(SELECT count(*)::integer FROM story_locales l WHERE l.space_locale_id=c.id) AS "storyCount"
-      FROM space_locales c WHERE c.space_id=$1 ORDER BY (c.slug='') DESC,c.name,c.id`,
-            [actor.spaceId],
-          )
-        ).rows,
-    );
+    return this.tx(actor, async (client) => {
+      const access = await this.contentAccess(client, actor);
+      const configured = (
+        await client.query(
+          "SELECT id,name,slug FROM space_locales WHERE space_id=$1 ORDER BY (slug='') DESC,name,id",
+          [actor.spaceId],
+        )
+      ).rows;
+      return configured
+        .filter(
+          (locale) =>
+            access.admin ||
+            (access.permissions.includes('content:read') &&
+              (!access.scopes.read.localeIds || access.scopes.read.localeIds.includes(locale.id))),
+        )
+        .map((locale) => ({
+          ...locale,
+          storyCount: access.locales.filter((item) => item.spaceLocaleId === locale.id).length,
+        }));
+    });
   }
   async createSpaceLocale(actor: Actor, raw: unknown): Promise<SpaceLocale> {
     const input = parseInput(spaceLocaleInputSchema, raw);
@@ -836,12 +1092,89 @@ export class StorypaneStore {
   async authorizePublishedAsset(token: string, spaceId: string, assetId: string): Promise<void> {
     await this.authenticateDelivery(token, spaceId);
     parseInput(z.uuid(), assetId);
-    const { rowCount } = await this.pool.query(
-      `SELECT 1 FROM stories s JOIN story_locales l ON l.story_id=s.id JOIN publications p ON p.id=l.published_version_id
-      WHERE s.space_id=$1 AND jsonb_path_exists(p.content,'$.**.assetId ? (@ == $assetId)',jsonb_build_object('assetId',$2::text)) LIMIT 1`,
-      [spaceId, assetId],
+    if (!(await isPublishedAsset(this.pool, spaceId, assetId)))
+      throw new StorypaneError('not_found', 'Published asset not found');
+  }
+  async getPublicMediaSettings(actor: Actor): Promise<{ enabled: boolean }> {
+    return this.tx(
+      actor,
+      async (client) =>
+        (
+          await client.query('SELECT public_media AS enabled FROM spaces WHERE id=$1', [
+            actor.spaceId,
+          ])
+        ).rows[0],
     );
-    if (!rowCount) throw new StorypaneError('not_found', 'Published asset not found');
+  }
+  async updatePublicMediaSettings(actor: Actor, raw: unknown): Promise<{ enabled: boolean }> {
+    const input = parseInput(z.object({ enabled: z.boolean() }).strict(), raw);
+    return this.tx(
+      actor,
+      async (client) => {
+        await client.query('UPDATE spaces SET public_media=$2 WHERE id=$1', [
+          actor.spaceId,
+          input.enabled,
+        ]);
+        return input;
+      },
+      'admin',
+    );
+  }
+  async listAssetUsage(actor: Actor, assetId: string, raw: unknown = {}): Promise<AssetUsagePage> {
+    parseInput(z.uuid(), assetId);
+    const { cursor } = parseInput(
+      z.object({ cursor: z.coerce.number().int().min(0).max(1000000).default(0) }).strict(),
+      raw,
+    );
+    return this.tx(actor, async (client) => {
+      if (
+        !(
+          await client.query('SELECT 1 FROM assets WHERE id=$1 AND space_id=$2', [
+            assetId,
+            actor.spaceId,
+          ])
+        ).rowCount
+      )
+        throw new StorypaneError('not_found', 'Asset not found');
+      const access = await this.contentAccess(client, actor);
+      const { rows } = await client.query<AssetUsage>(
+        `WITH usage AS (
+        SELECT s.id AS "storyId",s.name AS "storyName",s.folder_id AS "folderId",
+          l.id AS "localeId",l.slug AS "localeSlug",l.name AS "localeName",l.space_locale_id AS "spaceLocaleId",
+          b.id AS "blockId",v.definition_id AS "definitionId",v.schema->>'displayName' AS "blockName",
+          coalesce(f->>'id','') AS "fieldId",f->>'name' AS "fieldName",f->>'label' AS "fieldLabel",'draft' AS state
+        FROM stories s JOIN story_locales l ON l.story_id=s.id JOIN block_drafts b ON b.locale_id=l.id
+          JOIN definition_versions v ON v.id=b.schema_version_id
+          CROSS JOIN LATERAL jsonb_array_elements(v.schema->'fields') f
+        WHERE s.space_id=$1 AND s.deleted_at IS NULL
+          AND (f->>'type'='asset' OR (f->>'type'='link' AND b.fields->(f->>'name')->>'type'='asset'))
+          AND b.fields->(f->>'name')->>'assetId'=$2
+        UNION ALL
+        SELECT s.id,coalesce(p.snapshot->'story'->>'name',s.name),s.folder_id,
+          l.id,l.slug,l.name,l.space_locale_id,(b->>'id')::uuid,(d->>'id')::uuid,d->>'displayName',
+          coalesce(f->>'id',''),f->>'name',f->>'label','published'
+        FROM stories s JOIN story_locales l ON l.story_id=s.id JOIN publications p ON p.id=l.published_version_id
+          CROSS JOIN LATERAL jsonb_array_elements(p.snapshot->'blocks') b
+          CROSS JOIN LATERAL jsonb_array_elements(p.snapshot->'definitions') d
+          CROSS JOIN LATERAL jsonb_array_elements(d->'fields') f
+        WHERE s.space_id=$1 AND s.deleted_at IS NULL AND d->>'versionId'=b->>'schemaVersionId'
+          AND (f->>'type'='asset' OR (f->>'type'='link' AND b->'fields'->(f->>'name')->>'type'='asset'))
+          AND b->'fields'->(f->>'name')->>'assetId'=$2
+      ) SELECT * FROM usage WHERE "localeId"=ANY($4::uuid[]) AND ($5::uuid[] IS NULL OR "definitionId"=ANY($5)) AND ($6::text[] IS NULL OR "fieldId"=ANY($6)) ORDER BY "storyId","localeId","blockId","fieldName",state LIMIT 41 OFFSET $3`,
+        [
+          actor.spaceId,
+          assetId,
+          cursor,
+          access.locales.map((locale) => locale.id),
+          access.admin ? null : access.scopes.read.definitionIds,
+          access.admin ? null : access.scopes.read.fieldIds,
+        ],
+      );
+      return {
+        items: rows.slice(0, 40),
+        nextCursor: rows.length > 40 ? String(cursor + 40) : null,
+      };
+    });
   }
   async publishedStories(
     token: string,
@@ -854,7 +1187,7 @@ export class StorypaneStore {
       `WITH page AS (
       SELECT s.id AS story_id,p.snapshot->'story'->>'name' AS name,coalesce(p.snapshot->'locale'->>'urlSlug',l.url_slug) AS slug,l.slug AS locale,l.id AS locale_id,p.revision,p.content,p.created_at AS published_at
       FROM stories s JOIN story_locales l ON l.story_id=s.id JOIN publications p ON p.id=l.published_version_id
-      WHERE s.space_id=$1 AND l.slug=$2 AND ($3::uuid IS NULL OR s.id=$3) AND ($4::text IS NULL OR coalesce(p.snapshot->'locale'->>'urlSlug',l.url_slug)=$4)
+      WHERE s.space_id=$1 AND s.deleted_at IS NULL AND l.slug=$2 AND ($3::uuid IS NULL OR s.id=$3) AND ($4::text IS NULL OR coalesce(p.snapshot->'locale'->>'urlSlug',l.url_slug)=$4)
       ORDER BY coalesce(p.snapshot->'locale'->>'urlSlug',l.url_slug),s.id LIMIT $5 OFFSET $6)
       SELECT s.schema_version,coalesce(jsonb_agg(to_jsonb(page) ORDER BY page.slug,page.story_id) FILTER(WHERE page.locale_id IS NOT NULL),'[]') AS stories
       FROM spaces s LEFT JOIN page ON true WHERE s.id=$1 GROUP BY s.schema_version`,
@@ -879,6 +1212,15 @@ export class StorypaneStore {
     const input = parseInput(z.object({ previewId: z.uuid().optional() }).strict(), raw);
     return this.tx(actor, async (client) => {
       await this.lockLocale(client, actor, storyId, localeId);
+      const access = await this.contentAccess(client, actor);
+      if (
+        !projectSnapshot(access, await this.snapshot(client, actor, storyId, localeId)).access
+          .preview
+      )
+        throw new StorypaneError(
+          'forbidden',
+          'Preview requires read access to every field and reference',
+        );
       return this.insertPreview(
         client,
         actor.spaceId,
@@ -906,7 +1248,7 @@ export class StorypaneStore {
     const client = await this.pool.connect();
     try {
       const { rows } = await client.query(
-        'SELECT s.id AS story_id,l.id AS locale_id FROM stories s JOIN story_locales l ON l.story_id=s.id WHERE s.space_id=$1 AND l.slug=$2 AND ($3::uuid IS NULL OR s.id=$3) AND ($4::text IS NULL OR l.url_slug=$4)',
+        'SELECT s.id AS story_id,l.id AS locale_id FROM stories s JOIN story_locales l ON l.story_id=s.id WHERE s.space_id=$1 AND s.deleted_at IS NULL AND l.slug=$2 AND ($3::uuid IS NULL OR s.id=$3) AND ($4::text IS NULL OR l.url_slug=$4)',
         [spaceId, input.locale, input.id ?? null, input.slug ?? null],
       );
       if (!rows[0]) throw new StorypaneError('not_found', 'Story locale not found');
@@ -931,7 +1273,7 @@ export class StorypaneStore {
     previewId?: string,
   ): Promise<PreviewSession> {
     const { rows } = await client.query(
-      'SELECT s.preview_urls,s.default_preview_id,l.url_slug AS slug,l.slug AS locale FROM spaces s JOIN stories st ON st.space_id=s.id JOIN story_locales l ON l.story_id=st.id WHERE s.id=$1 AND st.id=$2 AND l.id=$3',
+      'SELECT s.preview_urls,s.default_preview_id,l.url_slug AS slug,l.slug AS locale FROM spaces s JOIN stories st ON st.space_id=s.id JOIN story_locales l ON l.story_id=st.id WHERE s.id=$1 AND st.id=$2 AND st.deleted_at IS NULL AND l.id=$3',
       [spaceId, storyId, localeId],
     );
     const target = (rows[0]?.preview_urls as DeliverySettings['previewUrls'] | undefined)?.find(
@@ -993,16 +1335,31 @@ export class StorypaneStore {
   }
   async previewStory(previewId: string): Promise<DeliveredStory> {
     const { rows } = await this.pool.query(
-      `SELECT p.space_id,sp.schema_version AS migration_version,st.id AS story_id,st.name,l.url_slug AS slug,l.slug AS locale,l.id AS locale_id,c.revision,c.content,c.snapshot
+      `SELECT p.space_id,p.user_id,p.session_id,sp.schema_version AS migration_version,st.id AS story_id,st.name,l.url_slug AS slug,l.slug AS locale,l.id AS locale_id,c.revision,c.content,c.snapshot
       FROM preview_sessions p JOIN spaces sp ON sp.id=p.space_id JOIN stories st ON st.id=p.story_id AND st.space_id=p.space_id
       JOIN story_locales l ON l.id=p.locale_id AND l.story_id=st.id JOIN checkpoints c ON c.id=l.checkpoint_id
-      WHERE p.id=$1 AND p.expires_at>clock_timestamp() AND (
+      WHERE p.id=$1 AND st.deleted_at IS NULL AND p.expires_at>clock_timestamp() AND (
         EXISTS(SELECT 1 FROM cms_sessions se JOIN memberships m ON m.user_id=se.user_id AND m.space_id=p.space_id WHERE se.id=p.session_id AND se.user_id=p.user_id AND se.expires_at>clock_timestamp())
         OR EXISTS(SELECT 1 FROM delivery_tokens t WHERE t.id=p.delivery_token_id AND t.space_id=p.space_id AND t.scope='preview' AND t.revoked_at IS NULL))`,
       [previewId],
     );
     if (!rows[0])
       throw new StorypaneError('unauthenticated', 'Preview access expired or was revoked');
+    if (rows[0].user_id) {
+      const actor: Actor = {
+        spaceId: rows[0].space_id,
+        userId: rows[0].user_id,
+        sessionId: rows[0].session_id,
+        role: '',
+      };
+      await this.tx(actor, async (client) => {
+        assertSnapshotAccess(
+          await this.contentAccess(client, actor),
+          rows[0].snapshot,
+          'content:read',
+        );
+      });
+    }
     const story = deliveredRow(rows[0]),
       snapshot = rows[0].snapshot as LocaleSnapshot,
       ids = new Set<string>();
@@ -1034,19 +1391,48 @@ export class StorypaneStore {
     const references = ids.size
       ? (
           await this.pool.query(
-            `SELECT DISTINCT ON (st.id) st.id AS story_id,st.name,l.url_slug AS slug,l.slug AS locale,l.id AS locale_id,c.revision,c.content
+            `SELECT DISTINCT ON (st.id) st.id AS story_id,st.name,l.url_slug AS slug,l.slug AS locale,l.id AS locale_id,c.revision,c.content,c.snapshot
       FROM stories st JOIN story_locales l ON l.story_id=st.id JOIN checkpoints c ON c.id=l.checkpoint_id AND c.locale_id=l.id
-      WHERE st.space_id=$1 AND st.id=ANY($2::uuid[]) AND l.slug=ANY($3::text[])
+      WHERE st.space_id=$1 AND st.deleted_at IS NULL AND st.id=ANY($2::uuid[]) AND l.slug=ANY($3::text[])
       ORDER BY st.id,(l.slug=$4) DESC`,
             [rows[0].space_id, [...ids], ['', story.locale], story.locale],
           )
-        ).rows.map((row) => deliveredRow({ ...row, migration_version: story.migrationVersion }))
+        ).rows
       : [];
+    if (rows[0].user_id) {
+      const actor: Actor = {
+        spaceId: rows[0].space_id,
+        userId: rows[0].user_id,
+        sessionId: rows[0].session_id,
+        role: '',
+      };
+      await this.tx(actor, async (client) => {
+        const access = await this.contentAccess(client, actor);
+        for (const reference of references) {
+          const target = access.locales.find((locale) => locale.id === reference.locale_id);
+          if (!target) throw new StorypaneError('forbidden', 'A referenced story is unavailable');
+          const snapshot = {
+            ...reference.snapshot,
+            story: { ...reference.snapshot.story, folderId: target.folderId },
+          };
+          assertSnapshotAccess(access, snapshot, 'content:read');
+        }
+      });
+    }
+    const deliveredReferences = references.map((row) =>
+      deliveredRow({ ...row, migration_version: story.migrationVersion }),
+    );
     return {
       ...story,
-      references,
+      references: deliveredReferences,
       referencesRevision: digest(
-        references.map((item) => [item.id, item.localeId, item.revision, item.name, item.slug]),
+        deliveredReferences.map((item) => [
+          item.id,
+          item.localeId,
+          item.revision,
+          item.name,
+          item.slug,
+        ]),
       ),
     };
   }
@@ -1067,8 +1453,11 @@ export class StorypaneStore {
       );
       await this.authorize(client, actor, permission);
       const result = await fn(client);
+      const projected = hasContentResult(result)
+        ? projectResult(await this.contentAccess(client, actor), result)
+        : result;
       await client.query('COMMIT');
-      return result;
+      return projected;
     } catch (error) {
       await client.query('ROLLBACK');
       dbError(error);
@@ -1083,10 +1472,16 @@ export class StorypaneStore {
     localeId: string,
   ): Promise<void> {
     const result = await client.query(
-      'SELECT l.id FROM story_locales l JOIN stories s ON s.id=l.story_id WHERE l.id=$1 AND s.id=$2 AND s.space_id=$3 FOR UPDATE OF l',
+      'SELECT l.id FROM story_locales l JOIN stories s ON s.id=l.story_id WHERE l.id=$1 AND s.id=$2 AND s.space_id=$3 AND s.deleted_at IS NULL FOR UPDATE OF l',
       [localeId, storyId, actor.spaceId],
     );
     if (!result.rowCount) throw new StorypaneError('not_found', 'Story locale not found');
+    if (
+      !(await this.contentAccess(client, actor)).locales.some(
+        (locale) => locale.id === localeId && locale.storyId === storyId,
+      )
+    )
+      throw new StorypaneError('not_found', 'Story locale not found');
   }
   private async snapshot(
     client: PoolClient,
@@ -1095,7 +1490,7 @@ export class StorypaneStore {
     localeId: string,
   ): Promise<LocaleSnapshot> {
     const story = await client.query(
-      'SELECT s.*,f.form_only FROM stories s LEFT JOIN content_folders f ON f.id=s.folder_id WHERE s.id=$1 AND s.space_id=$2',
+      'SELECT s.*,f.form_only FROM stories s LEFT JOIN content_folders f ON f.id=s.folder_id WHERE s.id=$1 AND s.space_id=$2 AND s.deleted_at IS NULL',
       [storyId, actor.spaceId],
     );
     const locale = await client.query('SELECT * FROM story_locales WHERE id=$1 AND story_id=$2', [
@@ -1162,6 +1557,12 @@ export class StorypaneStore {
     localeId: string,
     reason: string,
   ): Promise<LocaleSnapshot> {
+    const previous = (
+      await client.query<{ content: Json; path: string }>(
+        "SELECT c.content,c.snapshot->'locale'->>'urlSlug' AS path FROM story_locales l JOIN checkpoints c ON c.id=l.checkpoint_id WHERE l.id=$1",
+        [localeId],
+      )
+    ).rows[0];
     const checkpointId = randomUUID();
     await client.query(
       'UPDATE story_locales SET revision=revision+1,checkpoint_id=$2 WHERE id=$1',
@@ -1185,14 +1586,78 @@ export class StorypaneStore {
         JSON.stringify(assembleContent(snapshot)),
       ],
     );
+    if (
+      !['publishCheckpoint', 'unpublishLocale'].includes(reason) &&
+      !reason.startsWith('Migration ') &&
+      (reason === 'Restore deleted story' ||
+        !previous ||
+        canonicalJson(previous.content) !== canonicalJson(assembleContent(snapshot)) ||
+        previous.path !== snapshot.locale.urlSlug)
+    ) {
+      const data = {
+        storyId,
+        localeId,
+        locale: snapshot.locale.slug,
+        checkpointId,
+        revision: snapshot.revision,
+        path: snapshot.locale.urlSlug,
+      };
+      await webhooks.recordWebhookEvent(client, {
+        spaceId: actor.spaceId,
+        actorId: actor.userId,
+        type: 'story.saved',
+        key: 'story.saved:' + checkpointId,
+        data,
+      });
+      if (previous && previous.path !== snapshot.locale.urlSlug)
+        await webhooks.recordWebhookEvent(client, {
+          spaceId: actor.spaceId,
+          actorId: actor.userId,
+          type: 'story.moved',
+          key: 'story.moved:' + checkpointId,
+          data: { ...data, oldPath: previous.path },
+        });
+    }
     return snapshot;
   }
   async listDefinitions(actor: Actor, deployed = false): Promise<BlockDefinition[]> {
-    return this.tx(actor, async (client) =>
-      deployed
+    return this.tx(actor, async (client) => {
+      const access = await this.contentAccess(client, actor);
+      const definitions = deployed
         ? (await this.deployedMigration(client, actor.spaceId)).definitions
-        : this.definitionHeads(client, actor.spaceId),
-    );
+        : await this.definitionHeads(client, actor.spaceId);
+      if (unrestrictedRead(access)) return definitions;
+      if (
+        !access.permissions.includes('content:read') ||
+        access.scopes.read.localeIds?.length === 0 ||
+        (access.scopes.read.locations &&
+          !access.scopes.read.locations.folderIds.length &&
+          !access.scopes.read.locations.storyIds.length)
+      )
+        return [];
+      return definitions
+        .filter(
+          (definition) =>
+            !access.scopes.read.definitionIds ||
+            access.scopes.read.definitionIds.includes(definition.id),
+        )
+        .map((definition) => ({
+          ...definition,
+          fields: definition.fields
+            .filter(
+              (field) =>
+                !access.scopes.read.fieldIds ||
+                (!!field.id && access.scopes.read.fieldIds.includes(field.id)),
+            )
+            .map((field) => {
+              const { defaultValue: _defaultValue, ...safe } = field;
+              return safe;
+            }),
+        }))
+        .filter(
+          (definition) => access.scopes.read.fieldIds === null || definition.fields.length > 0,
+        );
+    });
   }
   private async definitionHeads(client: PoolClient, spaceId: string): Promise<BlockDefinition[]> {
     return (
@@ -1414,14 +1879,15 @@ export class StorypaneStore {
     return definition;
   }
   async listMigrations(actor: Actor, workspace = false): Promise<SchemaMigration[]> {
-    return this.tx(actor, async (client) =>
-      (
+    return this.tx(actor, async (client) => {
+      assertUnrestrictedRead(await this.contentAccess(client, actor));
+      return (
         await client.query(
           "SELECT * FROM schema_migrations WHERE space_id=$1 AND (NOT $2 OR status='active' OR version=(SELECT schema_version FROM spaces WHERE id=$1)) ORDER BY version",
           [actor.spaceId, workspace],
         )
-      ).rows.map(migrationRow),
-    );
+      ).rows.map(migrationRow);
+    });
   }
   async authenticateManagement(token: string, spaceId: string): Promise<Actor> {
     parseInput(z.uuid(), spaceId);
@@ -1743,7 +2209,7 @@ export class StorypaneStore {
       }
     const locales = (
       await client.query(
-        'SELECT l.id,l.story_id FROM story_locales l JOIN stories s ON s.id=l.story_id WHERE s.space_id=$1 ORDER BY l.id',
+        'SELECT l.id,l.story_id FROM story_locales l JOIN stories s ON s.id=l.story_id WHERE s.space_id=$1 AND s.deleted_at IS NULL ORDER BY l.id',
         [actor.spaceId],
       )
     ).rows;
@@ -1841,7 +2307,10 @@ export class StorypaneStore {
     parseInput(z.uuid(), id);
     return this.tx(
       actor,
-      async (client) => (await this.inspectMigration(client, actor, id, destructive)).review,
+      async (client) => {
+        assertUnrestrictedRead(await this.contentAccess(client, actor));
+        return (await this.inspectMigration(client, actor, id, destructive)).review;
+      },
       undefined,
       true,
     );
@@ -1896,6 +2365,10 @@ export class StorypaneStore {
               'invalid',
               `Data loss requires explicit confirmation: ${review.confirmation}`,
             );
+          await client.query(
+            "UPDATE publication_schedules SET status='failed',error='The schema changed; review and schedule a new checkpoint.',revision=revision+1,updated_at=clock_timestamp() WHERE space_id=$1 AND status='pending'",
+            [actor.spaceId],
+          );
           await client.query('UPDATE spaces SET schema_version=$2 WHERE id=$1', [
             actor.spaceId,
             review.migration.version,
@@ -1972,6 +2445,13 @@ export class StorypaneStore {
               `Migration ${review.migration.version}`,
             );
           }
+          await webhooks.recordWebhookEvent(client, {
+            spaceId: actor.spaceId,
+            actorId: actor.userId,
+            type: 'schema.deployed',
+            key: 'schema.deployed:' + id,
+            data: { migrationVersion: review.migration.version },
+          });
           return migrationRow(
             (
               await client.query(
@@ -2006,6 +2486,7 @@ export class StorypaneStore {
 
   async listPageEditors(actor: Actor): Promise<PageEditors> {
     return this.tx(actor, async (client) => {
+      const access = await this.contentAccess(client, actor);
       const { rows } = await client.query<PageEditor & { storyId: string }>(
         `SELECT s.id AS "storyId",u.id AS "userId",u.name,u.avatar_url AS "avatarUrl",
         array_agg(DISTINCT CASE WHEN l.slug='' THEN 'Default' ELSE l.name END ORDER BY CASE WHEN l.slug='' THEN 'Default' ELSE l.name END) AS locales
@@ -2013,10 +2494,16 @@ export class StorypaneStore {
         JOIN "user" u ON u.id=e.user_id JOIN cms_sessions se ON se.id=e.session_id AND se.user_id=e.user_id
         JOIN memberships m ON m.space_id=s.space_id AND m.user_id=e.user_id
         JOIN space_roles r ON r.space_id=m.space_id AND r.id=m.role
-        WHERE s.space_id=$1 AND e.expires_at>clock_timestamp() AND se.expires_at>clock_timestamp()
-          AND 'content:edit'=ANY(r.permissions)
+        WHERE s.space_id=$1 AND s.deleted_at IS NULL AND l.id=ANY($2::uuid[]) AND e.expires_at>clock_timestamp() AND se.expires_at>clock_timestamp()
+          AND 'content:edit'=ANY(r.permissions) AND ($5 OR EXISTS(SELECT 1 FROM block_drafts b JOIN definition_versions v ON v.id=b.schema_version_id WHERE b.id=e.block_id AND ($3::uuid[] IS NULL OR v.definition_id=ANY($3)) AND ($4::text[] IS NULL OR EXISTS(SELECT 1 FROM jsonb_array_elements(v.schema->'fields') f WHERE f->>'id'=ANY($4)))))
         GROUP BY s.id,u.id,u.name,u.avatar_url ORDER BY u.name,u.id`,
-        [actor.spaceId],
+        [
+          actor.spaceId,
+          access.locales.map((locale) => locale.id),
+          access.scopes.read.definitionIds,
+          access.scopes.read.fieldIds,
+          access.admin,
+        ],
       );
       const editors: PageEditors = {};
       for (const { storyId, ...editor } of rows) (editors[storyId] ??= []).push(editor);
@@ -2034,7 +2521,35 @@ export class StorypaneStore {
     ).rows.map(folderRow);
   }
   async listFolders(actor: Actor): Promise<ContentFolder[]> {
-    return this.tx(actor, (client) => this.folders(client, actor.spaceId));
+    return this.tx(actor, async (client) => {
+      const access = await this.contentAccess(client, actor);
+      const folders = await this.folders(client, actor.spaceId);
+      if (unrestrictedRead(access)) return folders;
+      const visible = new Set<string>();
+      const locales = (
+        await client.query('SELECT id FROM space_locales WHERE space_id=$1', [actor.spaceId])
+      ).rows;
+      for (const folder of folders)
+        if (
+          locales.some((locale) =>
+            locationAllowed(
+              access,
+              { storyId: '', folderId: folder.id, spaceLocaleId: locale.id },
+              'content:read',
+            ),
+          )
+        )
+          visible.add(folder.id);
+      for (const locale of access.locales) if (locale.folderId) visible.add(locale.folderId);
+      for (const id of [...visible]) {
+        let parent = folders.find((folder) => folder.id === id)?.parentId;
+        while (parent) {
+          visible.add(parent);
+          parent = folders.find((folder) => folder.id === parent)?.parentId;
+        }
+      }
+      return folders.filter((folder) => visible.has(folder.id));
+    });
   }
   private checkFolderType(folders: ContentFolder[], folderId: string | null, definitionId: string) {
     const folder = folders.find((item) => item.id === folderId);
@@ -2101,8 +2616,13 @@ export class StorypaneStore {
         [actor.spaceId],
       )
     ).rows;
-    const paths = new Set<string>();
+    const paths = new Set<string>(
+      locales
+        .filter((locale) => stories.find((story) => story.id === locale.story_id)?.deleted_at)
+        .map((locale) => `${locale.space_locale_id}:${locale.url_slug}`),
+    );
     for (const story of stories) {
+      if (story.deleted_at) continue;
       this.checkFolderType(folders, story.folder_id, story.definition_id);
       const path = joinPath(folderPath(folders, story.folder_id), story.slug_segment ?? story.slug);
       if (path.length > 2048)
@@ -2112,6 +2632,7 @@ export class StorypaneStore {
     }
     for (const locale of locales) {
       const story = stories.find((item) => item.id === locale.story_id)!;
+      if (story.deleted_at) continue;
       const path = joinPath(
         folderPath(folders, story.folder_id, locale.space_locale_id),
         locale.slug_segment ?? locale.url_slug,
@@ -2120,7 +2641,7 @@ export class StorypaneStore {
       if (path.length > 2048 || paths.has(key))
         throw new StorypaneError(
           'invalid',
-          'Each page needs a unique path in its locale, up to 2,048 characters',
+          'Each page needs a unique path in its locale, up to 2,048 characters; deleted stories keep their paths reserved',
         );
       paths.add(key);
       if (path !== locale.url_slug || story.id === forceStoryId) {
@@ -2128,6 +2649,36 @@ export class StorypaneStore {
         await this.checkpoint(client, actor, story.id, locale.id, 'Update page path');
       }
     }
+  }
+  private async requireFolderEdit(
+    client: PoolClient,
+    actor: Actor,
+    folderId: string | null,
+    folders: ContentFolder[],
+  ) {
+    const access = await this.contentAccess(client, actor);
+    const configured = (
+      await client.query('SELECT id FROM space_locales WHERE space_id=$1', [actor.spaceId])
+    ).rows;
+    const targetAccess = { ...access, folders };
+    for (const locale of configured)
+      assertLocationAccess(
+        targetAccess,
+        { storyId: '', folderId, spaceLocaleId: locale.id },
+        'content:edit',
+      );
+    const scope = access.scopes.edit;
+    if (
+      !access.admin &&
+      (scope.definitionIds !== null ||
+        scope.fieldIds !== null ||
+        access.scopes.read.definitionIds !== null ||
+        access.scopes.read.fieldIds !== null)
+    )
+      throw new StorypaneError(
+        'forbidden',
+        'Changing folders requires access to all content in the folder',
+      );
   }
   async saveFolder(actor: Actor, raw: unknown, folderId?: string): Promise<ContentFolder> {
     const input = parseInput(folderInputSchema, raw);
@@ -2141,6 +2692,9 @@ export class StorypaneStore {
           throw new StorypaneError('not_found', 'Folder not found');
         const folder: ContentFolder = { ...input, id: folderId ?? randomUUID() };
         const next = [...folders.filter((item) => item.id !== folder.id), folder];
+        if (folderId) await this.requireFolderEdit(client, actor, folderId, folders);
+        if (!folderId || folders.find((item) => item.id === folderId)?.parentId !== folder.parentId)
+          await this.requireFolderEdit(client, actor, folder.parentId, next);
         await this.validateFolderTree(client, actor, next);
         await client.query(
           `INSERT INTO content_folders(id,space_id,name,slug,parent_id,locale_slugs,allowed_definition_ids,default_definition_id,form_only) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)
@@ -2169,6 +2723,12 @@ export class StorypaneStore {
       actor,
       async (client) => {
         await this.lockPaths(client, actor.spaceId);
+        await this.requireFolderEdit(
+          client,
+          actor,
+          folderId,
+          await this.folders(client, actor.spaceId),
+        );
         if (
           !(
             await client.query('SELECT id FROM content_folders WHERE id=$1 AND space_id=$2', [
@@ -2202,12 +2762,13 @@ export class StorypaneStore {
       actor,
       async (client) => {
         await this.lockPaths(client, actor.spaceId);
+        const access = await this.requireAllStoryAccess(client, actor, storyId, 'content:edit');
         if (
           !(
-            await client.query('SELECT id FROM stories WHERE id=$1 AND space_id=$2', [
-              storyId,
-              actor.spaceId,
-            ])
+            await client.query(
+              'SELECT id FROM stories WHERE id=$1 AND space_id=$2 AND deleted_at IS NULL',
+              [storyId, actor.spaceId],
+            )
           ).rowCount
         )
           throw new StorypaneError('not_found', 'Story not found');
@@ -2228,6 +2789,11 @@ export class StorypaneStore {
           );
         const folders = await this.folders(client, actor.spaceId);
         folderPath(folders, input.folderId);
+        for (const locale of locales) {
+          const snapshot = await this.snapshot(client, actor, storyId, locale.id);
+          snapshot.story.folderId = input.folderId;
+          assertSnapshotAccess(access, snapshot, 'content:edit');
+        }
         await client.query('UPDATE stories SET folder_id=$2,slug_segment=$3 WHERE id=$1', [
           storyId,
           input.folderId,
@@ -2255,12 +2821,14 @@ export class StorypaneStore {
       'content:edit',
     );
   }
-  async listStories(actor: Actor): Promise<StorySummary[]> {
-    return this.tx(actor, async (client) =>
-      (
+  async listStories(actor: Actor, deleted = false): Promise<StorySummary[]> {
+    return this.tx(actor, async (client) => {
+      const access = await loadContentAccess(client, actor, deleted);
+      return (
         await client.query(
           `SELECT s.*,f.form_only,u.name AS editor_name,v.definition_id AS content_type_id,v.schema->>'displayName' AS content_type_name,
       EXISTS(SELECT 1 FROM story_pins pin WHERE pin.story_id=s.id AND pin.user_id=$2) AS pinned,
+      coalesce((SELECT jsonb_agg(to_jsonb(job)) FROM (SELECT sch.*,cp.revision AS checkpoint_revision FROM publication_schedules sch JOIN checkpoints cp ON cp.id=sch.checkpoint_id WHERE sch.story_id=s.id AND sch.locale_id=ANY($3::uuid[]) AND sch.status IN ('pending','failed') ORDER BY sch.created_at DESC) job),'[]') AS schedules,
       count(l.id)::integer AS locale_count,count(p.id)::integer AS published_count,
       (count(l.id) FILTER (WHERE ${pendingLocaleSql}))::integer AS pending_count,
       coalesce(jsonb_agg(jsonb_build_object('id',l.id,'name',l.name,'slug',l.slug) ORDER BY (l.slug='') DESC,l.name) FILTER (WHERE l.id IS NOT NULL AND (${pendingLocaleSql})),'[]'::jsonb) AS pending_locales
@@ -2270,12 +2838,13 @@ export class StorypaneStore {
       LEFT JOIN block_drafts root ON root.id=base.root_block_id AND root.locale_id=base.id
       LEFT JOIN definition_versions v ON v.id=root.schema_version_id
       LEFT JOIN content_folders f ON f.id=s.folder_id
-      WHERE s.space_id=$1 GROUP BY s.id,u.id,v.id,f.id ORDER BY pinned DESC,s.updated_at DESC,s.id`,
-          [actor.spaceId, actor.userId],
+      WHERE s.space_id=$1 AND (s.deleted_at IS NOT NULL)=$4 AND l.id=ANY($3::uuid[]) GROUP BY s.id,u.id,v.id,f.id ORDER BY pinned DESC,s.updated_at DESC,s.id`,
+          [actor.spaceId, actor.userId, access.locales.map((locale) => locale.id), deleted],
         )
       ).rows.map((row) => ({
         ...storyRow(row),
         pinned: row.pinned,
+        schedules: row.schedules.map(scheduleRow),
         localeCount: row.locale_count,
         pendingLocaleCount: row.pending_count,
         pendingLocales: row.pending_locales,
@@ -2284,20 +2853,22 @@ export class StorypaneStore {
           : row.pending_count
             ? 'changed'
             : 'published',
-        modifiedBy: row.updated_by
-          ? { id: row.updated_by, name: row.editor_name ?? 'Unknown editor' }
-          : null,
+        modifiedBy:
+          unrestrictedRead(access) && row.updated_by
+            ? { id: row.updated_by, name: row.editor_name ?? 'Unknown editor' }
+            : null,
         contentType: row.content_type_id
           ? { id: row.content_type_id, name: row.content_type_name }
           : null,
-      })),
-    );
+      }));
+    });
   }
   async setStoryPinned(actor: Actor, storyId: string, pinned: boolean): Promise<void> {
     const id = parseInput(z.uuid(), storyId);
     return this.tx(actor, async (client) => {
+      await this.requireStoryAccess(client, actor, id);
       const story = await client.query(
-        'SELECT id FROM stories WHERE id=$1 AND space_id=$2 FOR KEY SHARE',
+        'SELECT id FROM stories WHERE id=$1 AND space_id=$2 AND deleted_at IS NULL FOR KEY SHARE',
         [id, actor.spaceId],
       );
       if (!story.rowCount) throw new StorypaneError('not_found', 'Story not found in this space');
@@ -2316,8 +2887,9 @@ export class StorypaneStore {
   async getStory(actor: Actor, storyId: string): Promise<Story> {
     const id = parseInput(z.uuid(), storyId);
     return this.tx(actor, async (client) => {
+      await this.requireStoryAccess(client, actor, id);
       const result = await client.query(
-        'SELECT s.*,f.form_only FROM stories s LEFT JOIN content_folders f ON f.id=s.folder_id WHERE s.id=$1 AND s.space_id=$2',
+        'SELECT s.*,f.form_only FROM stories s LEFT JOIN content_folders f ON f.id=s.folder_id WHERE s.id=$1 AND s.space_id=$2 AND s.deleted_at IS NULL',
         [id, actor.spaceId],
       );
       if (!result.rowCount) throw new StorypaneError('not_found', 'Story not found in this space');
@@ -2337,6 +2909,18 @@ export class StorypaneStore {
       const path = joinPath(folderPath(folders, input.folderId), input.slug);
       if (path.length > 2048)
         throw new StorypaneError('invalid', 'Page paths cannot exceed 2,048 characters');
+      if (
+        (
+          await client.query(
+            'SELECT 1 FROM stories WHERE space_id=$1 AND slug=$2 AND deleted_at IS NOT NULL',
+            [actor.spaceId, path],
+          )
+        ).rowCount
+      )
+        throw new StorypaneError(
+          'invalid',
+          'This path is reserved by a deleted story. Restore it or choose another path.',
+        );
       const story = await client.query(
         'INSERT INTO stories(space_id,name,slug,slug_segment,folder_id) VALUES($1,$2,$3,$4,$5) RETURNING id',
         [actor.spaceId, input.name, path, input.slug, input.folderId],
@@ -2355,20 +2939,29 @@ export class StorypaneStore {
           JSON.stringify(defaultFields(definition)),
         ],
       );
-      return this.checkpoint(client, actor, story.rows[0].id, locale.rows[0].id, 'Create story');
+      const created = await this.checkpoint(
+        client,
+        actor,
+        story.rows[0].id,
+        locale.rows[0].id,
+        'Create story',
+      );
+      assertSnapshotAccess(await this.contentAccess(client, actor), created, 'content:edit');
+      return created;
     });
   }
   async listLocales(actor: Actor, storyId: string): Promise<StoryLocale[]> {
     return this.tx(actor, async (client) => {
-      const story = await client.query('SELECT id FROM stories WHERE id=$1 AND space_id=$2', [
-        storyId,
-        actor.spaceId,
-      ]);
+      const access = await this.requireStoryAccess(client, actor, storyId);
+      const story = await client.query(
+        'SELECT id FROM stories WHERE id=$1 AND space_id=$2 AND deleted_at IS NULL',
+        [storyId, actor.spaceId],
+      );
       if (!story.rowCount) throw new StorypaneError('not_found', 'Story not found');
       return (
         await client.query(
-          "SELECT * FROM story_locales WHERE story_id=$1 ORDER BY (slug='') DESC,name",
-          [storyId],
+          "SELECT * FROM story_locales WHERE story_id=$1 AND id=ANY($2::uuid[]) ORDER BY (slug='') DESC,name",
+          [storyId, access.locales.map((locale) => locale.id)],
         )
       ).rows.map(localeRow);
     });
@@ -2386,10 +2979,10 @@ export class StorypaneStore {
         throw new StorypaneError('not_found', 'Configure this locale in Space settings first');
       if (
         !(
-          await client.query('SELECT id FROM stories WHERE id=$1 AND space_id=$2', [
-            storyId,
-            actor.spaceId,
-          ])
+          await client.query(
+            'SELECT id FROM stories WHERE id=$1 AND space_id=$2 AND deleted_at IS NULL',
+            [storyId, actor.spaceId],
+          )
         ).rowCount
       )
         throw new StorypaneError('not_found', 'Story not found');
@@ -2402,7 +2995,7 @@ export class StorypaneStore {
         return this.snapshot(client, actor, storyId, existing.rows[0].id);
       }
       const original = await client.query(
-        "SELECT l.*,s.folder_id,b.schema_version_id FROM story_locales l JOIN stories s ON s.id=l.story_id JOIN block_drafts b ON b.id=l.root_block_id AND b.locale_id=l.id WHERE s.id=$1 AND s.space_id=$2 AND l.slug=''",
+        "SELECT l.*,s.folder_id,b.schema_version_id FROM story_locales l JOIN stories s ON s.id=l.story_id JOIN block_drafts b ON b.id=l.root_block_id AND b.locale_id=l.id WHERE s.id=$1 AND s.space_id=$2 AND s.deleted_at IS NULL AND l.slug=''",
         [storyId, actor.spaceId],
       );
       if (!original.rowCount) throw new StorypaneError('not_found', 'Story not found');
@@ -2453,7 +3046,15 @@ export class StorypaneStore {
           JSON.stringify(defaultFields(version.rows[0].schema)),
         ],
       );
-      return this.checkpoint(client, actor, storyId, locale.rows[0].id, 'Create locale');
+      const created = await this.checkpoint(
+        client,
+        actor,
+        storyId,
+        locale.rows[0].id,
+        'Create locale',
+      );
+      assertSnapshotAccess(await this.contentAccess(client, actor), created, 'content:edit');
+      return created;
     });
   }
   async getSnapshot(actor: Actor, storyId: string, localeId: string): Promise<LocaleSnapshot> {
@@ -2465,12 +3066,13 @@ export class StorypaneStore {
   async listCheckpoints(actor: Actor, storyId: string, localeId: string): Promise<Checkpoint[]> {
     return this.tx(actor, async (client) => {
       await this.lockLocale(client, actor, storyId, localeId);
+      const showActors = unrestrictedRead(await this.contentAccess(client, actor));
       return (
         await client.query(
           'SELECT id,revision,reason,actor_id,created_at FROM checkpoints WHERE locale_id=$1 ORDER BY revision DESC LIMIT 100',
           [localeId],
         )
-      ).rows.map(checkpointRow);
+      ).rows.map((row) => ({ ...checkpointRow(row), actorId: showActors ? row.actor_id : '' }));
     });
   }
   async getCheckpoint(
@@ -2481,7 +3083,10 @@ export class StorypaneStore {
   ): Promise<CheckpointDetail> {
     return this.tx(actor, async (client) => {
       await this.lockLocale(client, actor, storyId, localeId);
-      return this.readCheckpoint(client, localeId, checkpointId);
+      const checkpoint = await this.readCheckpoint(client, localeId, checkpointId);
+      const current = await this.snapshot(client, actor, storyId, localeId);
+      checkpoint.snapshot.story.folderId = current.story.folderId;
+      return checkpoint;
     });
   }
   private async readCheckpoint(
@@ -2509,6 +3114,13 @@ export class StorypaneStore {
     return this.tx(actor, async (client) => {
       await this.authorize(client, actor, 'content:edit');
       await this.lockLocale(client, actor, storyId, localeId);
+      const snapshot = await this.snapshot(client, actor, storyId, localeId);
+      requireBlock(snapshot, blockId);
+      if (
+        !projectSnapshot(await this.contentAccess(client, actor), snapshot).access.blocks[blockId]
+          .edit
+      )
+        throw new StorypaneError('forbidden', 'Your role cannot edit this block');
       if (
         !(
           await client.query('SELECT id FROM block_drafts WHERE id=$1 AND locale_id=$2', [
@@ -2549,6 +3161,13 @@ export class StorypaneStore {
     return this.tx(actor, async (client) => {
       await this.authorize(client, actor, 'content:edit');
       await this.lockLocale(client, actor, storyId, localeId);
+      const snapshot = await this.snapshot(client, actor, storyId, localeId);
+      requireBlock(snapshot, blockId);
+      if (
+        !projectSnapshot(await this.contentAccess(client, actor), snapshot).access.blocks[blockId]
+          .edit
+      )
+        throw new StorypaneError('forbidden', 'Your role cannot edit this block');
       const result = await client.query(
         `UPDATE edit_leases SET expires_at=clock_timestamp()+interval '${LEASE_SECONDS} seconds' WHERE locale_id=$1 AND block_id=$2 AND user_id=$3 AND session_id=$4 AND token=$5 AND expires_at>clock_timestamp() RETURNING *`,
         [localeId, blockId, actor.userId, actor.sessionId, token],
@@ -2679,7 +3298,7 @@ export class StorypaneStore {
         if (!storyIds.every((v) => typeof v === 'string' && z.uuid().safeParse(v).success))
           throw new StorypaneError('invalid', 'Expected story IDs');
         const stories = await client.query(
-          'SELECT id FROM stories WHERE space_id=$1 AND id=ANY($2::uuid[])',
+          'SELECT id FROM stories WHERE space_id=$1 AND deleted_at IS NULL AND id=ANY($2::uuid[])',
           [actor.spaceId, storyIds],
         );
         if (stories.rowCount !== new Set(storyIds).size)
@@ -2813,9 +3432,12 @@ export class StorypaneStore {
       await this.authorize(
         client,
         actor,
-        command.type === 'publishCheckpoint' ? 'content:publish' : 'content:edit',
+        ['publishCheckpoint', 'unpublishLocale'].includes(command.type)
+          ? 'content:publish'
+          : 'content:edit',
       );
-      if (command.type === 'publishCheckpoint') await this.lockPaths(client, actor.spaceId);
+      if (['publishCheckpoint', 'unpublishLocale'].includes(command.type))
+        await this.lockPaths(client, actor.spaceId);
       await this.lockLocale(client, actor, storyId, localeId);
       const deployed = await this.deployedMigration(client, actor.spaceId);
       if (command.migrationVersion !== undefined && command.migrationVersion !== deployed.version)
@@ -2835,6 +3457,14 @@ export class StorypaneStore {
             'Mutation ID was already used for a different request',
           );
         const checkpoint = await this.readCheckpoint(client, localeId, previous.checkpoint_id);
+        if (command.type === 'publishCheckpoint')
+          await this.requirePublicationAccess(
+            client,
+            actor,
+            (await this.readCheckpoint(client, localeId, command.payload.checkpointId)).snapshot,
+          );
+        if (command.type === 'unpublishLocale')
+          await this.requirePublicationAccess(client, actor, checkpoint.snapshot);
         if ((checkpoint.snapshot.migrationVersion ?? 0) !== deployed.version)
           throw new StorypaneError(
             'stale_revision',
@@ -2850,6 +3480,7 @@ export class StorypaneStore {
         };
       }
       const before = await this.snapshot(client, actor, storyId, localeId);
+      const access = await this.contentAccess(client, actor);
       const changed = new Set<string>();
       let publicationId: string | undefined;
       const requireOwned = (block: BlockDraft) =>
@@ -2858,6 +3489,20 @@ export class StorypaneStore {
         const block = requireBlock(before, command.payload.blockId);
         await requireOwned(block);
         const definition = before.definitions.find((d) => d.versionId === block.schemaVersionId)!;
+        const visible = projectSnapshot(access, before).access.blocks[block.id];
+        for (const [name, value] of Object.entries(command.payload.fields))
+          if (
+            !visible.fields[name]?.read ||
+            (!visible.fields[name]?.edit &&
+              JSON.stringify(value) !== JSON.stringify(block.fields[name]))
+          )
+            throw new StorypaneError('forbidden', 'Your role cannot change this field');
+        command.payload.fields = {
+          ...Object.fromEntries(
+            Object.entries(block.fields).filter(([name]) => !visible.fields[name]?.edit),
+          ),
+          ...command.payload.fields,
+        };
         const issues = validateFields(definition, command.payload.fields);
         if (issues.length) throw new StorypaneError('invalid', 'Invalid field values', issues);
         await this.validateReferences(client, actor, definition, command.payload.fields);
@@ -3083,6 +3728,12 @@ export class StorypaneStore {
             source.definitions.find((d) => d.versionId === root.schemaVersionId)!,
           );
           const items = subtree(source, rootId);
+          for (const item of items)
+            if (!blockAllowed(access, source, item, 'content:read'))
+              throw new StorypaneError(
+                'forbidden',
+                'Importing requires read access to every source field',
+              );
           const ids = new Map(items.map((b) => [b.id, randomUUID()]));
           for (const block of items) {
             const id = ids.get(block.id)!;
@@ -3173,6 +3824,7 @@ export class StorypaneStore {
         }
         current.forEach((b) => changed.add(b.id));
       } else if (command.type === 'restorePage') {
+        assertSnapshotAccess(access, before, 'content:edit');
         await requireOwned(requireBlock(before, before.locale.rootBlockId));
         if (command.expectedRevisions.$locale !== before.revision)
           throw new StorypaneError(
@@ -3221,50 +3873,55 @@ export class StorypaneStore {
           historical.snapshot.locale.rootBlockId,
         ]);
       } else if (command.type === 'publishCheckpoint') {
-        const historical = await this.readCheckpoint(
+        publicationId = await this.publishCheckpointTx(
           client,
+          actor,
+          storyId,
           localeId,
           command.payload.checkpointId,
         );
-        if ((historical.snapshot.migrationVersion ?? 0) !== deployed.version)
-          throw new StorypaneError(
-            'invalid',
-            'Restore this checkpoint under the current schema before publishing it.',
-          );
-        const collision = await client.query(
-          "SELECT l.id FROM story_locales l JOIN stories s ON s.id=l.story_id JOIN publications p ON p.id=l.published_version_id WHERE s.space_id=$1 AND l.space_locale_id=$2 AND l.id<>$3 AND coalesce(p.snapshot->'locale'->>'urlSlug',l.url_slug)=$4",
-          [
-            actor.spaceId,
-            before.locale.spaceLocaleId,
-            localeId,
-            historical.snapshot.locale.urlSlug,
-          ],
-        );
-        if (collision.rowCount)
-          throw new StorypaneError(
-            'invalid',
-            'Another page still publishes this URL. Republish it at its new URL first.',
-          );
-        await this.validateSnapshot(client, actor, historical.snapshot, true);
-        publicationId = randomUUID();
-        await client.query(
-          'INSERT INTO publications(id,locale_id,checkpoint_id,revision,actor_id,content,snapshot) VALUES($1,$2,$3,$4,$5,$6,$7)',
-          [
-            publicationId,
-            localeId,
-            historical.id,
-            historical.revision,
-            actor.userId,
-            JSON.stringify(historical.content),
-            JSON.stringify(historical.snapshot),
-          ],
-        );
-        await client.query('UPDATE story_locales SET published_version_id=$2 WHERE id=$1', [
+        await this.cancelPendingSchedules(client, localeId);
+      } else if (command.type === 'unpublishLocale') {
+        await this.requirePublicationAccess(client, actor, before);
+        await this.unpublishLocaleTx(
+          client,
+          actor,
+          storyId,
           localeId,
-          publicationId,
-        ]);
+          command.payload.publicationId,
+          command.payload.acknowledgeReferences,
+        );
       }
+
       const after = await this.snapshot(client, actor, storyId, localeId);
+      if (command.type !== 'publishCheckpoint') assertContentChanges(access, before, after);
+      for (const block of after.blocks) {
+        const old = before.blocks.find((item) => item.id === block.id);
+        const definition = after.definitions.find(
+          (item) => item.versionId === block.schemaVersionId,
+        )!;
+        for (const field of definition.fields) {
+          if (canonical(old?.fields[field.name]) === canonical(block.fields[field.name])) continue;
+          const value = block.fields[field.name];
+          const ids =
+            field.type === 'link' &&
+            value &&
+            typeof value === 'object' &&
+            !Array.isArray(value) &&
+            value.type === 'story'
+              ? [value.storyId]
+              : (field.type === 'option' || field.type === 'options') &&
+                  field.source.type === 'stories'
+                ? Array.isArray(value)
+                  ? value
+                  : value
+                    ? [value]
+                    : []
+                : [];
+          if (ids.some((id) => !access.locales.some((locale) => locale.storyId === id)))
+            throw new StorypaneError('forbidden', 'A referenced story is unavailable');
+        }
+      }
       await this.validateSnapshot(client, actor, after, false);
       if (after.blocks.length > 1000)
         throw new StorypaneError('invalid', 'A locale supports at most 1,000 blocks');
@@ -3291,6 +3948,943 @@ export class StorypaneStore {
       };
     });
   }
+  private async actionReceipt<T>(
+    client: PoolClient,
+    actor: Actor,
+    requestId: string,
+    input: unknown,
+    run: () => Promise<T>,
+    requiresPublish = false,
+  ): Promise<T> {
+    const hash = digest(input);
+    const previous = (
+      await client.query(
+        'SELECT request_hash,result FROM story_action_receipts WHERE space_id=$1 AND actor_id=$2 AND request_id=$3',
+        [actor.spaceId, actor.userId, requestId],
+      )
+    ).rows[0];
+    if (previous) {
+      if (previous.request_hash !== hash)
+        throw new StorypaneError('invalid', 'Request ID was already used for a different action');
+      if (previous.result.requiresPublish) await this.authorize(client, actor, 'content:publish');
+      return previous.result.value;
+    }
+    const result = await run();
+    await client.query(
+      'INSERT INTO story_action_receipts(space_id,actor_id,request_id,request_hash,result) VALUES($1,$2,$3,$4,$5)',
+      [
+        actor.spaceId,
+        actor.userId,
+        requestId,
+        hash,
+        JSON.stringify({ value: result, requiresPublish }),
+      ],
+    );
+    return result;
+  }
+  private async incomingStoryReferences(
+    client: PoolClient,
+    actor: Actor,
+    storyId: string,
+    publishedOnly = false,
+    access?: StoreContentAccess,
+  ): Promise<LifecycleReview['incomingReferences']> {
+    const rows = (
+      await client.query(
+        `SELECT s.id,s.name,s.folder_id,l.id AS locale_id,c.snapshot AS draft,p.snapshot AS published FROM stories s JOIN story_locales l ON l.story_id=s.id LEFT JOIN checkpoints c ON c.id=l.checkpoint_id LEFT JOIN publications p ON p.id=l.published_version_id WHERE s.space_id=$1 AND s.id<>$2 AND s.deleted_at IS NULL`,
+        [actor.spaceId, storyId],
+      )
+    ).rows;
+    const references: LifecycleReview['incomingReferences'] = [];
+    for (const row of rows)
+      for (const kind of publishedOnly ? ['published'] : ['draft', 'published']) {
+        const snapshot = row[kind] as LocaleSnapshot | null;
+        if (!snapshot) continue;
+        const projected = access?.locales.some((locale) => locale.id === row.locale_id)
+          ? projectSnapshot(access, {
+              ...snapshot,
+              story: { ...snapshot.story, folderId: row.folder_id },
+            }).access
+          : undefined;
+        let readable = false;
+        const found = snapshot.blocks.some((block) => {
+          const definition = snapshot.definitions.find(
+            (item) => item.versionId === block.schemaVersionId,
+          );
+          return definition?.fields.some((field) => {
+            const value = block.fields[field.name];
+            const matches =
+              field.type === 'link'
+                ? !!value &&
+                  typeof value === 'object' &&
+                  !Array.isArray(value) &&
+                  value.type === 'story' &&
+                  value.storyId === storyId
+                : (field.type === 'option' || field.type === 'options') &&
+                  field.source.type === 'stories' &&
+                  (Array.isArray(value) ? value.includes(storyId) : value === storyId);
+            if (matches && projected?.blocks[block.id]?.fields[field.name]?.read) readable = true;
+            return matches;
+          });
+        });
+        if (found)
+          references.push({
+            storyId: access && !readable ? '' : row.id,
+            storyName: access && !readable ? 'Restricted story' : row.name,
+            localeId: access && !readable ? '' : row.locale_id,
+            published: kind === 'published',
+          });
+      }
+    return references;
+  }
+  async reviewStoryAction(actor: Actor, storyId: string): Promise<LifecycleReview> {
+    parseInput(z.uuid(), storyId);
+    return this.tx(actor, async (client) => {
+      const story = (
+        await client.query('SELECT * FROM stories WHERE id=$1 AND space_id=$2', [
+          storyId,
+          actor.spaceId,
+        ])
+      ).rows[0];
+      if (!story) throw new StorypaneError('not_found', 'Story not found');
+      const access = await loadContentAccess(client, actor, !!story.deleted_at);
+      if (!access.locales.some((locale) => locale.storyId === storyId))
+        throw new StorypaneError('not_found', 'Story not found');
+      const rows = (
+        await client.query(
+          "SELECT l.*,p.snapshot->'locale'->>'urlSlug' AS published_url_slug FROM story_locales l LEFT JOIN publications p ON p.id=l.published_version_id WHERE l.story_id=$1 ORDER BY l.id",
+          [storyId],
+        )
+      ).rows;
+      return {
+        story: storyRow(story),
+        locales: rows
+          .filter((row) => access.locales.some((locale) => locale.id === row.id))
+          .map((row) => ({
+            id: row.id,
+            spaceLocaleId: row.space_locale_id,
+            slugSegment: row.slug_segment ?? row.url_slug,
+            publishedUrlSlug: row.published_url_slug ?? null,
+            checkpointId: row.checkpoint_id,
+            publicationId: row.published_version_id,
+            name: row.name,
+            slug: row.slug,
+            urlSlug: row.url_slug,
+            revision: Number(row.revision),
+          })),
+        incomingReferences: await this.incomingStoryReferences(
+          client,
+          actor,
+          storyId,
+          false,
+          access,
+        ),
+      };
+    });
+  }
+  private async cancelPendingSchedules(client: PoolClient, localeId: string) {
+    await client.query(
+      "UPDATE publication_schedules SET status='cancelled',revision=revision+1,updated_at=clock_timestamp() WHERE locale_id=$1 AND status='pending'",
+      [localeId],
+    );
+  }
+  private async publishCheckpointTx(
+    client: PoolClient,
+    actor: Actor,
+    storyId: string,
+    localeId: string,
+    checkpointId: string,
+  ): Promise<string> {
+    const historical = await this.readCheckpoint(client, localeId, checkpointId);
+    await this.requirePublicationAccess(client, actor, historical.snapshot);
+    const deployed = await this.deployedMigration(client, actor.spaceId);
+    if ((historical.snapshot.migrationVersion ?? 0) !== deployed.version)
+      throw new StorypaneError(
+        'invalid',
+        'Restore this checkpoint under the current schema before publishing it.',
+      );
+    const collision = await client.query(
+      "SELECT l.id FROM story_locales l JOIN stories s ON s.id=l.story_id JOIN publications p ON p.id=l.published_version_id WHERE s.space_id=$1 AND s.deleted_at IS NULL AND l.space_locale_id=$2 AND l.id<>$3 AND coalesce(p.snapshot->'locale'->>'urlSlug',l.url_slug)=$4",
+      [
+        actor.spaceId,
+        historical.snapshot.locale.spaceLocaleId,
+        localeId,
+        historical.snapshot.locale.urlSlug,
+      ],
+    );
+    if (collision.rowCount)
+      throw new StorypaneError(
+        'invalid',
+        'Another page still publishes this URL. Republish it at its new URL first.',
+      );
+    await this.validateSnapshot(client, actor, historical.snapshot, true);
+    const publicationId = randomUUID();
+    await client.query(
+      'INSERT INTO publications(id,locale_id,checkpoint_id,revision,actor_id,content,snapshot) VALUES($1,$2,$3,$4,$5,$6,$7)',
+      [
+        publicationId,
+        localeId,
+        historical.id,
+        historical.revision,
+        actor.userId,
+        JSON.stringify(historical.content),
+        JSON.stringify(historical.snapshot),
+      ],
+    );
+    await client.query('UPDATE story_locales SET published_version_id=$2 WHERE id=$1', [
+      localeId,
+      publicationId,
+    ]);
+    await recordWebhookEvent(client, {
+      spaceId: actor.spaceId,
+      actorId: actor.userId,
+      type: 'story.published',
+      key: `story.published:${publicationId}`,
+      data: {
+        storyId,
+        localeId,
+        checkpointId,
+        publicationId,
+        revision: historical.revision,
+        path: historical.snapshot.locale.urlSlug,
+        locale: historical.snapshot.locale.slug,
+      },
+    });
+    return publicationId;
+  }
+  private async unpublishLocaleTx(
+    client: PoolClient,
+    actor: Actor,
+    storyId: string,
+    localeId: string,
+    publicationId: string | null,
+    acknowledgeReferences: boolean,
+  ) {
+    const locale = (
+      await client.query('SELECT published_version_id FROM story_locales WHERE id=$1', [localeId])
+    ).rows[0];
+    if (publicationId) {
+      const published = (
+        await client.query('SELECT snapshot FROM publications WHERE id=$1 AND locale_id=$2', [
+          publicationId,
+          localeId,
+        ])
+      ).rows[0];
+      if (published) await this.requirePublicationAccess(client, actor, published.snapshot);
+    }
+    if (locale.published_version_id !== publicationId)
+      throw new StorypaneError(
+        'stale_revision',
+        'The publication changed; review it before unpublishing.',
+      );
+    if (
+      publicationId &&
+      !acknowledgeReferences &&
+      (await this.incomingStoryReferences(client, actor, storyId, true)).length
+    )
+      throw new StorypaneError(
+        'invalid',
+        'Other published stories link here. Acknowledge the incoming references before unpublishing.',
+      );
+    await this.cancelPendingSchedules(client, localeId);
+    await client.query('UPDATE story_locales SET published_version_id=NULL WHERE id=$1', [
+      localeId,
+    ]);
+    if (publicationId)
+      await recordWebhookEvent(client, {
+        spaceId: actor.spaceId,
+        actorId: actor.userId,
+        type: 'story.unpublished',
+        key: `story.unpublished:${publicationId}`,
+        data: { storyId, localeId, publicationId },
+      });
+  }
+  async storyAction(actor: Actor, storyId: string, raw: unknown): Promise<StoryActionResult> {
+    parseInput(z.uuid(), storyId);
+    const input = parseInput(storyActionSchema, raw);
+    const permission =
+      input.action === 'publish' || input.action === 'unpublish'
+        ? 'content:publish'
+        : 'content:edit';
+    return this.tx(
+      actor,
+      async (client) => {
+        await this.lockPaths(client, actor.spaceId);
+        const source = (
+          await client.query('SELECT * FROM stories WHERE id=$1 AND space_id=$2 FOR UPDATE', [
+            storyId,
+            actor.spaceId,
+          ])
+        ).rows[0];
+        if (!source) throw new StorypaneError('not_found', 'Story not found');
+        const locales = (
+          await client.query(
+            'SELECT * FROM story_locales WHERE story_id=$1 ORDER BY id FOR UPDATE',
+            [storyId],
+          )
+        ).rows;
+        const previousRequirement =
+          input.action === 'delete'
+            ? (
+                await client.query(
+                  'SELECT result FROM story_action_receipts WHERE space_id=$1 AND actor_id=$2 AND request_id=$3',
+                  [actor.spaceId, actor.userId, input.requestId],
+                )
+              ).rows[0]?.result.requiresPublish
+            : false;
+        const requiresPublish =
+          input.action === 'delete' &&
+          (previousRequirement ||
+            input.locales.some((locale) => locale.publicationId) ||
+            locales.some((locale) => locale.published_version_id) ||
+            (
+              await client.query(
+                "SELECT 1 FROM publication_schedules WHERE story_id=$1 AND status='pending'",
+                [storyId],
+              )
+            ).rowCount);
+        if (requiresPublish) await this.authorize(client, actor, 'content:publish');
+        const access = await loadContentAccess(client, actor, !!source.deleted_at);
+        if (!access.locales.some((locale) => locale.storyId === storyId))
+          throw new StorypaneError('not_found', 'Story not found');
+        for (const locale of locales) {
+          if (
+            (input.action === 'publish' || input.action === 'unpublish') &&
+            !input.locales.some((target) => target.id === locale.id)
+          )
+            continue;
+          const checkpoint = await this.readCheckpoint(client, locale.id, locale.checkpoint_id);
+          const current = { ...checkpoint.snapshot, story: storyRow(source) };
+          if (input.action === 'restore') {
+            assertLocationAccess(
+              access,
+              { storyId, folderId: source.folder_id, spaceLocaleId: locale.space_locale_id },
+              'content:edit',
+            );
+          } else if (input.action === 'publish') {
+            const target = input.locales.find((target) => target.id === locale.id)!;
+            if (!target.checkpointId)
+              throw new StorypaneError('invalid', 'Review a saved checkpoint first');
+            const pinned = await this.readCheckpoint(client, locale.id, target.checkpointId);
+            this.assertCompleteAccess(
+              access,
+              { ...pinned.snapshot, story: storyRow(source) },
+              'content:publish',
+            );
+          } else {
+            this.assertCompleteAccess(
+              access,
+              current,
+              input.action === 'duplicate'
+                ? 'content:read'
+                : input.action === 'unpublish'
+                  ? 'content:publish'
+                  : 'content:edit',
+            );
+            if (requiresPublish) this.assertCompleteAccess(access, current, 'content:publish');
+          }
+          if (input.action === 'move' || input.action === 'duplicate') {
+            const folderId = input.action === 'move' ? input.location.folderId : input.folderId;
+            this.assertCompleteAccess(
+              access,
+              {
+                ...current,
+                story: {
+                  ...current.story,
+                  id: input.action === 'duplicate' ? randomUUID() : storyId,
+                  folderId,
+                },
+              },
+              'content:edit',
+            );
+          }
+        }
+        return this.actionReceipt(
+          client,
+          actor,
+          input.requestId,
+          { storyId, ...input },
+          async () => {
+            if (input.action !== 'restore' && source.deleted_at)
+              throw new StorypaneError('not_found', 'Story was deleted');
+            if (input.action === 'restore') {
+              if (!source.deleted_at)
+                return { story: storyRow(source), localeIds: locales.map((locale) => locale.id) };
+              await client.query('UPDATE stories SET deleted_at=NULL,deleted_by=NULL WHERE id=$1', [
+                storyId,
+              ]);
+              for (const locale of locales) {
+                const historical = await this.readCheckpoint(
+                  client,
+                  locale.id,
+                  locale.checkpoint_id,
+                );
+                const restored = await this.restoreMigrationSnapshot(
+                  client,
+                  actor,
+                  historical.snapshot,
+                );
+                this.assertCompleteAccess(
+                  access,
+                  { ...restored, story: storyRow({ ...source, deleted_at: null }) },
+                  'content:edit',
+                );
+                await this.validateSnapshot(client, actor, restored, false);
+                await client.query('DELETE FROM block_drafts WHERE locale_id=$1', [locale.id]);
+                for (const block of restored.blocks)
+                  await client.query(
+                    'INSERT INTO block_drafts(id,locale_id,schema_version_id,parent_id,parent_field,position,fields,revision) VALUES($1,$2,$3,$4,$5,$6,$7,$8)',
+                    [
+                      block.id,
+                      locale.id,
+                      block.schemaVersionId,
+                      block.parentId,
+                      block.parentField,
+                      block.position,
+                      JSON.stringify(block.fields),
+                      block.revision + 1,
+                    ],
+                  );
+                await client.query(
+                  'UPDATE story_locales SET root_block_id=$2,published_version_id=NULL WHERE id=$1',
+                  [locale.id, restored.locale.rootBlockId],
+                );
+                await this.checkpoint(client, actor, storyId, locale.id, 'Restore deleted story');
+              }
+              await this.refreshPaths(client, actor, await this.folders(client, actor.spaceId));
+            } else if (input.action === 'delete') {
+              const actual = locales.map((locale) => ({
+                id: locale.id,
+                checkpointId: locale.checkpoint_id,
+                publicationId: locale.published_version_id,
+              }));
+              if (
+                canonical(actual) !==
+                canonical([...input.locales].sort((a, b) => a.id.localeCompare(b.id)))
+              )
+                throw new StorypaneError(
+                  'stale_revision',
+                  'The story changed; review every locale before deleting.',
+                );
+              if ((await this.incomingStoryReferences(client, actor, storyId)).length)
+                throw new StorypaneError(
+                  'invalid',
+                  'Other active stories reference this story. Remove those references before deleting.',
+                );
+              for (const locale of locales) {
+                const blocks = (
+                  await client.query('SELECT id FROM block_drafts WHERE locale_id=$1', [locale.id])
+                ).rows;
+                await this.noCompetingLeases(
+                  client,
+                  actor,
+                  locale.id,
+                  blocks.map((block) => block.id),
+                );
+                await this.unpublishLocaleTx(
+                  client,
+                  actor,
+                  storyId,
+                  locale.id,
+                  locale.published_version_id,
+                  true,
+                );
+                await this.checkpoint(client, actor, storyId, locale.id, 'Delete story');
+              }
+              await client.query('DELETE FROM edit_leases WHERE locale_id=ANY($1::uuid[])', [
+                locales.map((locale) => locale.id),
+              ]);
+              await client.query('DELETE FROM preview_sessions WHERE story_id=$1', [storyId]);
+              await client.query(
+                'UPDATE stories SET deleted_at=clock_timestamp(),deleted_by=$2 WHERE id=$1',
+                [storyId, actor.userId],
+              );
+              await recordWebhookEvent(client, {
+                spaceId: actor.spaceId,
+                actorId: actor.userId,
+                type: 'story.deleted',
+                key: `story.deleted:${input.requestId}`,
+                data: { storyId, path: source.slug },
+              });
+            } else if (input.action === 'duplicate') {
+              const folders = await this.folders(client, actor.spaceId);
+              folderPath(folders, input.folderId);
+              const snapshots: LocaleSnapshot[] = [];
+              for (const locale of locales)
+                snapshots.push(await this.snapshot(client, actor, storyId, locale.id));
+              for (const snapshot of snapshots)
+                this.checkFolderType(
+                  folders,
+                  input.folderId,
+                  requireBlock(snapshot, snapshot.locale.rootBlockId).definitionId,
+                );
+              const copyBase = (source.slug_segment ?? source.slug)
+                .slice(0, 180)
+                .replace(/[^\p{L}\p{N}_-]+$/u, '');
+              let slug = input.slug ?? `${copyBase}-copy`,
+                suffix = 2;
+              if (!input.slug)
+                while (
+                  (
+                    await client.query(
+                      'SELECT 1 FROM stories WHERE space_id=$1 AND slug=$2 UNION ALL SELECT 1 FROM story_locales WHERE (space_locale_id::text,url_slug) IN (SELECT * FROM unnest($3::text[],$4::text[]))',
+                      [
+                        actor.spaceId,
+                        joinPath(folderPath(folders, input.folderId), slug),
+                        snapshots.map((snapshot) => snapshot.locale.spaceLocaleId),
+                        snapshots.map((snapshot) =>
+                          joinPath(
+                            folderPath(folders, input.folderId, snapshot.locale.spaceLocaleId),
+                            slug,
+                          ),
+                        ),
+                      ],
+                    )
+                  ).rowCount
+                )
+                  slug = `${copyBase}-copy-${suffix++}`;
+              parseInput(pathSlugSchema, slug);
+              const id = randomUUID(),
+                path = joinPath(folderPath(folders, input.folderId), slug);
+              if (path.length > 2048)
+                throw new StorypaneError('invalid', 'Page paths cannot exceed 2,048 characters');
+              if (
+                (
+                  await client.query('SELECT 1 FROM stories WHERE space_id=$1 AND slug=$2', [
+                    actor.spaceId,
+                    path,
+                  ])
+                ).rowCount
+              )
+                throw new StorypaneError(
+                  'invalid',
+                  'This path is already reserved by an active or deleted story.',
+                );
+              await client.query(
+                'INSERT INTO stories(id,space_id,name,slug,slug_segment,folder_id) VALUES($1,$2,$3,$4,$5,$6)',
+                [
+                  id,
+                  actor.spaceId,
+                  input.name ?? `${source.name.slice(0, 195)} copy`,
+                  path,
+                  slug,
+                  input.folderId,
+                ],
+              );
+              const newLocales: string[] = [];
+              for (const snapshot of snapshots) {
+                const localeId = randomUUID(),
+                  ids = new Map(snapshot.blocks.map((block) => [block.id, randomUUID()]));
+                const localePath = joinPath(
+                  folderPath(folders, input.folderId, snapshot.locale.spaceLocaleId),
+                  slug,
+                );
+                if (localePath.length > 2048)
+                  throw new StorypaneError('invalid', 'Page paths cannot exceed 2,048 characters');
+                if (
+                  (
+                    await client.query(
+                      'SELECT 1 FROM story_locales WHERE space_locale_id=$1 AND url_slug=$2',
+                      [snapshot.locale.spaceLocaleId, localePath],
+                    )
+                  ).rowCount
+                )
+                  throw new StorypaneError(
+                    'invalid',
+                    'This translated path is reserved by an active or deleted story.',
+                  );
+                await client.query(
+                  'INSERT INTO story_locales(id,story_id,space_locale_id,slug,name,url_slug,slug_segment,root_block_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8)',
+                  [
+                    localeId,
+                    id,
+                    snapshot.locale.spaceLocaleId,
+                    snapshot.locale.slug,
+                    snapshot.locale.name,
+                    localePath,
+                    slug,
+                    ids.get(snapshot.locale.rootBlockId),
+                  ],
+                );
+                for (const block of snapshot.blocks)
+                  await client.query(
+                    'INSERT INTO block_drafts(id,locale_id,schema_version_id,parent_id,parent_field,position,fields) VALUES($1,$2,$3,$4,$5,$6,$7)',
+                    [
+                      ids.get(block.id),
+                      localeId,
+                      block.schemaVersionId,
+                      block.parentId ? ids.get(block.parentId) : null,
+                      block.parentField,
+                      block.position,
+                      JSON.stringify(block.fields),
+                    ],
+                  );
+                const copied = await this.snapshot(client, actor, id, localeId);
+                await this.validateSnapshot(client, actor, copied, false);
+                await this.checkpoint(client, actor, id, localeId, 'Duplicate story');
+                newLocales.push(localeId);
+              }
+              return {
+                story: storyRow(
+                  (await client.query('SELECT * FROM stories WHERE id=$1', [id])).rows[0],
+                ),
+                localeIds: newLocales,
+              };
+            } else if (input.action === 'move') {
+              const location = input.location,
+                folders = await this.folders(client, actor.spaceId);
+              folderPath(folders, location.folderId);
+              if (
+                Object.keys(location.localeSlugs).some(
+                  (id) =>
+                    !locales.some((locale) => locale.space_locale_id === id && locale.slug !== ''),
+                )
+              )
+                throw new StorypaneError(
+                  'invalid',
+                  'Choose an existing locale for translated slugs',
+                );
+              await client.query('UPDATE stories SET folder_id=$2,slug_segment=$3 WHERE id=$1', [
+                storyId,
+                location.folderId,
+                location.slug,
+              ]);
+              for (const locale of locales)
+                await client.query('UPDATE story_locales SET slug_segment=$2 WHERE id=$1', [
+                  locale.id,
+                  locale.slug === ''
+                    ? location.slug
+                    : (location.localeSlugs[locale.space_locale_id] ?? locale.slug_segment),
+                ]);
+              await this.refreshPaths(client, actor, folders, storyId);
+            } else {
+              if (new Set(input.locales.map((locale) => locale.id)).size !== input.locales.length)
+                throw new StorypaneError('invalid', 'Choose each locale once');
+              for (const target of input.locales) {
+                const locale = locales.find((locale) => locale.id === target.id);
+                if (!locale)
+                  throw new StorypaneError('invalid', 'Locale does not belong to this story');
+                if (input.action === 'publish') {
+                  if (!target.checkpointId)
+                    throw new StorypaneError('invalid', 'Review a saved checkpoint first');
+                  await this.publishCheckpointTx(
+                    client,
+                    actor,
+                    storyId,
+                    locale.id,
+                    target.checkpointId,
+                  );
+                  await this.cancelPendingSchedules(client, locale.id);
+                } else
+                  await this.unpublishLocaleTx(
+                    client,
+                    actor,
+                    storyId,
+                    locale.id,
+                    target.publicationId,
+                    input.acknowledgeReferences,
+                  );
+                await this.checkpoint(
+                  client,
+                  actor,
+                  storyId,
+                  locale.id,
+                  input.action === 'publish' ? 'publishCheckpoint' : 'unpublishLocale',
+                );
+              }
+            }
+            return {
+              story: storyRow(
+                (await client.query('SELECT * FROM stories WHERE id=$1', [storyId])).rows[0],
+              ),
+              localeIds: locales.map((locale) => locale.id),
+            };
+          },
+          !!requiresPublish,
+        );
+      },
+      permission,
+      true,
+    );
+  }
+  async bulkStoryAction(actor: Actor, raw: unknown): Promise<BulkStoryActionResult[]> {
+    const input = parseInput(bulkStoryActionSchema, raw),
+      results: BulkStoryActionResult[] = [];
+    for (const item of input.items)
+      try {
+        results.push({
+          storyId: item.storyId,
+          result: await this.storyAction(actor, item.storyId, item.input),
+        });
+      } catch (error) {
+        results.push({
+          storyId: item.storyId,
+          error:
+            error instanceof StorypaneError
+              ? { code: error.code, message: error.message }
+              : {
+                  code: 'unavailable',
+                  message: 'The action could not complete. Retry the same selection.',
+                },
+        });
+      }
+    return results;
+  }
+  async listSchedules(
+    actor: Actor,
+    storyId: string,
+    localeId: string,
+  ): Promise<PublicationSchedule[]> {
+    return this.tx(actor, async (client) => {
+      await this.lockLocale(client, actor, storyId, localeId);
+      return (
+        await client.query(
+          'SELECT s.*,c.revision AS checkpoint_revision FROM publication_schedules s JOIN checkpoints c ON c.id=s.checkpoint_id WHERE s.locale_id=$1 ORDER BY s.created_at DESC LIMIT 20',
+          [localeId],
+        )
+      ).rows.map(scheduleRow);
+    });
+  }
+  async schedulePublication(
+    actor: Actor,
+    storyId: string,
+    localeId: string,
+    raw: unknown,
+  ): Promise<PublicationSchedule> {
+    const input = parseInput(scheduleInputSchema, raw);
+    if (
+      !scheduleInstants(input.localTime, input.timezone).some(
+        (item) => item.instant === new Date(input.dueAt).toISOString(),
+      )
+    )
+      throw new StorypaneError(
+        'invalid',
+        'Choose a valid local date/time and explicit UTC offset for this timezone.',
+      );
+    return this.tx(
+      actor,
+      async (client) => {
+        await this.lockPaths(client, actor.spaceId);
+        await this.lockLocale(client, actor, storyId, localeId);
+        await this.requirePublicationAccess(
+          client,
+          actor,
+          (await this.readCheckpoint(client, localeId, input.checkpointId)).snapshot,
+        );
+        return this.actionReceipt(
+          client,
+          actor,
+          input.requestId,
+          { storyId, localeId, ...input },
+          async () => {
+            if (
+              !(
+                await client.query('SELECT $1::timestamptz>clock_timestamp() AS future', [
+                  input.dueAt,
+                ])
+              ).rows[0].future
+            )
+              throw new StorypaneError('invalid', 'Choose a future publication time.');
+            const pending = (
+              await client.query(
+                "SELECT * FROM publication_schedules WHERE locale_id=$1 AND status='pending' FOR UPDATE",
+                [localeId],
+              )
+            ).rows[0];
+            if (
+              (pending?.id ?? null) !== input.expectedScheduleId ||
+              (pending?.revision ?? null) !== input.expectedRevision
+            )
+              throw new StorypaneError(
+                'stale_revision',
+                'The schedule changed; refresh before replacing it.',
+              );
+            const checkpoint = await this.readCheckpoint(client, localeId, input.checkpointId),
+              deployed = await this.deployedMigration(client, actor.spaceId);
+            if ((checkpoint.snapshot.migrationVersion ?? 0) !== deployed.version)
+              throw new StorypaneError(
+                'invalid',
+                'Review a checkpoint under the deployed schema before scheduling.',
+              );
+            await this.validateSnapshot(client, actor, checkpoint.snapshot, true);
+            await this.cancelPendingSchedules(client, localeId);
+            const row = (
+              await client.query(
+                'INSERT INTO publication_schedules(space_id,story_id,locale_id,checkpoint_id,schema_version,creator_id,due_at,timezone,next_attempt_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$7) RETURNING *',
+                [
+                  actor.spaceId,
+                  storyId,
+                  localeId,
+                  input.checkpointId,
+                  deployed.version,
+                  actor.userId,
+                  input.dueAt,
+                  input.timezone,
+                ],
+              )
+            ).rows[0];
+            return scheduleRow({ ...row, checkpoint_revision: checkpoint.revision });
+          },
+        );
+      },
+      'content:publish',
+      true,
+    );
+  }
+  async cancelSchedule(
+    actor: Actor,
+    storyId: string,
+    localeId: string,
+    scheduleId: string,
+    raw: unknown,
+  ): Promise<PublicationSchedule> {
+    const input = parseInput(cancelScheduleSchema, raw);
+    parseInput(z.uuid(), scheduleId);
+    return this.tx(
+      actor,
+      async (client) => {
+        await this.lockPaths(client, actor.spaceId);
+        await this.lockLocale(client, actor, storyId, localeId);
+        const scheduled = (
+          await client.query(
+            'SELECT checkpoint_id FROM publication_schedules WHERE id=$1 AND locale_id=$2',
+            [scheduleId, localeId],
+          )
+        ).rows[0];
+        if (!scheduled) throw new StorypaneError('not_found', 'Schedule not found');
+        await this.requirePublicationAccess(
+          client,
+          actor,
+          (await this.readCheckpoint(client, localeId, scheduled.checkpoint_id)).snapshot,
+        );
+        return this.actionReceipt(
+          client,
+          actor,
+          input.requestId,
+          { storyId, localeId, scheduleId, ...input },
+          async () => {
+            const row = (
+              await client.query(
+                'SELECT s.*,c.revision AS checkpoint_revision FROM publication_schedules s JOIN checkpoints c ON c.id=s.checkpoint_id WHERE s.id=$1 AND s.locale_id=$2 FOR UPDATE OF s',
+                [scheduleId, localeId],
+              )
+            ).rows[0];
+            if (!row) throw new StorypaneError('not_found', 'Schedule not found');
+            if (row.status !== 'pending' || row.revision !== input.revision)
+              throw new StorypaneError(
+                'stale_revision',
+                'This schedule already changed or completed.',
+              );
+            await this.cancelPendingSchedules(client, localeId);
+            return scheduleRow({ ...row, status: 'cancelled', revision: row.revision + 1 });
+          },
+        );
+      },
+      'content:publish',
+      true,
+    );
+  }
+  async runScheduledPublications(
+    limit = 25,
+  ): Promise<{ spaceId: string; storyId: string; localeId: string }[]> {
+    const candidates = (
+      await this.pool.query(
+        "SELECT id,space_id,story_id,locale_id FROM publication_schedules WHERE status='pending' AND due_at<=clock_timestamp() AND next_attempt_at<=clock_timestamp() ORDER BY next_attempt_at,id LIMIT $1",
+        [parseInput(z.number().int().min(1).max(100), limit)],
+      )
+    ).rows;
+    const changed: { spaceId: string; storyId: string; localeId: string }[] = [];
+    for (const candidate of candidates) {
+      const client = await this.pool.connect();
+      try {
+        await client.query('BEGIN');
+        await client.query('SELECT pg_advisory_xact_lock_shared(hashtextextended($1,91))', [
+          candidate.space_id,
+        ]);
+        await this.lockPaths(client, candidate.space_id);
+        await client.query('SELECT id FROM story_locales WHERE id=$1 FOR UPDATE', [
+          candidate.locale_id,
+        ]);
+        const row = (
+          await client.query(
+            "SELECT s.*,st.deleted_at FROM publication_schedules s JOIN stories st ON st.id=s.story_id WHERE s.id=$1 AND s.status='pending' AND s.due_at<=clock_timestamp() AND s.next_attempt_at<=clock_timestamp() FOR UPDATE OF s SKIP LOCKED",
+            [candidate.id],
+          )
+        ).rows[0];
+        if (!row) {
+          await client.query('ROLLBACK');
+          continue;
+        }
+        await client.query('SAVEPOINT publication_attempt');
+        try {
+          const membership = (
+            await client.query(
+              'SELECT m.role,r.permissions FROM memberships m JOIN "user" u ON u.id=m.user_id JOIN space_roles r ON r.space_id=m.space_id AND r.id=m.role WHERE m.space_id=$1 AND m.user_id=$2',
+              [row.space_id, row.creator_id],
+            )
+          ).rows[0];
+          if (!membership || !membership.permissions.includes('content:publish'))
+            throw new StorypaneError(
+              'forbidden',
+              'The scheduler no longer has publishing permission.',
+            );
+          if (row.deleted_at) throw new StorypaneError('not_found', 'The story was deleted.');
+          const actor: Actor = {
+            spaceId: row.space_id,
+            userId: row.creator_id,
+            sessionId: '',
+            role: membership.role,
+          };
+          const publicationId = await this.publishCheckpointTx(
+            client,
+            actor,
+            row.story_id,
+            row.locale_id,
+            row.checkpoint_id,
+          );
+          await this.checkpoint(
+            client,
+            actor,
+            row.story_id,
+            row.locale_id,
+            'Scheduled publication',
+          );
+          await client.query(
+            "UPDATE publication_schedules SET status='published',publication_id=$2,attempt_count=attempt_count+1,revision=revision+1,updated_at=clock_timestamp(),error=NULL WHERE id=$1",
+            [row.id, publicationId],
+          );
+        } catch (error) {
+          await client.query('ROLLBACK TO SAVEPOINT publication_attempt');
+          const terminal = error instanceof StorypaneError && error.code !== 'unavailable';
+          const attempts = row.attempt_count + 1,
+            failed = terminal || attempts >= 5;
+          const message =
+            error instanceof StorypaneError
+              ? error.message
+              : 'Publication infrastructure is unavailable; retrying.';
+          await client.query(
+            "UPDATE publication_schedules SET status=$2,error=$3,attempt_count=$4,revision=revision+1,next_attempt_at=clock_timestamp()+($5::integer*interval '1 minute'),updated_at=clock_timestamp() WHERE id=$1",
+            [
+              row.id,
+              failed ? 'failed' : 'pending',
+              message,
+              attempts,
+              [1, 5, 15, 60][Math.min(attempts - 1, 3)],
+            ],
+          );
+        }
+        await client.query('COMMIT');
+        changed.push({ spaceId: row.space_id, storyId: row.story_id, localeId: row.locale_id });
+      } catch (error) {
+        await client.query('ROLLBACK');
+        throw error;
+      } finally {
+        client.release();
+      }
+    }
+    return changed;
+  }
+
   async getPublication(
     actor: Actor,
     storyId: string,
@@ -3309,7 +4903,9 @@ export class StorypaneStore {
         checkpointId: r.checkpoint_id,
         revision: Number(r.revision),
         createdAt: iso(r.created_at),
-        content: r.content,
+        content: projectedContent(
+          projectSnapshot(await this.contentAccess(client, actor), r.snapshot),
+        ),
       };
     });
   }
@@ -3385,8 +4981,9 @@ export class StorypaneStore {
     }
     return this.tx(actor, async (client) => {
       if (input.source.type === 'stories') {
+        const access = await this.contentAccess(client, actor);
         const result = await client.query(
-          `SELECT s.id AS value,s.name AS label,'/' || s.slug AS description FROM stories s WHERE s.space_id=$1 AND ($2='' OR s.name ILIKE '%' || $2 || '%' OR ('/' || s.slug) ILIKE '%' || $2 || '%' OR s.id::text=$2) AND ($5::text[] IS NULL OR s.id::text=ANY($5)) AND ($3::uuid IS NULL OR EXISTS(SELECT 1 FROM story_locales l JOIN block_drafts b ON b.id=l.root_block_id AND b.locale_id=l.id JOIN definition_versions v ON v.id=b.schema_version_id WHERE l.story_id=s.id AND l.slug='' AND v.definition_id=$3)) ORDER BY s.name,s.id LIMIT $6 OFFSET $4`,
+          `SELECT s.id AS value,s.name AS label,'/' || s.slug AS description FROM stories s WHERE s.space_id=$1 AND s.deleted_at IS NULL AND ($7::uuid[] IS NULL OR s.id=ANY($7)) AND ($2='' OR s.name ILIKE '%' || $2 || '%' OR ('/' || s.slug) ILIKE '%' || $2 || '%' OR s.id::text=$2) AND ($5::text[] IS NULL OR s.id::text=ANY($5)) AND ($3::uuid IS NULL OR EXISTS(SELECT 1 FROM story_locales l JOIN block_drafts b ON b.id=l.root_block_id AND b.locale_id=l.id JOIN definition_versions v ON v.id=b.schema_version_id WHERE l.story_id=s.id AND l.slug='' AND v.definition_id=$3)) ORDER BY s.name,s.id LIMIT $6 OFFSET $4`,
           [
             actor.spaceId,
             search,
@@ -3394,6 +4991,9 @@ export class StorypaneStore {
             start,
             input.values ?? null,
             limit + 1,
+            unrestrictedRead(access)
+              ? null
+              : [...new Set(access.locales.map((locale) => locale.storyId))],
           ],
         );
         return {

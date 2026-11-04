@@ -38,18 +38,23 @@ preserves the Astro default. The Next.js example has its own server client, type
 block components, schema snapshot, and preview route. See [the Next.js integration guide](apps/example-next/README.md).
 Run `pnpm lint:example` to lint and check formatting in both examples.
 
-Postgres listens only on `127.0.0.1:55432`, using database/user/password `blok`.
+By default, Postgres listens only on `127.0.0.1:55432`, using database/user/password `storypane`.
 Optional settings are in `.env.example`; copy it to `.env` when changing defaults.
 Keep `DATABASE_URL` consistent with the Compose settings. `pnpm db:setup` applies database migrations. Local R2/room state persists
-under `.cloudflare/state`; database content persists in `blok_postgres_data`.
+under `.cloudflare/state`; database content persists in `storypane_postgres_data`.
 Stop the database with `docker compose stop`. Removing its volume erases content.
 
-Storypane was previously named Blok. Workspace packages now use `@storypane/*`,
-and the SDK command is `storypane`. Prefer `STORYPANE_*` environment variables
-(`PUBLIC_STORYPANE_*` for browser flags); existing `BLOK_*` settings still work.
-The local database, fixture accounts, Docker project/volume, Cloudflare resource
-names, preview protocol, and browser storage keys retain their original identifiers
-so the rename preserves content, assets, sessions, and unsent edits.
+Use `STORYPANE_*` environment variables (`PUBLIC_STORYPANE_*` for Astro browser
+flags) and the `storypane` CLI. Rebuild preview applications with the current SDK
+when updating the CMS; preview messages and editable attributes use Storypane names.
+Database setup preserves migration history, and the browser migrates saved drafts
+and theme preferences automatically.
+
+For an existing installation, keep its resource identifiers in the ignored root
+`.env`: `COMPOSE_PROJECT_NAME`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`,
+`DATABASE_URL`, `TEST_DATABASE_URL`, `R2_BUCKET`, `STORYPANE_WEB_WORKER_NAME`, and
+`STORYPANE_REALTIME_WORKER_NAME`. Changing defaults does not rename existing
+Docker volumes, databases, buckets, or Durable Object namespaces.
 
 ## What works
 
@@ -75,8 +80,10 @@ so the rename preserves content, assets, sessions, and unsent edits.
 - Central Spaces screen with search, creation, story/member counts, and per-space
   settings. New spaces start empty and their creator becomes an administrator.
 - Settings → Roles includes fixed Admin, Editor, and read-only Viewer roles, plus
-  custom space-specific roles. Configure editing, publishing, assets, block schemas,
-  datasources, and settings independently. All members can read space content.
+  custom space-specific roles. Scope reading, editing, and publishing by folder subtree
+  or story, locale, block type, and field. Configure assets, schemas, datasources,
+  and settings independently. Hidden fields are omitted from HTTP and live snapshots;
+  partial editors use the form view, and saves preserve protected fields.
   Only Admins manage roles and memberships; built-in roles cannot be modified.
   Assigned roles cannot be deleted until members are reassigned and invitations revoked.
   Permissions are checked from Postgres on each operation, including lease renewal
@@ -91,6 +98,17 @@ so the rename preserves content, assets, sessions, and unsent edits.
   links reopen the same content. API calls, live editing, uploads, and asset previews
   all use the selected space. Locale changes retain the current form while loading
   the destination and keep application preview open.
+- Content selection supports reviewed bulk publish/unpublish/move/delete, draft-only
+  duplication, and soft-delete recovery. History is preserved; live references and
+  editing leases are checked before destructive actions.
+- Schedule a reviewed locale checkpoint with an explicit timezone. Later edits remain
+  drafts; a minute cron checks current permissions, schema, and URL conflicts before
+  publication. Pending/failed schedules appear in the list and editor.
+- Admin-managed [signed webhooks](docs/webhooks.md) use a transactional outbox,
+  bounded retries, delivery logs, and an allowlist of HTTPS destinations.
+- Admins can opt a space into public media URLs for current published assets.
+  Images support bounded variants and focal points; asset details list draft/live
+  usage filtered by the viewer's content permissions. Public media defaults off.
 - Delivery SDK with Postgres-backed published reads, read-only live draft preview,
   configurable preview triggers, and React/Next.js/Astro integration recipes.
 - Working Astro example with a typed React block registry, published static pages,
@@ -216,7 +234,7 @@ pnpm build
 pnpm test:e2e
 ```
 
-Unit/integration tests use isolated schemas in the local `blok_test` database.
+Unit/integration tests use isolated schemas in the local `storypane_test` database.
 Browser tests require Clerk-authenticated admin/editor storage states via `STORYPANE_TEST_ADMIN_STATE` and `STORYPANE_TEST_EDITOR_STATE`. They create test content in the app. Never commit storage states.
 If `apps/example-astro/.env` exists, run `pnpm build:example` before the browser
 suite; Playwright starts its built preview server on port 3132. Without that
@@ -275,12 +293,12 @@ See [the SDK integration guide](packages/sdk/README.md) for static Next.js/Astro
 pages, preview authentication, client rendering requirements, and SDK limitations.
 Draft JSON remains in Postgres; Durable Objects stream its committed checkpoints.
 
-Design review is pending. Complete Docker app packaging, invitations/member
-management, offline merging, public media delivery, asset garbage collection,
+Design review is pending. Complete Docker app packaging, offline merging, asset garbage collection,
 and history retention are deferred. Full
 snapshots per autosave favor recovery simplicity; storage will grow until a
-retention policy is added. Published JSON is currently available to signed-in
-space members through the CMS API and to applications with scoped delivery tokens.
+retention policy is added. CMS reads follow each member’s content scopes. Published and server-preview delivery
+tokens remain space-wide service credentials; scoped readers cannot mint them.
+Public content and opted-in public media are unaffected by private CMS read scopes.
 
 See [the implementation work breakdown](docs/work-breakdown.md) for ownership,
 contracts, and acceptance criteria.

@@ -17,7 +17,7 @@ if (existsSync(envPath)) {
     'Keeping the existing Astro configuration and content. Schema generation will use its configured space.',
   );
 } else {
-  const url = (process.env.STORYPANE_URL ?? process.env.BLOK_URL) || 'http://127.0.0.1:3130';
+  const url = process.env.STORYPANE_URL || 'http://127.0.0.1:3130';
   if (!['127.0.0.1', 'localhost'].includes(new URL(url).hostname))
     throw new Error(
       'Example seeding is restricted to the local CMS. Configure .env manually for a deployed space.',
@@ -35,7 +35,7 @@ if (existsSync(envPath)) {
         Origin: new URL(url).origin,
         Authorization: `Bearer ${token}`,
         'Content-Type': 'application/json',
-        ...(spaceId ? { 'x-blok-space-id': spaceId } : {}),
+        ...(spaceId ? { 'x-storypane-space-id': spaceId } : {}),
       },
       body: body === undefined ? undefined : JSON.stringify(body),
     });
@@ -293,7 +293,7 @@ if (existsSync(envPath)) {
       },
     ],
     defaultPreviewId: previewId,
-    previewParameter: 'blok_preview',
+    previewParameter: 'storypane_preview',
   });
   const published = await request<{ token: string }>('/api/cms/delivery-tokens', 'POST', {
     name: 'Astro build',
@@ -305,7 +305,7 @@ if (existsSync(envPath)) {
   });
   writeFileSync(
     envPath,
-    `STORYPANE_URL=${url}\nSTORYPANE_SPACE_ID=${spaceId}\nSTORYPANE_DELIVERY_TOKEN=${published.token}\nSTORYPANE_PREVIEW_TOKEN=${schema.token}\nPUBLIC_STORYPANE_PREVIEW_PARAMETER=blok_preview\nPUBLIC_STORYPANE_PREVIEW=false\n`,
+    `STORYPANE_URL=${url}\nSTORYPANE_SPACE_ID=${spaceId}\nSTORYPANE_DELIVERY_TOKEN=${published.token}\nSTORYPANE_PREVIEW_TOKEN=${schema.token}\nPUBLIC_STORYPANE_PREVIEW_PARAMETER=storypane_preview\nPUBLIC_STORYPANE_PREVIEW=false\n`,
     { mode: 0o600, flag: 'wx' },
   );
   console.log(

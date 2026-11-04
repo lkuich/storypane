@@ -7,9 +7,7 @@ pulled schema JSON, and generated TypeScript block props.
 The [Next.js version](../example-next/README.md) shares the renderer, styles and
 generated types, and can be selected as another Storypane preview application.
 
-New configuration uses `STORYPANE_*` / `PUBLIC_STORYPANE_*` variables. Existing
-`BLOK_*` / `PUBLIC_BLOK_*` values remain supported, so the rename does not require
-replacing your local `.env` or its tokens.
+Configuration uses `STORYPANE_*` / `PUBLIC_STORYPANE_*` variables.
 
 ## Run it
 
@@ -65,7 +63,7 @@ to try it. Opening `/preview` outside the CMS shows instructions, not draft data
 
 To test preview on the built page itself, change **Settings → API & preview →
 Application preview URL** to `http://127.0.0.1:3132/{locale}/{slug}`. Default locale
-has no prefix; French uses `/fr/home`. The query parameter, a `blok_preview=1`
+has no prefix; French uses `/fr/home`. The query parameter, a `storypane_preview=1`
 cookie, or `PUBLIC_STORYPANE_PREVIEW=true` activates the SDK in `Story.tsx`; the parent
 editor still supplies authorization. Standalone preview needs your own
 authenticated session endpoint (see the SDK guide).
@@ -156,6 +154,39 @@ need a CMS login. Rebuild after changing or removing published assets. Local CMS
 preview uses the signed-in editor's asset URLs so newly selected draft images can
 appear immediately; this relies on the CMS and example using the same site
 (such as `127.0.0.1` on different ports).
+
+### Opt-in public responsive media
+
+Static export remains the default. To serve responsive variants directly from the
+CMS, an administrator must enable **API & preview → Public media delivery** for
+the space. Use the SDK's standalone helper in an Astro component or renderer:
+
+```astro
+---
+import { publicAssetUrl, type PublicImageOptions } from '@storypane/sdk';
+const { assetId, alt, spaceId, cmsUrl } = Astro.props;
+const image = (width: PublicImageOptions['width']) =>
+  publicAssetUrl({ url: cmsUrl, spaceId, assetId }, { width, aspect: '16:9' });
+---
+
+<img
+  src={image(640)}
+  srcset={`${image(320)} 320w, ${image(640)} 640w, ${image(1280)} 1280w`}
+  sizes="(max-width: 640px) 100vw, 50vw"
+  width="1280"
+  height="720"
+  alt={alt ?? ''}
+/>
+```
+
+The HTML contains IDs and supported image options, never a token. Public URLs work
+only while an active publication uses the asset; draft preview still uses the
+authenticated editor route. Saving focal metadata updates cover crops globally.
+Public responses are not browser/CDN cached; the Worker rechecks eligibility and
+caches transformed bytes internally. Disabling the setting or removing the last
+live reference returns 404 on the next request. Already exported `/media/` files
+remain until a rebuild removes them. See the [SDK media contract](../../packages/sdk/README.md#public-media-urls)
+for supported variants, still-frame animation, and image size limits.
 
 ## Files and checks
 

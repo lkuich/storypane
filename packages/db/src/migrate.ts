@@ -7,7 +7,10 @@ export async function migrate(pool: Pool): Promise<void> {
     await client.query('BEGIN');
     await client.query('SELECT pg_advisory_xact_lock(723198451)');
     await client.query(
-      'CREATE TABLE IF NOT EXISTS blok_migrations(name text PRIMARY KEY, applied_at timestamptz NOT NULL DEFAULT now())',
+      await readFile(new URL('../migrations/000_migration_history.sql', import.meta.url), 'utf8'),
+    );
+    await client.query(
+      'CREATE TABLE IF NOT EXISTS storypane_migrations(name text PRIMARY KEY, applied_at timestamptz NOT NULL DEFAULT now())',
     );
     for (const name of [
       '001_initial',
@@ -24,13 +27,22 @@ export async function migrate(pool: Pool): Promise<void> {
       '012_content_folders',
       '013_schema_migrations',
       '014_destructive_migrations',
+      '015_story_lifecycle',
+      '016_webhooks',
+      '017_publication_schedules',
+      '018_production_media',
+      '019_content_scopes',
+      '020_storypane_preview',
     ]) {
-      if ((await client.query('SELECT name FROM blok_migrations WHERE name=$1', [name])).rowCount)
+      if (
+        (await client.query('SELECT name FROM storypane_migrations WHERE name=$1', [name])).rowCount
+      ) {
         continue;
+      }
       await client.query(
         await readFile(new URL(`../migrations/${name}.sql`, import.meta.url), 'utf8'),
       );
-      await client.query('INSERT INTO blok_migrations(name) VALUES($1)', [name]);
+      await client.query('INSERT INTO storypane_migrations(name) VALUES($1)', [name]);
     }
     await client.query('COMMIT');
   } catch (error) {

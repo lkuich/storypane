@@ -12,9 +12,9 @@ it('scopes API calls and browser media URLs to the space selected in this tab', 
   await api('/stories');
   expect(fetch).toHaveBeenCalledWith(
     '/api/cms/stories',
-    expect.objectContaining({ headers: expect.objectContaining({ 'x-blok-space-id': id }) }),
+    expect.objectContaining({ headers: expect.objectContaining({ 'x-storypane-space-id': id }) }),
   );
-  expect(spaceHeaders()).toEqual({ 'x-blok-space-id': id });
+  expect(spaceHeaders()).toEqual({ 'x-storypane-space-id': id });
   expect(assetContentUrl('image')).toBe(`/api/cms/assets/image/content?space=${id}`);
   expect(assetThumbnailUrl('image')).toBe(`/api/cms/assets/image/thumbnail?width=320&space=${id}`);
   expect(spaceUrl('/api/cms/stories/story/locales/locale/live')).toBe(

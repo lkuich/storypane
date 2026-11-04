@@ -212,7 +212,7 @@ function client(setting) {
       method: body === undefined ? 'GET' : 'POST',
       headers: {
         Authorization: `Bearer ${token}`,
-        'x-blok-space-id': spaceId,
+        'x-storypane-space-id': spaceId,
         ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
       },
       body: body === undefined ? undefined : JSON.stringify(body),

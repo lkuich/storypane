@@ -76,7 +76,7 @@ export function PreviewPanel({
       const current = snapshotRef.current,
         data = event.data;
       if (
-        data?.type === 'blok:ready' &&
+        data?.type === 'storypane:ready' &&
         data.spaceId === spaceId &&
         data.locale === current.locale.slug &&
         (data.id === current.story.id || data.slug === current.locale.urlSlug)
@@ -90,9 +90,12 @@ export function PreviewPanel({
           );
           if (!stopped) {
             setError('');
-            iframe.current?.contentWindow?.postMessage({ type: 'blok:init', session }, origin!);
             iframe.current?.contentWindow?.postMessage(
-              { type: 'blok:select', blockId: selected.current },
+              { type: 'storypane:init', session },
+              origin!,
+            );
+            iframe.current?.contentWindow?.postMessage(
+              { type: 'storypane:select', blockId: selected.current },
               origin!,
             );
           }
@@ -102,7 +105,7 @@ export function PreviewPanel({
           authorizing = false;
         }
       }
-      if (data?.type === 'blok:status' && typeof data.status === 'string')
+      if (data?.type === 'storypane:status' && typeof data.status === 'string')
         setStatus(
           data.status === 'connected'
             ? 'Live preview'
@@ -111,7 +114,7 @@ export function PreviewPanel({
               : 'Connecting…',
         );
       if (
-        data?.type === 'blok:click' &&
+        data?.type === 'storypane:click' &&
         data.storyId === current.story.id &&
         data.localeId === current.locale.id &&
         current.blocks.some((block) => block.id === data.blockId)
@@ -135,7 +138,7 @@ export function PreviewPanel({
   useEffect(() => {
     if (origin)
       iframe.current?.contentWindow?.postMessage(
-        { type: 'blok:select', blockId: selectedId },
+        { type: 'storypane:select', blockId: selectedId },
         origin,
       );
   }, [selectedId, origin]);

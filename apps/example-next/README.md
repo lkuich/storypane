@@ -153,7 +153,7 @@ To use your own space, copy `.env.example` to `.env` in this directory. Set
 Set a server-only **Preview** token as `STORYPANE_PREVIEW_TOKEN` when pulling
 schemas. Never prefix either token with `NEXT_PUBLIC_`. Register the preview URL
 in Storypane yourself for a remote CMS; the setup script only changes the local
-`blok` database.
+`storypane` database.
 
 ## Schema and checks
 

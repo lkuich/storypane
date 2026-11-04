@@ -7,9 +7,6 @@ import { signInPage } from './auth';
 const env = existsSync('apps/example-astro/.env')
   ? parseEnv(readFileSync('apps/example-astro/.env', 'utf8'))
   : undefined;
-if (env)
-  for (const name of ['URL', 'SPACE_ID', 'PREVIEW_TOKEN', 'DELIVERY_TOKEN'])
-    env[`STORYPANE_${name}`] ??= env[`BLOK_${name}`]!;
 test('Astro serves built publications and locales, hydrates drafts, selects nested blocks, and previews unpublished stories', async ({
   page,
   context,
@@ -22,7 +19,7 @@ test('Astro serves built publications and locales, hydrates drafts, selects nest
   const site = 'http://127.0.0.1:3132',
     cms = 'http://127.0.0.1:3130';
   expect(env!.STORYPANE_URL).toBe(cms);
-  const headers = { Origin: cms, 'x-blok-space-id': env!.STORYPANE_SPACE_ID! };
+  const headers = { Origin: cms, 'x-storypane-space-id': env!.STORYPANE_SPACE_ID! };
   const errors: string[] = [];
   const visitor = await context.newPage();
   visitor.on('pageerror', (error) => errors.push(error.message));
@@ -102,11 +99,11 @@ test('Astro serves built publications and locales, hydrates drafts, selects nest
     await page.getByRole('textbox', { name: /^Title/ }).fill(title);
     changed = true;
     await expect(frame.getByRole('heading', { level: 1 })).toHaveText(title);
-    await expect(frame.locator(`[data-blok-id="${hero.id}"]`)).toHaveAttribute(
-      'data-blok-selected',
+    await expect(frame.locator(`[data-storypane-id="${hero.id}"]`)).toHaveAttribute(
+      'data-storypane-selected',
       '',
     );
-    await frame.locator('article[data-blok-id]').first().click();
+    await frame.locator('article[data-storypane-id]').first().click();
     await expect(page.getByRole('heading', { name: 'Feature', exact: true })).toBeVisible();
     await expect(page.getByLabel('Category', { exact: true })).toBeVisible();
     const path = page.getByRole('navigation', { name: 'Block path' });

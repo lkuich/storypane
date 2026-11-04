@@ -2,11 +2,23 @@
 
 import { useState } from 'react';
 import { LockKeyhole, Plus, ShieldCheck, Trash2 } from 'lucide-react';
-import { permissions, type Permission, type SpaceRole } from '@storypane/core';
+import {
+  permissions,
+  contentScopesSchema,
+  type ContentScopes,
+  type ContentFolder,
+  type Story,
+  type SpaceLocale,
+  type BlockDefinition,
+  type Permission,
+  type SpaceRole,
+} from '@storypane/core';
+import { ContentScopePicker } from './content-scope-picker';
 import { Button, ErrorNotice, Modal } from '@storypane/ui';
 import { api, errorMessage, jsonRequest } from '../editor/api';
 
 const labels: Record<Permission, string> = {
+  'content:read': 'Read content',
   'content:edit': 'Create and edit content',
   'content:publish': 'Publish content',
   'assets:write': 'Upload and manage assets',
@@ -30,11 +42,33 @@ export function RoleSettings({
     [selected, setSelected] = useState<Permission[]>([]);
   const [busy, setBusy] = useState(false),
     [error, setError] = useState('');
-  function open(role: SpaceRole | null) {
+  const [scopes, setScopes] = useState<ContentScopes>(() => contentScopesSchema.parse({}));
+  const [choices, setChoices] = useState<{
+    folders: ContentFolder[];
+    stories: Story[];
+    locales: SpaceLocale[];
+    definitions: BlockDefinition[];
+  }>({ folders: [], stories: [], locales: [], definitions: [] });
+  async function open(role: SpaceRole | null) {
     setName(role?.name ?? '');
-    setSelected(role?.permissions ?? []);
+    setSelected(role?.permissions ?? ['content:read']);
+    setScopes(role?.contentScopes ?? contentScopesSchema.parse({}));
     setError('');
     setEditing(role);
+    setBusy(true);
+    try {
+      const [folders, stories, locales, definitions] = await Promise.all([
+        api<ContentFolder[]>('/folders'),
+        api<Story[]>('/stories'),
+        api<SpaceLocale[]>('/locales'),
+        api<BlockDefinition[]>('/definitions?deployed=true'),
+      ]);
+      setChoices({ folders, stories, locales, definitions });
+    } catch (cause) {
+      setError(errorMessage(cause));
+    } finally {
+      setBusy(false);
+    }
   }
   async function save(method: string, id?: string) {
     setBusy(true);
@@ -43,7 +77,7 @@ export function RoleSettings({
     try {
       await api(
         `/roles${id ? `/${id}` : ''}`,
-        jsonRequest(method, { name, permissions: selected }),
+        jsonRequest(method, { name, permissions: selected, contentScopes: scopes }),
       );
       await onChange();
       setEditing(undefined);
@@ -70,8 +104,8 @@ export function RoleSettings({
       </header>
       <div className="panel-body">
         <p className="muted">
-          Everyone can view this space’s content and assets. Roles control what they can change.
-          Only Admins manage members and roles.
+          Roles control which content members can read, edit, and publish. Only Admins manage
+          members and roles.
         </p>
         {editing === undefined && <ErrorNotice message={error} />}
         <div className="space-role-list">
@@ -95,7 +129,7 @@ export function RoleSettings({
                   ? 'Full access, including members and roles.'
                   : role.permissions.length
                     ? role.permissions.map((permission) => labels[permission]).join(' · ')
-                    : 'Read-only access. No editing or publishing.'}
+                    : 'No content access or management permissions.'}
               </p>
               {canManage && !role.system && (
                 <div className="button-group">
@@ -169,6 +203,14 @@ export function RoleSettings({
                 {labels[permission]}
               </label>
             ))}
+          </fieldset>
+          <fieldset disabled={busy} style={{ border: 0, padding: 0 }}>
+            <ContentScopePicker
+              value={scopes}
+              onChange={setScopes}
+              enabled={selected}
+              {...choices}
+            />
           </fieldset>
           <p className="field-hint">
             Unchecked permissions are denied. Changes apply to everyone assigned this role.

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { setStoryLocation, spaceHeaders, spaceUrl } from '../../lib/space-url';
+import { readMigratedStorage, writeMigratedStorage } from '../../lib/storage-migration';
 import {
   LEASE_RENEW_MS,
   type BlockDraft,
@@ -13,6 +14,7 @@ import {
 } from '@storypane/core';
 import {
   acknowledgeBuffer,
+  hasForbiddenDraftFields,
   editBuffer,
   readBuffers,
   readPendingCommand,
@@ -37,7 +39,7 @@ export function useStoryEditor({
 }) {
   const localeId = initialSnapshot.locale.id;
   const base = `/stories/${storyId}/locales/${localeId}`;
-  const storageKey = `blok:drafts:${userId}:${spaceId}:${storyId}:${localeId}`;
+  const storageKey = `storypane:drafts:${userId}:${spaceId}:${storyId}:${localeId}`;
   const [snapshot, setSnapshot] = useState<LocaleSnapshot>(initialSnapshot);
   const snapshotRef = useRef<LocaleSnapshot | null>(initialSnapshot);
   const [linkedBlockId] = useState(() =>
@@ -81,8 +83,11 @@ export function useStoryEditor({
       pendingCommand.current = command;
       setUnconfirmedCommand(!!command);
       try {
-        if (command) localStorage.setItem(`${storageKey}:command`, JSON.stringify(command));
-        else localStorage.removeItem(`${storageKey}:command`);
+        writeMigratedStorage(
+          localStorage,
+          `${storageKey}:command`,
+          command ? JSON.stringify(command) : null,
+        );
       } catch {
         setError(
           'This browser could not keep a recovery copy. Keep this page open until the change is confirmed.',
@@ -97,8 +102,11 @@ export function useStoryEditor({
       buffersRef.current = next;
       setBuffers(next);
       try {
-        if (Object.keys(next).length) localStorage.setItem(storageKey, JSON.stringify(next));
-        else localStorage.removeItem(storageKey);
+        writeMigratedStorage(
+          localStorage,
+          storageKey,
+          Object.keys(next).length ? JSON.stringify(next) : null,
+        );
       } catch {
         setError(
           'This browser could not store a recovery copy. Keep this tab open until your changes are saved.',
@@ -129,7 +137,12 @@ export function useStoryEditor({
         )
           leases.current[lease.blockId] = lease;
       for (const [id, lease] of Object.entries(leases.current))
-        if (Date.parse(lease.expiresAt) <= Date.now()) delete leases.current[id];
+        if (
+          Date.parse(lease.expiresAt) <= Date.now() ||
+          next.access?.blocks[id]?.edit === false ||
+          !next.leases.some((current) => current.blockId === id && current.token === lease.token)
+        )
+          delete leases.current[id];
       setLeaseRevision((value) => value + 1);
       if (!selectedRef.current || !next.blocks.some((block) => block.id === selectedRef.current)) {
         // Keep a deleted block's recovery buffer available until the editor explicitly discards it.
@@ -142,6 +155,16 @@ export function useStoryEditor({
       }
       for (const [id, buffer] of Object.entries(buffersRef.current)) {
         const block = next.blocks.find((block) => block.id === id);
+        if (hasForbiddenDraftFields(buffer, block, next.access?.blocks[id])) {
+          setBlockError(
+            id,
+            new ApiError(
+              'Your role can no longer save this block. Your unsent edits are preserved.',
+              'forbidden',
+            ),
+          );
+          continue;
+        }
         if (!buffer.attempt && (!block || block.revision !== buffer.baseRevision))
           setBlockError(
             id,
@@ -175,6 +198,8 @@ export function useStoryEditor({
 
   const acquire = useCallback(
     async (blockId: string): Promise<Lease> => {
+      if (snapshotRef.current?.access?.blocks[blockId]?.edit === false)
+        throw new ApiError('Your role cannot edit this block.', 'forbidden');
       const current = leases.current[blockId];
       if (current?.token && Date.parse(current.expiresAt) > Date.now() + 5000) return current;
       const pendingRequest = leaseRequests.current[blockId];
@@ -322,6 +347,7 @@ export function useStoryEditor({
   const edit = useCallback(
     (block: BlockDraft, name: string, value: Json) => {
       if (
+        snapshotRef.current?.access?.blocks[block.id]?.fields[name]?.edit === false ||
         !connected.current ||
         pendingCommand.current ||
         !leases.current[block.id]?.token ||
@@ -360,7 +386,11 @@ export function useStoryEditor({
       setSelectedId(blockId);
       setError(null);
       setLinkError(null);
-      if (connected.current && editable)
+      if (
+        connected.current &&
+        editable &&
+        snapshotRef.current?.access?.blocks[blockId]?.edit !== false
+      )
         await acquire(blockId).catch((error) => {
           if (!(error instanceof ApiError && error.code === 'locked'))
             setError(errorMessage(error));
@@ -508,10 +538,12 @@ export function useStoryEditor({
     const heldLeases = leases.current;
     active.current = true;
     try {
-      const recovered = readBuffers(localStorage.getItem(storageKey));
+      const recovered = readBuffers(readMigratedStorage(localStorage, storageKey));
       buffersRef.current = recovered;
       setBuffers(recovered);
-      const command = readPendingCommand(localStorage.getItem(`${storageKey}:command`));
+      const command = readPendingCommand(
+        readMigratedStorage(localStorage, `${storageKey}:command`),
+      );
       pendingCommand.current = command;
       setUnconfirmedCommand(!!command);
     } catch {
@@ -540,7 +572,12 @@ export function useStoryEditor({
         try {
           await sync();
           if (stopped) return;
-          if (selectedRef.current && editable) await acquire(selectedRef.current);
+          if (
+            selectedRef.current &&
+            editable &&
+            snapshotRef.current?.access?.blocks[selectedRef.current]?.edit !== false
+          )
+            await acquire(selectedRef.current);
           if (stopped) return;
           await retry();
         } catch (error) {
@@ -647,6 +684,7 @@ export function useStoryEditor({
   const currentLease = selectedId ? leases.current[selectedId] : undefined;
   const canEdit =
     editable &&
+    (!selectedId || snapshot?.access?.blocks[selectedId]?.edit !== false) &&
     connection === 'connected' &&
     !unconfirmedCommand &&
     !!currentLease?.token &&

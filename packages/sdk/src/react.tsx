@@ -3,7 +3,6 @@ import { useEffect, useRef, useState } from 'react';
 import { connectPreview, type PreviewOptions, type PreviewStatus } from './preview.js';
 import type { StorypaneStory, StoryReference } from './types.js';
 export { editable } from './types.js';
-export { useStorypaneStory as useBlokStory };
 
 /** Preview a story that may never have been published. The editor supplies its short-lived session. */
 export function useStorypanePreview<T = StorypaneStory['content']>({

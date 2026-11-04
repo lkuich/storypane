@@ -125,7 +125,7 @@ test('uncertain imports retry once and inserted blocks recover across reload wit
   expect(
     await page.evaluate(() =>
       Object.keys(localStorage).some(
-        (key) => key.startsWith('blok:drafts:') && key.endsWith(':command'),
+        (key) => key.startsWith('storypane:drafts:') && key.endsWith(':command'),
       ),
     ),
   ).toBeTruthy();
@@ -146,7 +146,7 @@ test('uncertain imports retry once and inserted blocks recover across reload wit
   expect(
     await page.evaluate(() =>
       Object.keys(localStorage).some(
-        (key) => key.startsWith('blok:drafts:') && key.endsWith(':command'),
+        (key) => key.startsWith('storypane:drafts:') && key.endsWith(':command'),
       ),
     ),
   ).toBeFalsy();

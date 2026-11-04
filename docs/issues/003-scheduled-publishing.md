@@ -1,11 +1,12 @@
 # 003 — Schedule a reviewed locale checkpoint
 
-Status: TODO  
+Status: IN PROGRESS — implemented; release verification pending
+
 Source: comparison gap 3  
 Related: [lifecycle](001-story-lifecycle.md), [webhooks](002-webhooks.md),
 [permissions](008-scoped-permissions.md)
 
-## Problem and current implementation
+## Problem and starting implementation
 
 Publishing currently requires an editor to be present at launch time.
 [StoryWorkspace](../../apps/web/src/features/editor/story-workspace.tsx) already
@@ -110,18 +111,40 @@ notifications recover through the existing heartbeat/sync protocol.
 
 ## Acceptance tests
 
-- [ ] The reviewed checkpoint publishes while later drafts remain unpublished.
-- [ ] No public change occurs before due_at; independent locale schedules do not
+- [x] The reviewed checkpoint publishes while later drafts remain unpublished.
+- [x] No public change occurs before due_at; independent locale schedules do not
       affect each other. Browser closure/session expiry does not stop a valid job.
-- [ ] Concurrent ticks and crash/retry cases create one publication and one event.
-- [ ] Cancel/reschedule/publish-now/unpublish/delete races follow transaction order
+- [x] Concurrent ticks and crash/retry cases create one publication and one event.
+- [x] Cancel/reschedule/publish-now/unpublish/delete races follow transaction order
       and cannot resurrect stale content.
-- [ ] Revoked membership/permissions, schema changes, and newly occupied live URLs
+- [x] Revoked membership/permissions, schema changes, and newly occupied live URLs
       produce visible failure without replacing the current publication.
-- [ ] DST gaps/overlaps and non-local timezones resolve to the reviewed UTC instant.
-- [ ] Transient retry exhaustion is visible; worker downtime leaves jobs recoverable.
+- [x] DST gaps/overlaps and non-local timezones resolve to the reviewed UTC instant.
+- [x] Transient retry exhaustion is visible; worker downtime leaves jobs recoverable.
 - [ ] Scheduled changes refresh the editor and trigger a site's webhook rebuild;
       local scheduled invocation and the deployed cron are explicitly verified.
+
+## Implementation and verification
+
+Implemented and integrated in the working tree: core contracts, migrations
+015/017, transactional store operations, CMS routes, content selection and review,
+Deleted/Restore, editor actions, and fixed-checkpoint scheduling controls.
+
+Automated checks: existing store regression suite plus
+[the lifecycle integration suite](../../packages/db/src/lifecycle.test.ts) and
+[DST resolution tests](../../packages/core/src/scheduling-time.test.ts); TypeScript
+and lint pass. Tests cover immutable publications, locale isolation, stale review
+rollback, receipts, references/leases, deletion recovery through schema changes,
+delivery/preview visibility, concurrent ticks, expired sessions, revoked permission,
+retry exhaustion, URL collisions, cancellation races, and transactional webhook events.
+
+[Browser scenarios](../../tests/lifecycle-scheduling.e2e.ts) cover partial batch
+failure/recovery and scheduling/cancellation. They require authenticated Clerk
+storage state and have not been executed. Scoped access and per-subscriber realtime
+invalidation are integrated and covered by DB/realtime tests. Actual local cron
+ran twice with one publication/event and no duplicate; combined tests, typechecking,
+and production build pass. Deployed cron and authenticated browser verification
+remain pending; see [the tracker](README.md).
 
 ## References
 

@@ -48,7 +48,7 @@ export function connectPreview<T>(options: PreviewOptions<T>): () => void {
   };
   function status(value: PreviewStatus, error?: Error) {
     options.onStatus?.(value, error);
-    send({ type: 'blok:status', status: value, message: error?.message });
+    send({ type: 'storypane:status', status: value, message: error?.message });
   }
   function matches(value: PreviewSession) {
     return (
@@ -62,9 +62,10 @@ export function connectPreview<T>(options: PreviewOptions<T>): () => void {
     );
   }
   function highlight() {
-    for (const element of document.querySelectorAll<HTMLElement>('[data-blok-id]')) {
-      if (element.dataset.blokId === selected) element.setAttribute('data-blok-selected', '');
-      else element.removeAttribute('data-blok-selected');
+    for (const element of document.querySelectorAll<HTMLElement>('[data-storypane-id]')) {
+      if (element.dataset.storypaneId === selected)
+        element.setAttribute('data-storypane-selected', '');
+      else element.removeAttribute('data-storypane-selected');
     }
   }
   function open(value: PreviewSession) {
@@ -83,7 +84,7 @@ export function connectPreview<T>(options: PreviewOptions<T>): () => void {
     const url = new URL('/api/preview/live', cms);
     url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
     status('connecting');
-    socket = new WebSocket(url, ['blok-preview', value.token]);
+    socket = new WebSocket(url, ['storypane-preview', value.token]);
     socket.onopen = () => {
       retry = 0;
       status('connected');
@@ -141,7 +142,7 @@ export function connectPreview<T>(options: PreviewOptions<T>): () => void {
         open(value);
       } else if (embedded) {
         send({
-          type: 'blok:ready',
+          type: 'storypane:ready',
           spaceId: options.spaceId,
           ...options.story,
           locale: options.story.locale ?? '',
@@ -150,7 +151,7 @@ export function connectPreview<T>(options: PreviewOptions<T>): () => void {
           ready = setInterval(
             () =>
               send({
-                type: 'blok:ready',
+                type: 'storypane:ready',
                 spaceId: options.spaceId,
                 ...options.story,
                 locale: options.story.locale ?? '',
@@ -169,8 +170,8 @@ export function connectPreview<T>(options: PreviewOptions<T>): () => void {
   }
   function message(event: MessageEvent) {
     if (!embedded || event.source !== window.parent || event.origin !== editorOrigin) return;
-    if (event.data?.type === 'blok:init') open(event.data.session);
-    if (event.data?.type === 'blok:select' && typeof event.data.blockId === 'string') {
+    if (event.data?.type === 'storypane:init') open(event.data.session);
+    if (event.data?.type === 'storypane:select' && typeof event.data.blockId === 'string') {
       selected = event.data.blockId;
       highlight();
     }
@@ -187,23 +188,25 @@ export function connectPreview<T>(options: PreviewOptions<T>): () => void {
       return;
     if (event instanceof KeyboardEvent && !['Enter', ' '].includes(event.key)) return;
     const element =
-      event.target instanceof Element ? event.target.closest<HTMLElement>('[data-blok-id]') : null;
+      event.target instanceof Element
+        ? event.target.closest<HTMLElement>('[data-storypane-id]')
+        : null;
     if (!element) return;
     event.preventDefault();
     event.stopPropagation();
-    selected = element.dataset.blokId!;
+    selected = element.dataset.storypaneId!;
     highlight();
     send({
-      type: 'blok:click',
+      type: 'storypane:click',
       blockId: selected,
-      field: element.dataset.blokField,
+      field: element.dataset.storypaneField,
       storyId: session.storyId,
       localeId: session.localeId,
     });
   }
   const style = document.createElement('style');
   style.textContent =
-    '[data-blok-id]{cursor:pointer}[data-blok-id]:hover{outline:1px dashed #22c3ee;outline-offset:3px}[data-blok-selected]{outline:2px solid #22c3ee!important;outline-offset:3px}';
+    '[data-storypane-id]{cursor:pointer}[data-storypane-id]:hover{outline:1px dashed #22c3ee;outline-offset:3px}[data-storypane-selected]{outline:2px solid #22c3ee!important;outline-offset:3px}';
   document.head.appendChild(style);
   const observer = new MutationObserver(highlight);
   observer.observe(document.documentElement, { childList: true, subtree: true });
@@ -229,8 +232,8 @@ export function connectPreview<T>(options: PreviewOptions<T>): () => void {
     observer.disconnect();
     style.remove();
     document
-      .querySelectorAll('[data-blok-selected]')
-      .forEach((element) => element.removeAttribute('data-blok-selected'));
+      .querySelectorAll('[data-storypane-selected]')
+      .forEach((element) => element.removeAttribute('data-storypane-selected'));
     window.removeEventListener('message', message);
     document.removeEventListener('click', click, true);
     document.removeEventListener('keydown', click, true);

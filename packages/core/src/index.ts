@@ -1,4 +1,10 @@
 import { z } from 'zod';
+import {
+  contentScopesSchema,
+  type ContentScopes,
+  type EditorAccess,
+} from './content-permissions.js';
+export * from './content-permissions.js';
 
 export type Json = null | boolean | number | string | Json[] | { [key: string]: Json };
 export type Actor = {
@@ -21,6 +27,7 @@ export type Space = {
   role: Actor['role'];
   roleName: string;
   permissions: Permission[];
+  contentScopes?: ContentScopes;
   createdAt: string;
   storyCount: number;
   memberCount: number;
@@ -43,6 +50,7 @@ export const spaceInvitationSchema = z
   })
   .strict();
 export const permissions = [
+  'content:read',
   'content:edit',
   'content:publish',
   'assets:write',
@@ -55,6 +63,7 @@ export type SpaceRole = {
   id: string;
   name: string;
   permissions: Permission[];
+  contentScopes: ContentScopes;
   system: boolean;
   memberCount: number;
   invitationCount: number;
@@ -66,9 +75,34 @@ export const roleInputSchema = z
       .array(z.enum(permissions))
       .max(permissions.length)
       .refine((items) => new Set(items).size === items.length, 'Duplicate permission'),
+    contentScopes: contentScopesSchema.optional(),
   })
-  .strict();
-export function can(space: { permissions: readonly Permission[] }, permission: Permission) {
+  .strict()
+  .transform((value) => ({
+    ...value,
+    // Legacy role clients predate explicit read permissions.
+    permissions:
+      value.contentScopes === undefined
+        ? [...new Set<Permission>(['content:read', ...value.permissions])]
+        : value.permissions,
+    contentScopes: value.contentScopes ?? contentScopesSchema.parse({}),
+  }));
+export function can(
+  space: { permissions: readonly Permission[]; contentScopes?: ContentScopes },
+  permission: Permission,
+) {
+  if (
+    space.contentScopes &&
+    ['content:edit', 'content:publish', 'schemas:write', 'settings:write'].includes(permission) &&
+    !space.permissions.includes('content:read')
+  )
+    return false;
+  if (
+    ['schemas:write', 'settings:write'].includes(permission) &&
+    space.contentScopes &&
+    Object.values(space.contentScopes.read).some((value) => value !== null)
+  )
+    return false;
   return space.permissions.includes(permission);
 }
 export type SpaceLocale = { id: string; name: string; slug: string; storyCount: number };
@@ -143,7 +177,7 @@ export const deliverySettingsSchema = z
     previewParameter: z
       .string()
       .regex(/^[a-zA-Z][a-zA-Z0-9_-]{0,63}$/)
-      .default('blok_preview'),
+      .default('storypane_preview'),
   })
   .strict()
   .superRefine((value, ctx) => {
@@ -423,6 +457,7 @@ export type StorySummary = Story & {
   localeCount: number;
   pendingLocaleCount: number;
   pendingLocales?: Pick<StoryLocale, 'id' | 'name' | 'slug'>[];
+  schedules?: PublicationSchedule[];
   modifiedBy: { id: string; name: string } | null;
   contentType: { id: string; name: string } | null;
 };
@@ -433,6 +468,7 @@ export type Story = {
   folderId?: string | null;
   slugSegment?: string;
   formOnly?: boolean;
+  deletedAt?: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -467,6 +503,7 @@ export type Lease = {
   token?: string;
 };
 export type LocaleSnapshot = {
+  access?: EditorAccess;
   migrationVersion?: number;
   publicationStatus?: PublicationStatus;
   story: Story;
@@ -644,6 +681,15 @@ export const commandSchema = z.discriminatedUnion('type', [
       ...mutationBase,
       type: z.literal('publishCheckpoint'),
       payload: z.object({ checkpointId: id }).strict(),
+    })
+    .strict(),
+  z
+    .object({
+      ...mutationBase,
+      type: z.literal('unpublishLocale'),
+      payload: z
+        .object({ publicationId: id.nullable(), acknowledgeReferences: z.boolean().default(false) })
+        .strict(),
     })
     .strict(),
 ]);
@@ -923,3 +969,107 @@ export function validateFields(
 
 export * from './migrations.js';
 export * from './block-clipboard.js';
+export * from './webhooks.js';
+
+export * from './scheduling-time.js';
+
+export const lifecycleReviewLocaleSchema = z
+  .object({
+    id: z.uuid(),
+    checkpointId: z.uuid().nullable(),
+    publicationId: z.uuid().nullable(),
+  })
+  .strict();
+export type LifecycleReview = {
+  story: Story;
+  locales: (z.infer<typeof lifecycleReviewLocaleSchema> & {
+    name: string;
+    slug: string;
+    urlSlug: string;
+    revision: number;
+    spaceLocaleId: string;
+    slugSegment: string;
+    publishedUrlSlug: string | null;
+  })[];
+  incomingReferences: {
+    storyId: string;
+    storyName: string;
+    localeId: string;
+    published: boolean;
+  }[];
+};
+export const storyActionSchema = z.discriminatedUnion('action', [
+  z
+    .object({
+      action: z.literal('delete'),
+      requestId: z.uuid(),
+      locales: z.array(lifecycleReviewLocaleSchema).min(1).max(100),
+    })
+    .strict(),
+  z.object({ action: z.literal('restore'), requestId: z.uuid() }).strict(),
+  z
+    .object({
+      action: z.literal('duplicate'),
+      requestId: z.uuid(),
+      folderId: z.uuid().nullable(),
+      slug: pathSlugSchema.optional(),
+      name: z.string().trim().min(1).max(200).optional(),
+    })
+    .strict(),
+  z
+    .object({ action: z.literal('move'), requestId: z.uuid(), location: storyLocationSchema })
+    .strict(),
+  z
+    .object({
+      action: z.enum(['publish', 'unpublish']),
+      requestId: z.uuid(),
+      locales: z.array(lifecycleReviewLocaleSchema).min(1).max(100),
+      acknowledgeReferences: z.boolean().default(false),
+    })
+    .strict(),
+]);
+export type StoryAction = z.infer<typeof storyActionSchema>;
+export type StoryActionResult = { story: Story; localeIds: string[] };
+export const bulkStoryActionSchema = z
+  .object({
+    items: z
+      .array(z.object({ storyId: z.uuid(), input: storyActionSchema }).strict())
+      .min(1)
+      .max(50),
+  })
+  .strict();
+export type BulkStoryActionResult = {
+  storyId: string;
+  result?: StoryActionResult;
+  error?: { code: ErrorCode; message: string };
+};
+export type PublicationSchedule = {
+  id: string;
+  storyId: string;
+  localeId: string;
+  checkpointId: string;
+  checkpointRevision: number;
+  creatorId: string;
+  dueAt: string;
+  timezone: string;
+  status: 'pending' | 'published' | 'cancelled' | 'failed';
+  revision: number;
+  attemptCount: number;
+  publicationId: string | null;
+  error: string | null;
+};
+export const scheduleInputSchema = z
+  .object({
+    requestId: z.uuid(),
+    checkpointId: z.uuid(),
+    dueAt: z.iso.datetime(),
+    timezone: z.string().min(1).max(100),
+    localTime: z.string().regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/),
+    expectedScheduleId: z.uuid().nullable(),
+    expectedRevision: z.number().int().positive().nullable(),
+  })
+  .strict();
+export const cancelScheduleSchema = z
+  .object({ requestId: z.uuid(), revision: z.number().int().positive() })
+  .strict();
+export * from './media.js';

@@ -53,7 +53,7 @@ test('manage spaces centrally, persist settings, and keep the selected workspace
     await expect(page).toHaveURL(`${origin}/?space=${spaceId}`);
     await expect(page.getByRole('button', { name: existing!.name, exact: true })).not.toBeVisible();
     await expect(page.getByRole('heading', { name: 'Content', exact: true })).toBeVisible();
-    const scope = { 'x-blok-space-id': spaceId };
+    const scope = { 'x-storypane-space-id': spaceId };
     expect(await (await page.request.get('/api/cms/stories', { headers: scope })).json()).toEqual(
       [],
     );
@@ -78,10 +78,10 @@ test('manage spaces centrally, persist settings, and keep the selected workspace
       .click();
     await expect(page.getByRole('heading', { name: 'Space settings' })).toBeVisible();
     await expect(page.getByRole('table', { name: 'Space members' })).toContainText(
-      'admin@blok.local',
+      'admin@storypane.local',
     );
     await expect(page.getByRole('table', { name: 'Space members' })).not.toContainText(
-      'editor@blok.local',
+      'editor@storypane.local',
     );
     await page.getByLabel('Space name', { exact: true }).fill(`${title} updated`);
     await page.getByLabel(/^Description/).fill('Updated project description');
@@ -109,7 +109,7 @@ test('manage spaces centrally, persist settings, and keep the selected workspace
       (
         await peer.put('/api/cms/space', {
           data: { name: 'Unauthorized' },
-          headers: { 'x-blok-space-id': defaultSpace },
+          headers: { 'x-storypane-space-id': defaultSpace },
         })
       ).status(),
     ).toBe(403);
@@ -125,7 +125,10 @@ test('manage spaces centrally, persist settings, and keep the selected workspace
     await peer.dispose();
     // Only remove the empty workspace created by this test on the local preview database.
     if (spaceId) {
-      const db = new Pool({ connectionString: 'postgresql://blok:blok@127.0.0.1:55432/blok' });
+      const db = new Pool({
+        connectionString:
+          process.env.DATABASE_URL ?? 'postgresql://storypane:storypane@127.0.0.1:55432/storypane',
+      });
       try {
         await db.query(
           'DELETE FROM spaces WHERE id=$1 AND name=ANY($2::text[]) AND NOT EXISTS(SELECT 1 FROM stories WHERE space_id=$1)',
@@ -156,7 +159,7 @@ test('editors see settings without admin controls', async ({ page }) => {
     ).status(),
   ).toBe(403);
   await expect(page.getByRole('table', { name: 'Space members' })).toContainText(
-    'editor@blok.local',
+    'editor@storypane.local',
   );
 });
 
@@ -164,7 +167,10 @@ test('space locales appear on stories and rename without replacing their content
   page,
 }) => {
   test.setTimeout(90000);
-  const db = new Pool({ connectionString: 'postgresql://blok:blok@127.0.0.1:55432/blok' });
+  const db = new Pool({
+    connectionString:
+      process.env.DATABASE_URL ?? 'postgresql://storypane:storypane@127.0.0.1:55432/storypane',
+  });
   let spaceId: string | undefined;
   try {
     await signInPage(page);
@@ -181,7 +187,7 @@ test('space locales appear on stories and rename without replacing their content
       sessionId: session.sessionId,
       role: 'admin',
     } satisfies Actor);
-    const headers = { Origin: origin, 'x-blok-space-id': spaceId! };
+    const headers = { Origin: origin, 'x-storypane-space-id': spaceId! };
     await page.goto(`/?space=${spaceId}&view=settings`);
     const section = page.getByRole('region', { name: 'Space locales' });
     await expect(section).toContainText('Empty slug');

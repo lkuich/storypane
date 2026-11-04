@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   acknowledgeBuffer,
+  hasForbiddenDraftFields,
   editBuffer,
   localDatetime,
   readBuffers,
@@ -68,4 +69,23 @@ describe('pending editor input', () => {
     expect(utcDatetime('')).toBeNull();
     expect(localDatetime('invalid')).toBe('');
   });
+});
+
+it('preserves pending edits without retries after a field-level read or edit revocation', () => {
+  const buffer = editBuffer(undefined, block, 'title', 'My pending title');
+  const permission = {
+    read: true,
+    edit: true,
+    complete: true,
+    fields: { title: { read: true, edit: true }, subtitle: { read: true, edit: false } },
+  };
+  expect(hasForbiddenDraftFields(buffer, block, permission)).toBe(false);
+  permission.fields.title.edit = false;
+  expect(hasForbiddenDraftFields(buffer, block, permission)).toBe(true);
+  permission.fields.title.edit = true;
+  permission.fields.subtitle.read = false;
+  expect(
+    hasForbiddenDraftFields(buffer, { ...block, fields: { title: 'Original' } }, permission),
+  ).toBe(true);
+  expect(buffer.fields).toEqual({ title: 'My pending title', subtitle: 'Keep me' });
 });

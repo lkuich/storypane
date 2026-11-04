@@ -56,7 +56,7 @@ it('renders the new hero image, adjacent feature cards, links and selected share
   const html = render();
   expect(html).toContain('src="/media/image"');
   expect(html).toContain('alt="Studio garden"');
-  expect(html).toContain('data-blok-field="hero_image"');
+  expect(html).toContain('data-storypane-field="hero_image"');
   expect(html.match(/class="feature-grid"/g)).toHaveLength(1);
   expect(html).toContain('href="/fr/about"');
   expect(html).toContain('<p><strong>Our approach</strong></p>');
@@ -76,6 +76,25 @@ it('tolerates empty draft fields and unresolved unpublished footers', () => {
   expect(html).toContain('Good things take shape.');
   expect(html).not.toContain('<img');
   expect(html).not.toContain('Stay in touch');
+});
+it('keeps separate feature groups in order and renders an inline selected footer only once', () => {
+  const html = render({
+    ...page,
+    body: [
+      { _uid: 'first', component: 'feature', title: 'First idea' },
+      { _uid: 'second', component: 'feature', title: 'Second idea' },
+      { _uid: 'hero', component: 'hero', title: 'Between the groups' },
+      { _uid: 'third', component: 'feature', title: 'Third idea' },
+      footer,
+    ],
+  });
+  expect(html.match(/class="feature-grid"/g)).toHaveLength(2);
+  expect(html.match(/id="ideas"/g)).toHaveLength(1);
+  expect(html.match(/class="site-footer"/g)).toHaveLength(1);
+  expect(html.indexOf('First idea')).toBeLessThan(html.indexOf('Second idea'));
+  expect(html.indexOf('Second idea')).toBeLessThan(html.indexOf('Between the groups'));
+  expect(html.indexOf('Between the groups')).toBeLessThan(html.indexOf('Third idea'));
+  expect(html.indexOf('Third idea')).toBeLessThan(html.indexOf('Stay in touch'));
 });
 it('resolves localized references with Default fallbacks and accepts only usable link destinations', () => {
   const story = (

@@ -36,20 +36,20 @@ export class StoryRoom extends DurableObject<Env> {
   private connection(request: Request): Connection {
     let actor: Actor;
     try {
-      actor = JSON.parse(request.headers.get('x-blok-actor') ?? '') as Actor;
+      actor = JSON.parse(request.headers.get('x-storypane-actor') ?? '') as Actor;
     } catch {
       throw new StorypaneError('unauthenticated', 'Authentication is required');
     }
-    const storyId = request.headers.get('x-blok-story-id');
-    const localeId = request.headers.get('x-blok-locale-id');
+    const storyId = request.headers.get('x-storypane-story-id');
+    const localeId = request.headers.get('x-storypane-locale-id');
     if (!actor.userId || !actor.sessionId || !actor.spaceId || !storyId || !localeId)
       throw new StorypaneError('unauthenticated', 'Authentication is required');
     return {
       actor,
       storyId,
       localeId,
-      ...(request.headers.get('x-blok-preview-id')
-        ? { previewSessionId: request.headers.get('x-blok-preview-id')! }
+      ...(request.headers.get('x-storypane-preview-id')
+        ? { previewSessionId: request.headers.get('x-storypane-preview-id')! }
         : {}),
     };
   }
@@ -60,7 +60,10 @@ export class StoryRoom extends DurableObject<Env> {
       /* A disconnected client recovers committed state on reconnect. */
     }
   }
-  private async broadcast(connection: Connection, message: unknown): Promise<void> {
+  private async broadcast(
+    connection: { actor: Pick<Actor, 'spaceId'>; storyId: string; localeId: string },
+    message: unknown,
+  ): Promise<void> {
     await this.withStore(async (store) => {
       await Promise.all(
         this.ctx.getWebSockets().map(async (socket) => {
@@ -74,17 +77,42 @@ export class StoryRoom extends DurableObject<Env> {
           try {
             if (current.previewSessionId) {
               const story = await store.previewStory(current.previewSessionId);
-              if ((message as { type?: string }).type === 'commit')
+              if (['commit', 'snapshot'].includes((message as { type: string }).type))
                 this.send(socket, { type: 'content', story });
             } else {
-              await store.assertActor(current.actor);
-              this.send(socket, message);
+              const snapshot = cleanSnapshot(
+                await store.getSnapshot(current.actor, current.storyId, current.localeId),
+              );
+              const notification = message as { type: string; changedBlockIds?: string[] };
+              if (notification.type === 'commit')
+                this.send(socket, {
+                  ...notification,
+                  snapshot,
+                  localeRevision: snapshot.revision,
+                  checkpointId: snapshot.checkpointId,
+                  changedBlockIds: notification.changedBlockIds?.filter(
+                    (id) => !snapshot.access || snapshot.access.blocks[id]?.read === true,
+                  ),
+                });
+              else if (notification.type === 'presence')
+                this.send(socket, {
+                  type: 'presence',
+                  editors: [
+                    ...new Map(
+                      snapshot.leases.map((lease) => [
+                        lease.sessionId,
+                        { userId: lease.userId, sessionId: lease.sessionId },
+                      ]),
+                    ).values(),
+                  ],
+                });
+              else this.send(socket, { type: 'snapshot', snapshot });
             }
           } catch (error) {
             this.send(socket, errorMessage(error));
             if (
               error instanceof StorypaneError &&
-              ['unauthenticated', 'forbidden'].includes(error.code)
+              ['unauthenticated', 'forbidden', 'not_found'].includes(error.code)
             )
               socket.close(1008, 'Authentication expired');
           }
@@ -93,26 +121,21 @@ export class StoryRoom extends DurableObject<Env> {
     });
   }
   private async presence(connection: Connection): Promise<void> {
-    const editors = new Map<string, { userId: string; sessionId: string }>();
-    for (const socket of this.ctx.getWebSockets()) {
-      const current = socket.deserializeAttachment() as Connection | undefined;
-      if (
-        !current?.previewSessionId &&
-        current?.actor.spaceId === connection.actor.spaceId &&
-        current.storyId === connection.storyId &&
-        current.localeId === connection.localeId
-      )
-        editors.set(current.actor.sessionId, {
-          userId: current.actor.userId,
-          sessionId: current.actor.sessionId,
-        });
-    }
-    await this.broadcast(connection, { type: 'presence', editors: [...editors.values()] });
+    await this.broadcast(connection, { type: 'presence' });
   }
   async fetch(request: Request): Promise<Response> {
     try {
-      const connection = this.connection(request);
       const url = new URL(request.url);
+      if (url.pathname === '/invalidate' && request.method === 'POST') {
+        const spaceId = request.headers.get('x-storypane-space-id'),
+          storyId = request.headers.get('x-storypane-story-id'),
+          localeId = request.headers.get('x-storypane-locale-id');
+        if (!spaceId || !storyId || !localeId)
+          throw new StorypaneError('invalid', 'Missing room scope');
+        await this.broadcast({ actor: { spaceId }, storyId, localeId }, { type: 'snapshot' });
+        return Response.json({ ok: true });
+      }
+      const connection = this.connection(request);
       if (
         url.pathname === '/preview-live' &&
         connection.previewSessionId &&
@@ -130,7 +153,7 @@ export class StoryRoom extends DurableObject<Env> {
         return new Response(null, {
           status: 101,
           webSocket: pair[0],
-          headers: { 'Sec-WebSocket-Protocol': 'blok-preview' },
+          headers: { 'Sec-WebSocket-Protocol': 'storypane-preview' },
         });
       }
       if (
@@ -182,11 +205,13 @@ export class StoryRoom extends DurableObject<Env> {
       const status =
         body.code === 'unauthenticated'
           ? 401
-          : body.code === 'forbidden'
-            ? 403
-            : body.code === 'invalid'
-              ? 400
-              : 503;
+          : body.code === 'not_found'
+            ? 404
+            : body.code === 'forbidden'
+              ? 403
+              : body.code === 'invalid'
+                ? 400
+                : 503;
       return Response.json(body, { status });
     }
   }
@@ -219,20 +244,13 @@ export class StoryRoom extends DurableObject<Env> {
       const snapshot = await this.withStore((store) =>
         store.getSnapshot(connection.actor, connection.storyId, connection.localeId),
       );
-      if (message.type === 'sync' || message.revision !== snapshot.revision)
-        this.send(socket, { type: 'snapshot', snapshot });
-      else
-        this.send(socket, {
-          type: 'heartbeat',
-          revision: snapshot.revision,
-          checkpointId: snapshot.checkpointId,
-          leases: snapshot.leases,
-        });
+      // A role can change without a content revision; always refresh the projected view.
+      this.send(socket, { type: 'snapshot', snapshot });
     } catch (error) {
       this.send(socket, errorMessage(error));
       if (
         error instanceof StorypaneError &&
-        (error.code === 'unauthenticated' || error.code === 'forbidden')
+        ['unauthenticated', 'forbidden', 'not_found'].includes(error.code)
       )
         socket.close(1008, 'Authentication expired');
     }

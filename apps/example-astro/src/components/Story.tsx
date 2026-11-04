@@ -9,7 +9,7 @@ export default function Story({
   cmsUrl,
   spaceId,
   references,
-  previewParameter = 'blok_preview',
+  previewParameter = 'storypane_preview',
   previewEnabled,
   framework,
 }: {
@@ -30,7 +30,7 @@ export default function Story({
         name: previewParameter,
         value: '1',
       },
-      cookie: { name: 'blok_preview', value: '1' },
+      cookie: { name: 'storypane_preview', value: '1' },
       env: previewEnabled,
     },
   });

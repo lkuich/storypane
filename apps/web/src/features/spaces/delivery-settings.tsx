@@ -4,20 +4,23 @@ import { Code2, KeyRound, Plus, Trash2 } from 'lucide-react';
 import type { DeliverySettings as Settings, DeliveryToken } from '@storypane/core';
 import { Button, ErrorNotice, Loading } from '@storypane/ui';
 import { api, errorMessage, jsonRequest } from '../editor/api';
+import { PublicMediaSettings } from './public-media-settings';
 
 export function DeliverySettings({
   canManage,
+  isAdmin,
   onDirty,
   onBusy,
 }: {
   canManage: boolean;
+  isAdmin: boolean;
   onDirty: (value: boolean) => void;
   onBusy: (value: boolean) => void;
 }) {
   const [settings, setSettings] = useState<Settings | null>(null),
     [previewUrls, setPreviewUrls] = useState<Settings['previewUrls']>([]),
     [defaultPreviewId, setDefaultPreviewId] = useState<string | null>(null),
-    [parameter, setParameter] = useState('blok_preview');
+    [parameter, setParameter] = useState('storypane_preview');
   const [tokens, setTokens] = useState<DeliveryToken[]>([]),
     [tokenName, setTokenName] = useState(''),
     [scope, setScope] = useState<'published' | 'preview'>('published');
@@ -25,11 +28,14 @@ export function DeliverySettings({
     [error, setError] = useState(''),
     [busy, setBusy] = useState(false),
     [saved, setSaved] = useState(false);
+  const [mediaDirty, setMediaDirty] = useState(false),
+    [mediaBusy, setMediaBusy] = useState(false);
   const dirty =
-    !!settings &&
-    (JSON.stringify(previewUrls) !== JSON.stringify(settings.previewUrls) ||
-      defaultPreviewId !== settings.defaultPreviewId ||
-      parameter !== settings.previewParameter);
+    mediaDirty ||
+    (!!settings &&
+      (JSON.stringify(previewUrls) !== JSON.stringify(settings.previewUrls) ||
+        defaultPreviewId !== settings.defaultPreviewId ||
+        parameter !== settings.previewParameter));
   function changeUrls(next: Settings['previewUrls']) {
     setPreviewUrls(next);
     setDefaultPreviewId((current) =>
@@ -61,9 +67,9 @@ export function DeliverySettings({
     return () => onDirty(false);
   }, [dirty, onDirty]);
   useEffect(() => {
-    onBusy(busy);
+    onBusy(busy || mediaBusy);
     return () => onBusy(false);
-  }, [busy, onBusy]);
+  }, [busy, mediaBusy, onBusy]);
   async function action(work: () => Promise<void>) {
     setError('');
     setBusy(true);
@@ -235,6 +241,11 @@ export function DeliverySettings({
                 </div>
               )}
             </form>
+            <PublicMediaSettings
+              canManage={isAdmin}
+              onDirty={setMediaDirty}
+              onBusy={setMediaBusy}
+            />
             {canManage && (
               <>
                 <hr />

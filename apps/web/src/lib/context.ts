@@ -18,6 +18,11 @@ export function createServices() {
       externalOptionHosts: env.EXTERNAL_OPTION_HOSTS.split(',')
         .map((host) => host.trim())
         .filter(Boolean),
+      webhookHosts: (env.WEBHOOK_HOSTS ?? '')
+        .split(',')
+        .map((host) => host.trim())
+        .filter(Boolean),
+      webhookEncryptionKey: env.WEBHOOK_ENCRYPTION_KEY,
     }),
     auth: createClerkClient({
       secretKey: env.CLERK_SECRET_KEY,
@@ -38,16 +43,16 @@ export async function authenticateSession(
 export async function authenticate(request: Request, services: ReturnType<typeof createServices>) {
   const session = await authenticateSession(request, services);
   const requestedSpace =
-    request.headers.get('x-blok-space-id') ?? new URL(request.url).searchParams.get('space');
+    request.headers.get('x-storypane-space-id') ?? new URL(request.url).searchParams.get('space');
   if (
     requestedSpace !== null &&
     !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(requestedSpace)
   )
     throw new StorypaneError('invalid', 'Invalid space ID');
   const { rows } = await services.db.query<
-    Pick<Space, 'id' | 'name' | 'role' | 'roleName' | 'permissions'>
+    Pick<Space, 'id' | 'name' | 'role' | 'roleName' | 'permissions' | 'contentScopes'>
   >(
-    'SELECT s.id,s.name,m.role,r.name AS "roleName",r.permissions FROM spaces s JOIN memberships m ON m.space_id=s.id JOIN space_roles r ON r.space_id=m.space_id AND r.id=m.role WHERE m.user_id=$1 AND ($2::uuid IS NULL OR s.id=$2::uuid) ORDER BY s.created_at LIMIT 1',
+    'SELECT s.id,s.name,m.role,r.name AS "roleName",r.permissions,r.content_scopes AS "contentScopes" FROM spaces s JOIN memberships m ON m.space_id=s.id JOIN space_roles r ON r.space_id=m.space_id AND r.id=m.role WHERE m.user_id=$1 AND ($2::uuid IS NULL OR s.id=$2::uuid) ORDER BY s.created_at LIMIT 1',
     [session.user.id, requestedSpace],
   );
   const space = rows[0];

@@ -1,11 +1,12 @@
 # 002 — Durable outbound webhooks
 
-Status: TODO  
+Status: IN PROGRESS — implemented; release verification pending
+
 Source: comparison gap 2  
 Related: [lifecycle](001-story-lifecycle.md), [scheduling](003-scheduled-publishing.md),
 [media](004-production-media.md), [permissions](008-scoped-permissions.md)
 
-## Problem and current implementation
+## Problem and starting implementation
 
 Published content can change without notifying a generated site to rebuild or
 invalidate its cache. The existing CMS-to-Durable-Object notification updates
@@ -41,7 +42,9 @@ Initial events:
 Draft events are opt-in; the normal rebuild subscription uses publication,
 unpublication, deletion, asset updates, and schema deployment. Emit one schema
 deployment event with migration version, rather than thousands of synthetic
-publish events. Repeated/no-op operations must not emit duplicate logical events.
+publish events. Receipt replays and no-op draft/metadata saves must not emit
+duplicate logical events. An explicit republish with a new request ID creates a
+new publication and event, preserving the existing reviewed-publication contract.
 
 Payload version 1 contains event ID/type/time, space ID, actor ID when applicable,
 and relevant story/locale/checkpoint/publication IDs, revision and path information.
@@ -113,20 +116,53 @@ the payload at commit time; later edits must not change a queued event.
 
 ## Acceptance tests
 
-- [ ] Failed/rolled-back mutations produce no deliveries; committed mutations
+- [x] Failed/rolled-back mutations produce no deliveries; committed mutations
       survive a worker restart and emit one logical event per transition.
-- [ ] Concurrent dispatchers, expired claims, lost responses, and retry exhaustion
+- [x] Concurrent dispatchers, expired claims, lost responses, and retry exhaustion
       preserve at-least-once delivery with a stable ID and bounded attempts.
-- [ ] Manual, bulk, scheduled, and schema-driven live-content changes trigger the
+- [x] Manual, bulk, scheduled, and schema-driven live-content changes trigger the
       documented events; normal draft autosave never triggers a publish event.
-- [ ] Signature verification passes for exact bytes and fails for tampered/replayed
+- [x] Signature verification passes for exact bytes and fails for tampered/replayed
       requests; no secrets appear in configuration reads, payloads, errors, or logs.
-- [ ] Private DNS, disallowed hosts, redirects, oversized responses, and stalled
+- [x] Private DNS, disallowed hosts, redirects, oversized responses, and stalled
       endpoints are rejected without blocking content mutations.
-- [ ] Disable/configuration changes fence queued claims; admin and space isolation
+- [x] Disable/configuration changes fence queued claims; admin and space isolation
       are enforced on every configuration/log/retry endpoint.
-- [ ] A sample static site receives a publish event and rebuilds using a server-held
+- [x] A sample static site receives a publish event and rebuilds using a server-held
       delivery token. Local cron invocation is documented and verified.
+
+## Implementation and verification
+
+Implemented migration016, strict event/configuration schemas, transaction recorder,
+encrypted secrets, signed bounded transport, persisted claims and retries, revision
+fencing, retention, admin routes/settings/logs/test/retry, the shared minute handler,
+operator bindings, and a durable static-site receiver example. See
+[webhook operations](../webhooks.md) for setup and the delivery contract.
+
+Validated locally: 54 targeted unit/Postgres tests and two browser component journeys
+covering configuration, one-time secrets, test failure, and retry. The signed publish
+integration exercises the receiver example and reads published content using its
+server-held token. No real external webhook endpoint was contacted.
+
+The merged Worker was invoked twice through the real Cloudflare Vite v2 local cron
+endpoint on an isolated disposable database/schema. Both invocations returned
+`{"outcome":"ok","noRetry":false}`. A due schedule published the selected checkpoint,
+set the locale's publication pointer, emitted exactly one `story.published` event,
+and created one delivery attempt. An empty runtime host allowlist rejected that
+attempt before DNS/HTTP. The second invocation left all counts unchanged. The
+fixture, local secret, database, and dev server were removed afterward.
+
+Integrated verification passes: the 311-test suite includes manual, bulk,
+scheduled, lifecycle, and asset event paths; full typechecking, production build,
+and lint pass. The combined browser harness passes five role/webhook journeys.
+
+Remaining release checks:
+
+- [ ] Run the signed-in Clerk admin/API journey with private test sessions.
+- [ ] Verify deployed delivery and a real external HTTPS receiver rebuild.
+
+No authenticated browser state was configured in this environment. Keep this
+issue open until these release checks are recorded.
 
 ## References
 

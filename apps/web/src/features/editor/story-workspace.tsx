@@ -56,6 +56,8 @@ import { useStoryEditor } from './use-story-editor';
 import { PreviewPanel } from './preview-panel';
 import { BlockNavigation, blockSummary, blockTitle, definitionFor } from './block-navigation';
 import { SchemaDrawer } from '../schema/schema-drawer';
+import { StoryActionsDialog } from '../content/story-actions-dialog';
+import { PublicationSchedules, ScheduleForm } from './publication-schedules';
 import { PendingSchemaMigration } from '../schema/pending-schema-migration';
 
 function outline(snapshot: LocaleSnapshot): Array<{ block: BlockDraft; depth: number }> {
@@ -121,8 +123,13 @@ export function StoryWorkspace({
         api<BlockDefinition[]>('/definitions?deployed=true'),
         api<SpaceLocale[]>('/locales'),
       ]);
-      const slug = new URLSearchParams(window.location.search).get('locale') ?? '';
-      const target = configured.find((locale) => locale.slug === slug);
+      const requestedLocale = new URLSearchParams(window.location.search).get('locale');
+      const slug = requestedLocale ?? '';
+      const target =
+        configured.find((locale) => locale.slug === slug) ??
+        (requestedLocale === null
+          ? configured.find((locale) => available.some((item) => item.spaceLocaleId === locale.id))
+          : undefined);
       if (!target)
         throw new Error(`Locale “${slug || 'Default'}” is not configured in this space.`);
       const locale =
@@ -211,6 +218,7 @@ export function StoryWorkspace({
           <LocaleEditor
             key={localeId}
             story={story}
+            onDeleted={onBack}
             initialSnapshot={initialSnapshot}
             previewOpen={previewOpen}
             onPreview={() => setPreviewOpen((value) => !value)}
@@ -241,6 +249,7 @@ export function StoryWorkspace({
 
 function LocaleEditor({
   story,
+  onDeleted,
   initialSnapshot,
   previewOpen,
   onPreview,
@@ -260,6 +269,7 @@ function LocaleEditor({
 }: {
   story: Story;
   initialSnapshot: LocaleSnapshot;
+  onDeleted: () => void;
   previewOpen: boolean;
   onPreview: () => void;
   previewSettings: DeliverySettings | null;
@@ -316,6 +326,10 @@ function LocaleEditor({
   const [history, setHistory] = useState<Checkpoint[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyError, setHistoryError] = useState<string | null>(null);
+  const [storyAction, setStoryAction] = useState<'delete' | 'unpublish' | null>(null);
+  const actionStories = useRef([story]);
+  const [scheduleRefresh, setScheduleRefresh] = useState(0);
+  const [scheduleOpen, setScheduleOpen] = useState(false);
   const [review, setReview] = useState<CheckpointDetail | null>(null);
   const [reviewError, setReviewError] = useState<string | null>(null);
   const [issues, setIssues] = useState<FieldIssue[]>([]);
@@ -417,6 +431,20 @@ function LocaleEditor({
     }
   }
   async function copyBlock(blockId: string) {
+    if (
+      snapshot.access &&
+      snapshot.blocks.some((item) => {
+        let current: BlockDraft | undefined = item;
+        while (current) {
+          if (current.id === blockId) return snapshot.access!.blocks[item.id]?.complete === false;
+          current = snapshot.blocks.find((parent) => parent.id === current?.parentId);
+        }
+        return false;
+      })
+    ) {
+      editor.setError('Copying requires read access to the entire block subtree.');
+      return;
+    }
     const text = serializeBlockClipboard(
       createBlockClipboard(snapshot, session.space.id, blockId, editor.buffers),
     );
@@ -510,6 +538,7 @@ function LocaleEditor({
         checkpointId = current.checkpointId ?? undefined;
       }
       if (!checkpointId) throw new Error('There is no saved checkpoint to review yet.');
+      setScheduleOpen(false);
       setReview(await api<CheckpointDetail>(`${editor.base}/checkpoints/${checkpointId}`));
       setHistoryOpen(false);
     } catch (error) {
@@ -529,6 +558,7 @@ function LocaleEditor({
         payload: { checkpointId: review.id },
       });
       setPublished(`Revision ${review.revision} published`);
+      setScheduleRefresh((value) => value + 1);
       setReview(null);
     } catch (error) {
       setReviewError(errorMessage(error));
@@ -817,11 +847,52 @@ function LocaleEditor({
             <span className="status-dot" />
             {label}
           </span>
+          {can(session.space, 'content:edit') && (
+            <Button
+              disabled={busy}
+              onClick={() =>
+                void editor
+                  .flush()
+                  .then((saved) => {
+                    if (saved) setStoryAction('delete');
+                  })
+                  .catch((error) => editor.setError(errorMessage(error)))
+              }
+            >
+              Delete story
+            </Button>
+          )}
+          {snapshot.locale.publishedVersionId &&
+            can(session.space, 'content:publish') &&
+            snapshot.access?.publish !== false && (
+              <Button
+                disabled={busy}
+                onClick={() =>
+                  void editor
+                    .flush()
+                    .then((saved) => {
+                      if (saved) setStoryAction('unpublish');
+                    })
+                    .catch((error) => editor.setError(errorMessage(error)))
+                }
+              >
+                Unpublish locale
+              </Button>
+            )}
           <Button onClick={() => void openHistory()} disabled={busy}>
             <Clock3 /> History
           </Button>
           {!snapshot.story.formOnly && (
-            <Button aria-pressed={previewOpen} onClick={onPreview}>
+            <Button
+              aria-pressed={previewOpen}
+              onClick={onPreview}
+              disabled={snapshot.access?.preview === false}
+              title={
+                snapshot.access?.preview === false
+                  ? 'Preview requires read access to every field.'
+                  : undefined
+              }
+            >
               <Monitor />
               {previewOpen ? 'Hide preview' : 'Preview'}
             </Button>
@@ -830,13 +901,45 @@ function LocaleEditor({
             variant="primary"
             onClick={() => void openReview()}
             disabled={
-              !can(session.space, 'content:publish') || busy || editor.connection !== 'connected'
+              !can(session.space, 'content:publish') ||
+              snapshot.access?.publish === false ||
+              busy ||
+              editor.connection !== 'connected'
             }
           >
             <Upload /> Review & publish
           </Button>
         </div>
       </div>
+      {storyAction && (
+        <StoryActionsDialog
+          stories={actionStories.current}
+          action={storyAction}
+          localeId={snapshot.locale.id}
+          onClose={() => setStoryAction(null)}
+          onComplete={(ids) => {
+            if (!ids.length) return;
+            if (storyAction === 'delete') onDeleted();
+            else {
+              void editor.sync();
+              setScheduleRefresh((value) => value + 1);
+            }
+          }}
+        />
+      )}
+      {snapshot.access?.preview === false && (
+        <p className="notice">
+          Preview is unavailable because your role cannot read every field or referenced story. You
+          can edit the fields available below.
+        </p>
+      )}
+      <PublicationSchedules
+        base={editor.base}
+        revision={snapshot.revision}
+        refresh={scheduleRefresh}
+        canPublish={can(session.space, 'content:publish') && snapshot.access?.publish !== false}
+        onReview={(id) => void openReview(id)}
+      />
       <div
         className={`publication-note${publicationStatus === 'published' ? ' publication-note--live' : ''}`}
         role="status"
@@ -952,8 +1055,14 @@ function LocaleEditor({
           device.
         </div>
       )}
-      <div className={previewOpen && !snapshot.story.formOnly ? 'visual-workspace' : undefined}>
-        {previewOpen && !snapshot.story.formOnly && (
+      <div
+        className={
+          previewOpen && !snapshot.story.formOnly && snapshot.access?.preview !== false
+            ? 'visual-workspace'
+            : undefined
+        }
+      >
+        {previewOpen && !snapshot.story.formOnly && snapshot.access?.preview !== false && (
           <PreviewPanel
             settings={previewSettings}
             onSettings={onPreviewSettings}
@@ -1038,12 +1147,16 @@ function LocaleEditor({
                         }
                         disabled={
                           !can(session.space, 'content:edit') ||
+                          snapshot.access?.blocks[block.id]?.edit === false ||
                           busy ||
                           editor.connection !== 'connected'
                         }
                       >
                         <LockKeyhole />{' '}
-                        {can(session.space, 'content:edit') ? 'Start editing' : 'Read only'}
+                        {can(session.space, 'content:edit') &&
+                        snapshot.access?.blocks[block.id]?.edit !== false
+                          ? 'Start editing'
+                          : 'Read only'}
                       </Button>
                     )}
                   </div>
@@ -1066,7 +1179,7 @@ function LocaleEditor({
                 {blockError && (
                   <div className="panel-body" style={{ paddingBottom: 0 }}>
                     <ErrorNotice message={blockError.message} retry={() => void editor.retry()} />
-                    {blockError.code === 'stale_revision' && currentBuffer && (
+                    {['stale_revision', 'forbidden'].includes(blockError.code) && currentBuffer && (
                       <>
                         <p className="small muted">
                           Copy your unsaved content before using the saved version. It will not be
@@ -1099,8 +1212,19 @@ function LocaleEditor({
                 )}
                 <div className="editor-fields">
                   {definition.fields.map((field) =>
-                    field.type === 'blocks' ? (
-                      <div className="field" key={field.name}>
+                    snapshot.access?.blocks[block.id]?.fields[field.name]?.read === false ? (
+                      <p className="field-hint" key={field.name}>
+                        Restricted field — your role cannot read this value.
+                      </p>
+                    ) : field.type === 'blocks' ? (
+                      <fieldset
+                        className="field"
+                        key={field.name}
+                        disabled={
+                          snapshot.access?.blocks[block.id]?.fields[field.name]?.edit === false
+                        }
+                        style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}
+                      >
                         <div className="field-label">
                           {field.label}
                           {field.required ? ' *' : ''}
@@ -1227,13 +1351,17 @@ function LocaleEditor({
                             </div>
                           </div>
                         </div>
-                      </div>
+                      </fieldset>
                     ) : (
                       <FieldInput
                         key={`${block.id}:${field.name}`}
                         field={field}
                         value={fields[field.name]}
-                        disabled={disabled || blockError?.code === 'stale_revision'}
+                        disabled={
+                          disabled ||
+                          snapshot.access?.blocks[block.id]?.fields[field.name]?.edit === false ||
+                          blockError?.code === 'stale_revision'
+                        }
                         onChange={(value) => editor.edit(block, field.name, value)}
                         error={
                           blockError?.details?.find(
@@ -1574,7 +1702,9 @@ function LocaleEditor({
                   )}
                   <Button
                     className="button--small"
-                    disabled={!can(session.space, 'content:edit') || busy}
+                    disabled={
+                      !can(session.space, 'content:edit') || snapshot.access?.edit === false || busy
+                    }
                     onClick={() => void restore(item, 'page')}
                   >
                     <RotateCcw /> Page
@@ -1634,6 +1764,24 @@ function LocaleEditor({
                 ))}
               </ul>
             )}
+            {can(session.space, 'content:publish') && (
+              <>
+                <Button disabled={busy} onClick={() => setScheduleOpen((value) => !value)}>
+                  {scheduleOpen ? 'Hide scheduling' : 'Schedule this revision'}
+                </Button>
+                {scheduleOpen && (
+                  <ScheduleForm
+                    key={review.id}
+                    base={editor.base}
+                    checkpoint={review}
+                    onScheduled={() => {
+                      setScheduleRefresh((value) => value + 1);
+                      setReview(null);
+                    }}
+                  />
+                )}
+              </>
+            )}
             <div className="dialog-actions">
               <Button disabled={busy} onClick={() => setReview(null)}>
                 Keep editing
@@ -1642,6 +1790,7 @@ function LocaleEditor({
                 variant="primary"
                 disabled={
                   !can(session.space, 'content:publish') ||
+                  review.snapshot.access?.publish === false ||
                   busy ||
                   editor.connection !== 'connected'
                 }
