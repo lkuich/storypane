@@ -4,8 +4,7 @@ A collaborative headless CMS: independent locale pages, automatic saving, exclus
 block editing, versioned publishing, and a media library adapted from UGC Scout.
 
 This first build runs the application, Durable Objects, and R2 in Cloudflare's
-local Workers runtime, with **Postgres 18 in Docker**. It does not need cloud
-credentials to run locally.
+local Workers runtime, with **Postgres 18 in Docker**. Clerk development credentials are required for authentication.
 
 ## Run locally
 
@@ -20,33 +19,21 @@ pnpm db:setup
 pnpm dev
 ```
 
-Open **http://127.0.0.1:3130**. The local setup creates a workspace and a Home story
-with Hero and Footer blocks. Run it again safely without resetting your content.
-After sign-in, the **Spaces** screen lists your workspaces. Create a space or open
-**My space**, then use **Settings** in its sidebar to edit its name and description
-or view its members. Admins can change settings; editors have read-only access.
-The workspace selector and **Spaces** breadcrumb return to the central screen.
+Configure the selected Clerk application from `apps/web` with `pnpm dlx clerk@latest env pull --instance dev --file .dev.vars` (authenticate the CLI in your terminal first). Keep credentials out of git. Open **http://127.0.0.1:3130**, sign in, and create or open a space. Existing content and memberships survive `db:setup`.
 
-| Local account | Password | Access |
-| --- | --- | --- |
-| `admin@blok.local` | `blok-local-admin` | Content, assets, schemas, datasources |
-| `editor@blok.local` | `blok-local-editor` | Content, assets, publishing |
+Authentication uses Clerk's React SDK with server verification at the Worker boundary (vinext is detected as React). HTTP requests validate both the JWT and active Clerk session. WebSocket authorization grants expire within 60 seconds and refresh while the editor is open; revocation therefore reaches existing sockets within 60 seconds. Old Better Auth cookies and demo passwords are no longer accepted. Legacy auth tables remain for rollback; rollback requires restoring the previous release and its configuration, and signing in again.
 
-Use separate browser profiles or an incognito window to try parallel editing.
-These accounts are local fixtures, never deployment defaults. Public signup is
-disabled. Sessions expire after seven days; account provisioning is currently an
-operator task.
+Clerk external IDs preserve imported local user IDs, memberships, and history. Linking is an explicit operator action; the server never links accounts by matching email. Unverified emails cannot access the CMS. The local demo editor remains disabled until explicitly migrated.
 
 The monorepo includes a working Astro website. With the CMS running, use
-`pnpm example:setup` then `pnpm dev:example`, and open **http://127.0.0.1:3132/home**.
+`STORYPANE_SESSION_TOKEN=<current Clerk session JWT> pnpm example:setup` then `pnpm dev:example`, and open **http://127.0.0.1:3132/home**.
 Setup creates a separate Fieldwork example space with published Default/French
 content and an unpublished page. See [the Astro example guide](apps/example-astro/README.md)
 for static builds, visual preview, and schema-to-TypeScript generation.
 
 Postgres listens only on `127.0.0.1:55432`, using database/user/password `blok`.
 Optional settings are in `.env.example`; copy it to `.env` when changing defaults.
-Keep `DATABASE_URL` consistent with the Compose settings. `pnpm db:setup` creates
-a random auth secret in ignored `apps/web/.dev.vars`. Local R2/room state persists
+Keep `DATABASE_URL` consistent with the Compose settings. `pnpm db:setup` applies database migrations. Local R2/room state persists
 under `.cloudflare/state`; database content persists in `blok_postgres_data`.
 Stop the database with `docker compose stop`. Removing its volume erases content.
 
@@ -59,8 +46,40 @@ so the rename preserves content, assets, sessions, and unsent edits.
 
 ## What works
 
+- Content search combines publication status, modification date, last modifier, and
+  content type, with date/name sorting and removable filter chips. Filters stay in
+  the URL when opening a story or refreshing. Date ranges use the browser's local time.
+- Personal page pins are saved per user. Matching pinned stories appear first in
+  Content; pinning never changes content, publication status, or another user's list.
+- Content folders support nesting, translated slug prefixes (using configured locale
+  IDs), allowed/default content types, and form-only editing. Blank folder translations
+  fall back to the default segment. Use a page's location button to move it or edit
+  its per-locale slug. Folder moves and URL changes create draft checkpoints; existing
+  published URLs remain live until each affected locale is republished. Static sites
+  still need a rebuild after publication. No automatic redirects are created.
+- Active editor avatars appear in Content, page-reference search results, and the
+  page editor. Hover for names and locales. Indicators follow active block leases,
+  not merely open tabs; they refresh every 10 seconds and on local lock changes.
+  Clerk profile photos fall back to initials when unavailable. Expired sessions,
+  removed members, and users who lose editing permission are excluded.
+  Pages are not exclusively locked: different blocks and locales can be edited
+  concurrently. An abandoned block lock expires after 45 seconds.
+
 - Central Spaces screen with search, creation, story/member counts, and per-space
   settings. New spaces start empty and their creator becomes an administrator.
+- Settings → Roles includes fixed Admin, Editor, and read-only Viewer roles, plus
+  custom space-specific roles. Configure editing, publishing, assets, block schemas,
+  datasources, and settings independently. All members can read space content.
+  Only Admins manage roles and memberships; built-in roles cannot be modified.
+  Assigned roles cannot be deleted until members are reassigned and invitations revoked.
+  Permissions are checked from Postgres on each operation, including lease renewal
+  and publishing. Existing Admin/Editor memberships keep their access.
+- Settings → Members lets admins invite by email, assign roles, remove
+  members, and revoke pending invitations. Share the workspace link manually; no
+  email is sent. Invitations last 7 days and grant access on the next authenticated
+  request using the matching Clerk-verified primary email. Existing roles are never
+  overwritten by an invitation. The last admin cannot be removed or demoted.
+  Removing a member preserves content/history and releases their editing locks.
 - Space, story, and locale selection stays in the page URL, so refresh and shared
   links reopen the same content. API calls, live editing, uploads, and asset previews
   all use the selected space. Locale changes retain the current form while loading
@@ -156,7 +175,7 @@ pnpm test:e2e
 ```
 
 Unit/integration tests use isolated schemas in the local `blok_test` database.
-Browser tests use the local fixture accounts and create test content in the app.
+Browser tests require Clerk-authenticated admin/editor storage states via `STORYPANE_TEST_ADMIN_STATE` and `STORYPANE_TEST_EDITOR_STATE`. They create test content in the app. Never commit storage states.
 If `apps/example-astro/.env` exists, run `pnpm build:example` before the browser
 suite; Playwright starts its built preview server on port 3132. Without that
 configuration the Astro-specific test is skipped.
@@ -191,7 +210,7 @@ accounts, and configure:
   Images over the binding's 20 MiB input limit retain original downloads but
   show a preview-unavailable state. Production Images access must be enabled.
 - `STORYPANE_APP_URL`: the deployed HTTPS origin, matching cookie/origin validation.
-- `AUTH_SECRET`: a strong Worker secret, distinct from the local fixture secret.
+- `CLERK_SECRET_KEY` and `VITE_CLERK_PUBLISHABLE_KEY`: Clerk keys for the target instance; the secret stays on the Worker.
 - `EXTERNAL_OPTION_HOSTS`: approved option-source hostnames, if used.
 
 Rebuild with deployment settings before deploying the generated output using

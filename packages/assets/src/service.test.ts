@@ -42,7 +42,7 @@ beforeAll(async()=>{
   await db.query(await readFile(new URL('../../db/migrations/001_initial.sql',import.meta.url),'utf8'));
   await db.query('INSERT INTO spaces(id,name) VALUES($1,$2),($3,$4)',[spaceId,'Assets',otherSpaceId,'Other']);
 });
-beforeEach(()=>{context={db,actor:{userId:'editor',sessionId:'session',spaceId,role:'editor'},bucket:new MemoryBucket()};});
+beforeEach(()=>{context={db,canWrite:true,actor:{userId:'editor',sessionId:'session',spaceId,role:'editor'},bucket:new MemoryBucket()};});
 afterAll(async()=>{await db.end();await admin.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);await admin.end();});
 
 describe('asset service with Postgres and R2 contract',()=>{
@@ -139,4 +139,18 @@ describe('asset service with Postgres and R2 contract',()=>{
     expect((await call('DELETE',`/folders/${root.id}`)).status).toBe(200);expect((await call('GET',`/${upload.assetId}/content`)).status).toBe(200);
     const result=await(await call('GET','?folder=root')).json() as {items:AssetRecord[]};expect(result.items.some(a=>a.id===upload.assetId)).toBe(true);
   });
+});
+
+it('allows read-only browsing but denies every asset mutation without write permission',async()=>{
+  context.canWrite=false;
+  context.actor.role='viewer';
+  expect((await call('GET','')).status).toBe(200);
+  const id=crypto.randomUUID();
+  for(const [method,path] of [['POST','/uploads'],['PUT',`/uploads/${id}/parts/1`],['POST',`/uploads/${id}/complete`],['DELETE',`/uploads/${id}`],['POST','/folders'],['PATCH',`/folders/${id}`],['DELETE',`/folders/${id}`],['PATCH',`/${id}`],['DELETE',`/${id}`],['POST',`/${id}/folders`]]) {
+    expect((await call(method!,path!,{})).status).toBe(403);
+  }
+  expect((context.bucket as MemoryBucket).uploads.size).toBe(0);
+  context.canWrite=true;
+  context.actor.role='custom-asset-manager';
+  expect((await call('POST','/folders',{name:`Custom role ${crypto.randomUUID()}`})).status).toBe(201);
 });

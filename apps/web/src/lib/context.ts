@@ -1,22 +1,22 @@
 import { env } from 'cloudflare:workers'
 import { Pool } from 'pg'
-import { StorypaneError, type Actor } from '@storypane/core'
+import { StorypaneError, type Actor, type Space } from '@storypane/core'
 import { StorypaneStore } from '@storypane/db'
-import { createAuth } from './auth'
+import { createClerkClient } from '@clerk/backend'
+import { clerkSession } from './clerk-auth'
 
 export function createServices() {
-  if (!env.AUTH_SECRET || env.AUTH_SECRET.length < 32) throw new Error('Run pnpm db:setup to create the local auth secret, or configure AUTH_SECRET for deployment.')
   const db = new Pool({ connectionString: env.HYPERDRIVE.connectionString, max: 3 })
   db.on('error', error => {
     // pg-cloudflare can reject its pending read when pool.end() closes the socket.
     if (db.ending && error.message === 'This socket has been closed.') return
     console.error('Database connection error', error.message)
   })
-  return { db, store: new StorypaneStore(db, { externalOptionHosts: env.EXTERNAL_OPTION_HOSTS.split(',').map(host => host.trim()).filter(Boolean) }), auth: createAuth(db, env.AUTH_SECRET, env.APP_URL) }
+  return { db, store: new StorypaneStore(db, { externalOptionHosts: env.EXTERNAL_OPTION_HOSTS.split(',').map(host => host.trim()).filter(Boolean) }), auth: createClerkClient({ secretKey: env.CLERK_SECRET_KEY, publishableKey: env.VITE_CLERK_PUBLISHABLE_KEY }) }
 }
 
 export async function authenticateSession(request: Request, services: ReturnType<typeof createServices>) {
-  const session = await services.auth.api.getSession({ headers: request.headers })
+  const session = await clerkSession(request, services.db, services.auth, env.APP_URL)
   if (!session) throw new StorypaneError('unauthenticated', 'Sign in to continue.')
   return session
 }
@@ -25,8 +25,8 @@ export async function authenticate(request: Request, services: ReturnType<typeof
   const session = await authenticateSession(request, services)
   const requestedSpace = request.headers.get('x-blok-space-id') ?? new URL(request.url).searchParams.get('space')
   if (requestedSpace !== null && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(requestedSpace)) throw new StorypaneError('invalid', 'Invalid space ID')
-  const { rows } = await services.db.query<{ id: string; name: string; role: Actor['role'] }>(
-    'SELECT s.id,s.name,m.role FROM spaces s JOIN memberships m ON m.space_id=s.id WHERE m.user_id=$1 AND ($2::uuid IS NULL OR s.id=$2::uuid) ORDER BY s.created_at LIMIT 1',
+  const { rows } = await services.db.query<Pick<Space,'id'|'name'|'role'|'roleName'|'permissions'>>(
+    'SELECT s.id,s.name,m.role,r.name AS "roleName",r.permissions FROM spaces s JOIN memberships m ON m.space_id=s.id JOIN space_roles r ON r.space_id=m.space_id AND r.id=m.role WHERE m.user_id=$1 AND ($2::uuid IS NULL OR s.id=$2::uuid) ORDER BY s.created_at LIMIT 1',
     [session.user.id, requestedSpace],
   )
   const space = rows[0]

@@ -10,14 +10,13 @@ import {
   type DragEvent,
 } from "react";
 import {
-  ArrowDown,
   ArrowLeft,
-  ArrowUp,
   Check,
   ChevronRight,
   Clock3,
   Copy,
   FileJson,
+  FileText,
   Globe2,
   GripVertical,
   Layers,
@@ -25,6 +24,7 @@ import {
   Monitor,
   Plus,
   RotateCcw,
+  Search,
   Settings2,
   Trash2,
   Upload,
@@ -51,6 +51,11 @@ import {
   Loading,
   Modal,
 } from "@storypane/ui";
+import { can } from "@storypane/core";
+import { PublicationStatus } from "../../components/publication-status";
+import { BlockEditorAvatar, EditorAvatars } from "../../components/editor-avatars";
+import { usePageEditors } from "./use-page-editors";
+import { PageId } from "../../components/page-id";
 import type { CMSSession } from "../../components/cms-app";
 import { api, ApiError, dateLabel, errorMessage, jsonRequest } from "./api";
 import { FieldInput } from "./field-input";
@@ -253,6 +258,7 @@ function LocaleEditor({
     userId: session.user.id,
     sessionId: session.sessionId,
     spaceId: session.space.id,
+    editable: can(session.space,"content:edit"),
   });
   const [outlineOpen, setOutlineOpen] = useState(false);
   const [schema, setSchema] = useState<{
@@ -268,6 +274,7 @@ function LocaleEditor({
     field: Extract<FieldDefinition, { type: "blocks" }>;
   } | null>(null);
   const [addDefinition, setAddDefinition] = useState("");
+  const [blockSearch, setBlockSearch] = useState("");
   const [historyOpen, setHistoryOpen] = useState(false);
   const [history, setHistory] = useState<Checkpoint[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
@@ -303,6 +310,8 @@ function LocaleEditor({
     if (command?.type === "publishCheckpoint") setReview(null);
   }, [editor.completedCommand]);
   const snapshot = editor.snapshot;
+  const pageEditors = usePageEditors(true, snapshot.leases.map(lease => `${lease.blockId}:${lease.userId}`).sort().join("|"));
+  const currentEditors = pageEditors[snapshot.story.id] ?? [];
   const block = editor.selected;
   const definition = snapshot && block ? definitionFor(snapshot, block) : null;
   const pending =
@@ -335,8 +344,10 @@ function LocaleEditor({
             : pending
               ? "Unsaved changes"
               : "All changes saved";
+  const publicationStatus = !snapshot.locale.publishedVersionId ? 'draft'
+    : pending > 0 ? 'changed' : snapshot.publicationStatus ?? 'changed';
   const ownsLease = editor.canEdit;
-  const disabled = !ownsLease || busy;
+  const disabled = !can(session.space,"content:edit") || !ownsLease || busy;
   const defaultLocale = locales.find((locale) => locale.slug === "");
 
   async function action(work: () => Promise<unknown>) {
@@ -363,7 +374,7 @@ function LocaleEditor({
     }
   }
   async function openSchema() {
-    if (!definition || session.space.role !== "admin") return;
+    if (!definition || !can(session.space,"schemas:write")) return;
     await action(async () => {
       const [latest, datasources] = await Promise.all([
         api<BlockDefinition[]>("/definitions"),
@@ -529,22 +540,19 @@ function LocaleEditor({
       </>
     );
   const tree = outline(snapshot);
-  const others = [
-    ...new Set(
-      snapshot.leases
-        .filter((lease) => lease.userId !== session.user.id)
-        .map((lease) => lease.userId),
-    ),
-  ];
   const selectedLease = snapshot.leases.find(
     (lease) =>
-      lease.blockId === block?.id && lease.sessionId !== session.sessionId,
+      lease.blockId === block?.id && lease.sessionId !== session.sessionId && Date.parse(lease.expiresAt) > Date.now(),
   );
+  const selectedEditor = currentEditors.find(editor => editor.userId === selectedLease?.userId);
   const availableDefinitions = definitions.filter(
     (item) =>
       addTo ? isBlockAllowed(addTo.field, item) : item.kind !== "content-type",
   );
-  const structureDisabled = busy || editor.connection !== "connected" || editor.unconfirmedCommand;
+  const matchingDefinitions = availableDefinitions.filter(item =>
+    `${item.displayName} ${item.name} ${(item.tags ?? []).join(" ")}`.toLowerCase().includes(blockSearch.trim().toLowerCase()),
+  );
+  const structureDisabled = !can(session.space,"content:edit") || busy || editor.connection !== "connected" || editor.unconfirmedCommand;
   const root = snapshot.blocks.find((item) => item.id === snapshot.locale.rootBlockId)!;
   const rootFields = definitionFor(snapshot, root)?.fields.filter((field) => field.type === "blocks") ?? [];
   function isLocked(...ids: string[]) {
@@ -631,24 +639,15 @@ function LocaleEditor({
       <p className="sr-only" role="status">{reorderAnnouncement}</p>
       <div className="story-heading">
         <div>
-          <h1>{snapshot.story.name}</h1>
+          <div className="story-title-status"><h1>{snapshot.story.name}</h1><PublicationStatus status={publicationStatus} /></div>
           <div className="entity-subtitle mono">
             /{snapshot.locale.slug ? `${snapshot.locale.slug}/` : ""}
             {snapshot.locale.urlSlug}
           </div>
+          <PageId id={snapshot.story.id} name={snapshot.story.name} />
         </div>
         <div className="button-group">
-          <div className="presence-list">
-            {others.map((user) => (
-              <span
-                key={user}
-                className="presence-avatar"
-                title={`Editor ${user.slice(0, 8)}`}
-              >
-                E
-              </span>
-            ))}
-          </div>
+          <EditorAvatars editors={currentEditors} currentUserId={session.user.id} />
           <span
             className="save-status"
             data-state={state}
@@ -661,15 +660,20 @@ function LocaleEditor({
           <Button onClick={() => void openHistory()} disabled={busy}>
             <Clock3 /> History
           </Button>
-          <Button aria-pressed={previewOpen} onClick={onPreview}><Monitor />{previewOpen ? 'Hide preview' : 'Preview'}</Button>
+          {!snapshot.story.formOnly && <Button aria-pressed={previewOpen} onClick={onPreview}><Monitor />{previewOpen ? 'Hide preview' : 'Preview'}</Button>}
           <Button
             variant="primary"
             onClick={() => void openReview()}
-            disabled={busy || editor.connection !== "connected"}
+            disabled={!can(session.space,"content:publish") || busy || editor.connection !== "connected"}
           >
             <Upload /> Review & publish
           </Button>
         </div>
+      </div>
+      <div className={`publication-note${publicationStatus === 'published' ? ' publication-note--live' : ''}`} role="status">
+        {publicationStatus === 'draft' ? <><FileText aria-hidden="true" /><span><strong>{snapshot.locale.name} is a draft.</strong> This locale is not live until you publish it.</span></>
+          : publicationStatus === 'changed' ? <><Clock3 aria-hidden="true" /><span><strong>Changes awaiting publish.</strong> The previously published version of {snapshot.locale.name} is still live.</span></>
+          : <><Check aria-hidden="true" /><span>{snapshot.locale.name} is published. No pending changes.</span></>}
       </div>
       <div className="locale-bar">
         <div className="locale-tabs" role="tablist" aria-label="Story locale">
@@ -678,7 +682,7 @@ function LocaleEditor({
               role="tab"
               aria-label={locale.slug ? `${locale.name} ${locale.slug}` : 'Default'}
               aria-selected={locale.id === snapshot.locale.spaceLocaleId}
-              disabled={switchingLocale}
+              disabled={switchingLocale || (!can(session.space,"content:edit") && !locales.some(item=>item.spaceLocaleId === locale.id))}
               aria-controls="locale-editor"
               id={`locale-tab-${locale.id}`}
               key={locale.id}
@@ -721,7 +725,7 @@ function LocaleEditor({
           </span>
           <Button
             onClick={() => void editor.retry()}
-            disabled={busy || editor.connection !== "connected"}
+            disabled={!can(session.space,"content:edit") || busy || editor.connection !== "connected"}
           >
             Retry change
           </Button>
@@ -740,8 +744,8 @@ function LocaleEditor({
           Editing is paused while the connection is unavailable. Your unsaved input is kept on this device.
         </div>
       )}
-      <div className={previewOpen ? 'visual-workspace' : undefined}>
-      {previewOpen && <PreviewPanel settings={previewSettings} onSettings={onPreviewSettings} previewId={previewId} onPreviewId={onPreviewId} snapshot={snapshot} spaceId={session.space.id} selectedId={editor.selectedId} onSelect={editor.select} />}
+      <div className={previewOpen && !snapshot.story.formOnly ? 'visual-workspace' : undefined}>
+      {previewOpen && !snapshot.story.formOnly && <PreviewPanel settings={previewSettings} onSettings={onPreviewSettings} previewId={previewId} onPreviewId={onPreviewId} snapshot={snapshot} spaceId={session.space.id} selectedId={editor.selectedId} onSelect={editor.select} />}
       <div
         className="editor-layout"
         id="locale-editor"
@@ -749,7 +753,7 @@ function LocaleEditor({
         aria-labelledby={`locale-tab-${snapshot.locale.spaceLocaleId}`}
       >
         <section className="panel editor-panel" aria-label="Block editor">
-          <BlockNavigation snapshot={snapshot} selectedId={editor.selectedId} onSelect={editor.select} onOutline={() => setOutlineOpen(true)} />
+          <BlockNavigation snapshot={snapshot} selectedId={editor.selectedId} editors={currentEditors} currentUserId={session.user.id} onSelect={editor.select} onOutline={() => setOutlineOpen(true)} />
           {block && definition ? (
             <>
               <div className="editor-panel-heading">
@@ -761,7 +765,7 @@ function LocaleEditor({
                   </p>
                 </div>
                 <div className="button-group">
-                  {session.space.role === "admin" && <Button id="edit-block-schema" variant="ghost" onClick={() => void openSchema()} disabled={busy} title={`Edit ${definition.displayName} schema`}>
+                  {can(session.space,"schemas:write") && <Button id="edit-block-schema" variant="ghost" onClick={() => void openSchema()} disabled={busy} title={`Edit ${definition.displayName} schema`}>
                     <Settings2 aria-hidden="true" /> Edit schema
                   </Button>}
                   {ownsLease ? (
@@ -776,9 +780,9 @@ function LocaleEditor({
                           await editor.sync();
                         })
                       }
-                      disabled={busy || editor.connection !== "connected"}
+                      disabled={!can(session.space,"content:edit") || busy || editor.connection !== "connected"}
                     >
-                      <LockKeyhole /> Start editing
+                      <LockKeyhole /> {can(session.space,"content:edit") ? "Start editing" : "Read only"}
                     </Button>
                   )}
                 </div>
@@ -786,8 +790,8 @@ function LocaleEditor({
               {selectedLease && (
                 <div className="locked-banner">
                   <LockKeyhole />
-                  Another editor is working on this block. Other blocks are
-                  available.
+                  <BlockEditorAvatar blockId={block.id} snapshot={snapshot} editors={currentEditors} currentUserId={session.user.id} />
+                  <span>{selectedEditor?.name ?? "Another editor"} is working on this block. Other blocks are available.</span>
                 </div>
               )}
               {blockError && (
@@ -850,7 +854,7 @@ function LocaleEditor({
                               item.parentField === field.name,
                           )
                           .sort((a, b) => a.position - b.position)
-                          .map((child, index, siblings) => (
+                          .map((child) => (
                             <div className="block-list-item" key={child.id} {...sortableProps(child)}>
                               {dragHandle(child)}
                               <button
@@ -863,26 +867,7 @@ function LocaleEditor({
                                 {blockSummary(child)}
                               </span>
                               <div className="button-group">
-                                <Button
-                                  variant="ghost"
-                                  className="icon-button"
-                                  disabled={disabled || !canMove(child) || index === 0}
-                                  aria-label={`Move ${blockTitle(snapshot, child)} up`}
-                                  onClick={() => moveBlock(child, index - 1)}
-                                >
-                                  <ArrowUp />
-                                </Button>
-                                <Button
-                                  variant="ghost"
-                                  className="icon-button"
-                                  disabled={
-                                    disabled || !canMove(child) || index === siblings.length - 1
-                                  }
-                                  aria-label={`Move ${blockTitle(snapshot, child)} down`}
-                                  onClick={() => moveBlock(child, index + 1)}
-                                >
-                                  <ArrowDown />
-                                </Button>
+                                <BlockEditorAvatar blockId={child.id} snapshot={snapshot} editors={currentEditors} currentUserId={session.user.id} />
                                 <Button
                                   variant="ghost"
                                   className="icon-button"
@@ -934,7 +919,7 @@ function LocaleEditor({
                               }
                               onClick={() => {
                                 setAddTo({ parentId: block.id, field });
-                                setAddDefinition("");
+                                setAddDefinition(""); setBlockSearch("");
                               }}
                             >
                               <Plus /> Add block
@@ -1017,7 +1002,7 @@ function LocaleEditor({
         initialDefinition={schema.definition}
         definitions={schema.definitions}
         datasources={schema.datasources}
-        canManage={session.space.role === "admin"}
+        canManage={can(session.space,"schemas:write")}
         registerGuard={registerSchemaGuard}
         onClose={() => {
           setSchema(null);
@@ -1049,10 +1034,11 @@ function LocaleEditor({
               >
                 <Layers />
                 <span className="tree-name">{blockTitle(snapshot, item)}</span>
+                <BlockEditorAvatar blockId={item.id} snapshot={snapshot} editors={currentEditors} currentUserId={session.user.id} />
                 {snapshot.leases.some(
                   (lease) =>
                     lease.blockId === item.id &&
-                    lease.sessionId !== session.sessionId,
+                    lease.sessionId !== session.sessionId && Date.parse(lease.expiresAt) > Date.now(),
                 ) && (
                   <LockKeyhole
                     className="tree-lock"
@@ -1071,7 +1057,7 @@ function LocaleEditor({
             {rootFields.map((field) => <Button
               key={field.name}
               disabled={structureDisabled || isLocked(root.id) || (field.maxItems !== undefined && snapshot.blocks.filter((item) => item.parentId === root.id && item.parentField === field.name).length >= field.maxItems)}
-              onClick={() => { setOutlineOpen(false); setAddTo({ parentId: root.id, field }); setAddDefinition(""); }}
+              onClick={() => { setOutlineOpen(false); setAddTo({ parentId: root.id, field }); setAddDefinition(""); setBlockSearch(""); }}
             ><Plus />{rootFields.length === 1 ? "Add block" : `Add to ${field.label}`}</Button>)}
           </div>}
           <div className="tree-footer">
@@ -1081,61 +1067,38 @@ function LocaleEditor({
       </Modal>
       <Modal
         open={!!addTo}
+        closeOnBackdrop
+        className="schema-drawer block-picker-drawer"
         onClose={() => !busy && setAddTo(null)}
         title="Add a block"
-        description={
-          addTo ? `Choose a block for ${addTo.field.label}.` : undefined
-        }
+        description={addTo ? `Choose a block to add to ${addTo.field.label}.` : undefined}
       >
-        <Field label="Block type" htmlFor="insert-definition">
-          <select
-            id="insert-definition"
-            value={addDefinition}
-            onChange={(event) => setAddDefinition(event.target.value)}
-          >
-            <option value="">Choose a block…</option>
-            {availableDefinitions.map((item) => (
-              <option key={item.id} value={item.id}>
-                {item.displayName}
-              </option>
-            ))}
-          </select>
-        </Field>
-        {!availableDefinitions.length && (
-          <p className="field-hint">
-            Create an allowed nestable or universal block in the block library
-            first.
-          </p>
-        )}
-        <ErrorNotice message={editor.error} />
-        <div className="dialog-actions">
-          <Button onClick={() => setAddTo(null)} disabled={busy}>
-            Cancel
-          </Button>
-          <Button
-            variant="primary"
-            disabled={!addDefinition || busy}
-            onClick={() =>
-              void action(async () => {
-                if (!addTo) return;
-                await editor.runCommand(
-                  {
-                    type: "insertBlock",
-                    payload: {
-                      parentId: addTo.parentId,
-                      parentField: addTo.field.name,
-                      definitionId: addDefinition,
-                    },
-                  },
-                  [addTo.parentId],
-                );
-                setAddTo(null);
-              })
-            }
-          >
-            {busy ? "Adding…" : "Add block"}
-          </Button>
+        <div className="block-picker-search">
+          <label className="search-input"><Search aria-hidden="true" /><input
+            type="search" aria-label="Search blocks" placeholder="Search blocks…" autoFocus
+            value={blockSearch} onChange={event => setBlockSearch(event.target.value)}
+          /></label>
         </div>
+        <div className="schema-drawer-body block-picker-body" aria-busy={busy}>
+          <ErrorNotice message={editor.error} />
+          {!availableDefinitions.length ? <EmptyState title="No blocks available"><p>Create a nestable or universal block that matches this field’s restrictions.</p></EmptyState>
+            : !matchingDefinitions.length
+              ? <EmptyState title="No matching blocks"><p>Try another name or tag.</p></EmptyState>
+              : <div className="block-picker-list" aria-label="Available blocks">{matchingDefinitions.map(item => <button
+                type="button" key={item.id} className="block-picker-item" aria-label={`Add ${item.displayName}`}
+                disabled={busy || !can(session.space,"content:edit")}
+                onClick={() => { setAddDefinition(item.id); void action(async () => {
+                  if (!addTo) return;
+                  await editor.runCommand({ type:"insertBlock",payload:{ parentId:addTo.parentId,parentField:addTo.field.name,definitionId:item.id } },[addTo.parentId]);
+                  setAddTo(null);
+                }); }}
+              >
+                <span className="block-picker-icon"><Layers aria-hidden="true" /></span>
+                <span className="block-picker-copy"><strong>{busy && addDefinition === item.id ? "Adding…" : item.displayName}</strong><span className="mono">{item.name}</span>{!!item.tags?.length && <span className="block-picker-tags">{item.tags.map(tag => <span key={tag}>{tag}</span>)}</span>}</span>
+                <Plus className="block-picker-add" aria-hidden="true" />
+              </button>)}</div>}
+        </div>
+        <footer className="schema-drawer-footer"><span className="schema-status">Select a block to add it to this field.</span><Button disabled={busy} onClick={() => setAddTo(null)}>Cancel</Button></footer>
       </Modal>
       <Modal
         open={historyOpen}
@@ -1174,7 +1137,7 @@ function LocaleEditor({
                   {block && block.parentId && (
                     <Button
                       className="button--small"
-                      disabled={busy}
+                      disabled={!can(session.space,"content:edit") || busy}
                       onClick={() => void restore(item, "block")}
                     >
                       <RotateCcw /> This block
@@ -1182,7 +1145,7 @@ function LocaleEditor({
                   )}
                   <Button
                     className="button--small"
-                    disabled={busy}
+                    disabled={!can(session.space,"content:edit") || busy}
                     onClick={() => void restore(item, "page")}
                   >
                     <RotateCcw /> Page
@@ -1211,6 +1174,7 @@ function LocaleEditor({
               <LockKeyhole size={14} />
               This checkpoint is fixed while you review it.
             </div>
+            <div className="content-path-preview"><span>URL to publish · {review.snapshot.locale.name}</span><code>/{[review.snapshot.locale.slug,review.snapshot.locale.urlSlug].filter(Boolean).join('/')}</code></div>
             <ul className="review-tree">
               {outline(review.snapshot).map(({ block, depth }) => (
                 <li style={{ paddingLeft: depth * 18 }} key={block.id}>
@@ -1243,7 +1207,7 @@ function LocaleEditor({
               </Button>
               <Button
                 variant="primary"
-                disabled={busy || editor.connection !== "connected"}
+                disabled={!can(session.space,"content:publish") || busy || editor.connection !== "connected"}
                 onClick={() => void publish()}
               >
                 <Upload />

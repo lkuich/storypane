@@ -26,12 +26,14 @@ export function useStoryEditor({
   userId,
   sessionId,
   spaceId,
+  editable,
 }: {
   storyId: string;
   initialSnapshot: LocaleSnapshot;
   userId: string;
   sessionId: string;
   spaceId: string;
+  editable:boolean;
 }) {
   const localeId = initialSnapshot.locale.id;
   const base = `/stories/${storyId}/locales/${localeId}`;
@@ -382,14 +384,14 @@ export function useStoryEditor({
       selectedRef.current = blockId;
       setSelectedId(blockId);
       setError(null);
-      if (connected.current)
+      if (connected.current && editable)
         await acquire(blockId).catch((error) => {
           if (!(error instanceof ApiError && error.code === "locked"))
             setError(errorMessage(error));
           void sync().catch(() => undefined);
         });
     },
-    [flushBlock, release, acquire, sync],
+    [flushBlock, release, acquire, sync, editable],
   );
 
   const sendStructuralCommand = useCallback(
@@ -582,7 +584,7 @@ export function useStoryEditor({
         try {
           await sync();
           if (stopped) return;
-          if (selectedRef.current) await acquire(selectedRef.current);
+          if (selectedRef.current && editable) await acquire(selectedRef.current);
           if (stopped) return;
           await retry();
         } catch (error) {
@@ -675,12 +677,12 @@ export function useStoryEditor({
             keepalive: true,
           }).catch(() => undefined);
     };
-  }, [base, storageKey, acquire, retry, sync, setBlockError, initialSnapshot, acceptSnapshot]);
+  }, [base, storageKey, acquire, retry, sync, setBlockError, initialSnapshot, acceptSnapshot, editable]);
 
   const selected =
     snapshot?.blocks.find((block) => block.id === selectedId) ?? null;
   const currentLease = selectedId ? leases.current[selectedId] : undefined;
-  const canEdit =
+  const canEdit = editable &&
     connection === "connected" &&
     !unconfirmedCommand &&
     !!currentLease?.token &&

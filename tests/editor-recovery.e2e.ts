@@ -63,8 +63,7 @@ test('uncertain imports retry once and inserted blocks recover across reload wit
 
   await page.getByRole('region', { name: 'Block editor' }).getByRole('button', { name: 'Add block', exact: true }).click()
   const insert = page.getByRole('dialog', { name: 'Add a block' })
-  await insert.getByLabel('Block type', { exact: true }).selectOption(definitions.find(item => item.name === 'footer')!.id)
-  await insert.getByRole('button', { name: 'Add block', exact: true }).click()
+  await insert.getByRole('button', { name: `Add ${definitions.find(item => item.name === 'footer')!.displayName}`, exact: true }).click()
   await expect(insert.getByText('Connection interrupted. Your unsaved edits are kept on this device.', { exact: true })).toBeVisible()
   expect((await json<LocaleSnapshot>(page.request, base)).blocks).toHaveLength(3)
   expect(await page.evaluate(() => Object.keys(localStorage).some(key => key.startsWith('blok:drafts:') && key.endsWith(':command')))).toBeTruthy()

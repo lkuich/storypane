@@ -3,7 +3,9 @@
   "private": true,
   "type": "module",
   "packageManager": "pnpm@12.4.2",
-  "engines": { "node": ">=24.22.0 <25" },
+  "engines": {
+    "node": ">=24.22.0 <25"
+  },
   "scripts": {
     "dev": "pnpm --filter @storypane/web dev",
     "dev:example": "pnpm --filter @storypane/sdk build && pnpm --filter @storypane/example-astro dev",
@@ -21,7 +23,6 @@
   "dependencies": {
     "@storypane/core": "workspace:*",
     "@storypane/db": "workspace:*",
-    "better-auth": "1.7.15",
     "pg": "^8.16.3"
   },
   "devDependencies": {

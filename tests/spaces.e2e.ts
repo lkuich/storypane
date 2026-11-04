@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test'
 import { Pool } from 'pg'
 import { StorypaneStore } from '@storypane/db'
-import { signInApi, signInPage } from './auth'
+import { signInApi, signInPage, authState } from './auth'
 import type { Actor, LocaleSnapshot, Space, SpaceLocale, Story, StoryLocale } from '@storypane/core'
 
 const origin = 'http://127.0.0.1:3130'
@@ -9,7 +9,7 @@ const defaultSpace = '11111111-1111-4111-8111-111111111111'
 
 test('manage spaces centrally, persist settings, and keep the selected workspace isolated', async ({ page, playwright }) => {
   const title = `Space check ${crypto.randomUUID().slice(0, 8)}`
-  const peer = await playwright.request.newContext({ baseURL:origin, extraHTTPHeaders:{ Origin:origin } })
+  const peer = await playwright.request.newContext({ storageState:authState('editor'), baseURL:origin, extraHTTPHeaders:{ Origin:origin } })
   let spaceId: string | undefined
   try {
     await signInPage(page)

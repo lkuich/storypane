@@ -1,7 +1,7 @@
 'use client';
 
 import { useSyncExternalStore } from 'react';
-import { Monitor, Moon, Sun } from 'lucide-react';
+import { ChevronDown, Moon, Sun, SunMoon } from 'lucide-react';
 import { themeStorageKey } from '../lib/theme';
 
 type Theme = 'system' | 'light' | 'dark';
@@ -29,7 +29,7 @@ function subscribe(notify: () => void) {
 }
 export function ThemePicker() {
   const theme = useSyncExternalStore(subscribe, currentTheme, () => 'system' as const);
-  const Icon = theme === 'dark' ? Moon : theme === 'light' ? Sun : Monitor;
+  const Icon = theme === 'dark' ? Moon : theme === 'light' ? Sun : SunMoon;
   return <label className="theme-picker">
     <Icon aria-hidden="true" /><span className="sr-only">Appearance</span>
     <select value={theme} onChange={event => {
@@ -37,6 +37,6 @@ export function ThemePicker() {
       applyTheme(value);
       try { localStorage.setItem(themeStorageKey, value); } catch { /* Keep the choice for this page if storage is unavailable. */ }
       window.dispatchEvent(new Event('blok:theme-change'));
-    }}><option value="system">System</option><option value="light">Light</option><option value="dark">Dark</option></select>
+    }}><option value="system">System</option><option value="light">Light</option><option value="dark">Dark</option></select><ChevronDown className="theme-picker-chevron" aria-hidden="true" />
   </label>;
 }

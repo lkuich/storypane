@@ -1,10 +1,18 @@
 import { z } from 'zod'
 
 export type Json = null | boolean | number | string | Json[] | { [key: string]: Json }
-export type Actor = { userId: string; sessionId: string; spaceId: string; role: 'admin' | 'editor' }
+export type Actor = { userId: string; sessionId: string; spaceId: string; role: string }
 export const spaceInputSchema = z.object({ name: z.string().trim().min(1).max(120), description: z.string().trim().max(1000).default('') }).strict()
-export type Space = { id: string; name: string; description: string; role: Actor['role']; createdAt: string; storyCount: number; memberCount: number }
+export type Space = { id: string; name: string; description: string; role: Actor['role']; roleName:string; permissions:Permission[]; createdAt: string; storyCount: number; memberCount: number }
 export type SpaceDetails = Space & { members: { id: string; name: string; email: string; role: Actor['role'] }[] }
+export type SpaceInvitation = { id:string; email:string; role:Actor['role']; createdAt:string; expiresAt:string }
+export const memberRoleSchema = z.object({ role:z.string().min(1).max(80) }).strict()
+export const spaceInvitationSchema = z.object({ email:z.string().trim().max(254).toLowerCase().pipe(z.email()), role:z.string().min(1).max(80) }).strict()
+export const permissions = ['content:edit','content:publish','assets:write','schemas:write','datasources:write','settings:write'] as const
+export type Permission = typeof permissions[number]
+export type SpaceRole = { id:string; name:string; permissions:Permission[]; system:boolean; memberCount:number; invitationCount:number }
+export const roleInputSchema = z.object({ name:z.string().trim().min(1).max(80), permissions:z.array(z.enum(permissions)).max(permissions.length).refine(items => new Set(items).size === items.length,'Duplicate permission') }).strict()
+export function can(space:{ permissions:readonly Permission[] }, permission:Permission) { return space.permissions.includes(permission) }
 export type SpaceLocale = { id: string; name: string; slug: string; storyCount: number }
 export const spaceLocaleInputSchema = z.object({ name:z.string().trim().min(1).max(80), slug:z.string().trim().regex(/^[a-zA-Z0-9][a-zA-Z0-9-]*$/).max(30) }).strict()
 export type DeliveredStory = { id: string; name: string; slug: string; locale: string; localeId: string; revision: number; content: Json; publishedAt: string | null }
@@ -46,7 +54,7 @@ export const jsonSchema = z.custom<Json>((value) => {
   return true
 }, 'Expected bounded JSON content')
 export const optionItemSchema = z.object({ value: z.string().max(500), label: z.string().max(500) }).strict()
-export type OptionItem = z.infer<typeof optionItemSchema>
+export type OptionItem = z.infer<typeof optionItemSchema> & { description?:string }
 export type OptionPage = { items: OptionItem[]; nextCursor?: string }
 export const optionSourceSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('inline'), items: z.array(optionItemSchema).max(1000) }).strict(),
@@ -94,11 +102,15 @@ export const linkValueSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('asset'), assetId: z.uuid() }).strict(),
 ])
 export type LinkValue = z.infer<typeof linkValueSchema>
-export type Story = { id: string; name: string; slug: string; createdAt: string; updatedAt: string }
-export type StoryLocale = { id: string; storyId: string; spaceLocaleId: string; slug: string; name: string; urlSlug: string; rootBlockId: string; revision: number; checkpointId: string | null; publishedVersionId: string | null }
+export type PageEditor = { userId:string; name:string; avatarUrl:string|null; locales:string[] }
+export type PageEditors = Record<string,PageEditor[]>
+export type PublicationStatus = 'draft' | 'changed' | 'published'
+export type StorySummary = Story & { pinned:boolean; publicationStatus:PublicationStatus; localeCount:number; pendingLocaleCount:number; modifiedBy:{id:string;name:string}|null; contentType:{id:string;name:string}|null }
+export type Story = { id: string; name: string; slug: string; folderId?:string|null; slugSegment?:string; formOnly?:boolean; createdAt: string; updatedAt: string }
+export type StoryLocale = { id: string; storyId: string; spaceLocaleId: string; slug: string; name: string; urlSlug: string; slugSegment?:string; rootBlockId: string; revision: number; checkpointId: string | null; publishedVersionId: string | null }
 export type BlockDraft = { id: string; definitionId: string; schemaVersionId: string; parentId: string | null; parentField: string | null; position: number; fields: Record<string, Json>; revision: number }
 export type Lease = { blockId: string; userId: string; sessionId: string; expiresAt: string; token?: string }
-export type LocaleSnapshot = { story: Story; locale: StoryLocale; blocks: BlockDraft[]; definitions: BlockDefinition[]; leases: Lease[]; revision: number; checkpointId: string | null }
+export type LocaleSnapshot = { publicationStatus?:PublicationStatus; story: Story; locale: StoryLocale; blocks: BlockDraft[]; definitions: BlockDefinition[]; leases: Lease[]; revision: number; checkpointId: string | null }
 export type Checkpoint = { id: string; revision: number; reason: string; actorId: string; createdAt: string }
 export type CheckpointDetail = Checkpoint & { snapshot: LocaleSnapshot; content: Json }
 export type Publication = { id: string; checkpointId: string; revision: number; createdAt: string; content: Json }
@@ -118,8 +130,25 @@ export const commandSchema = z.discriminatedUnion('type', [
   z.object({ ...mutationBase, type: z.literal('publishCheckpoint'), payload: z.object({ checkpointId: id }).strict() }).strict(),
 ])
 export type Command = z.infer<typeof commandSchema>
-export const storyInputSchema = z.object({ name: z.string().trim().min(1).max(200), slug: z.string().regex(/^[a-z0-9][a-z0-9\-/]*$/).max(200), definitionId: id }).strict()
-export const localeInputSchema = z.object({ spaceLocaleId:z.uuid(), urlSlug:z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9\-/]*$/).max(200).optional() }).strict()
+export const pathSlugSchema=z.string().trim().normalize().min(1).max(200).regex(/^[\p{L}\p{N}][\p{L}\p{N}_-]*(?:\/[\p{L}\p{N}][\p{L}\p{N}_-]*)*$/u,'Use letters, numbers, hyphens, and underscores in each path segment')
+export const folderSlugSchema=pathSlugSchema.refine(value=>!value.includes('/'),'A folder slug is one path segment; use a parent folder for nesting')
+export const folderInputSchema=z.object({name:z.string().trim().min(1).max(200),slug:folderSlugSchema,parentId:id.nullable().default(null),localeSlugs:z.record(id,folderSlugSchema).default({}),allowedDefinitionIds:z.array(id).max(500).default([]),defaultDefinitionId:id.nullable().default(null),formOnly:z.boolean().default(false)}).strict()
+export type ContentFolder=z.infer<typeof folderInputSchema> & {id:string}
+export function folderPath(folders:ContentFolder[],id:string|null,localeId?:string):string {
+  const parts:string[]=[],seen=new Set<string>()
+  while(id) {
+    if(seen.has(id) || seen.size>=20)throw new StorypaneError('invalid','Folders cannot contain themselves and support at most 20 levels')
+    seen.add(id)
+    const folder=folders.find(item=>item.id===id)
+    if(!folder)throw new StorypaneError('not_found','Parent folder not found')
+    parts.unshift((localeId && folder.localeSlugs[localeId]) || folder.slug)
+    id=folder.parentId
+  }
+  return parts.join('/')
+}
+export const storyLocationSchema=z.object({folderId:id.nullable(),slug:pathSlugSchema,localeSlugs:z.record(id,pathSlugSchema).default({})}).strict()
+export const storyInputSchema = z.object({ name: z.string().trim().min(1).max(200), slug: pathSlugSchema, definitionId: id, folderId:id.nullable().default(null) }).strict()
+export const localeInputSchema = z.object({ spaceLocaleId:z.uuid(), urlSlug:pathSlugSchema.optional() }).strict()
 export const datasourceInputSchema = z.object({ name: z.string().trim().min(1).max(120), slug: z.string().regex(/^[a-z][a-z0-9_-]*$/).max(80), items: z.array(optionItemSchema).max(1000) }).strict().refine(v => new Set(v.items.map(i => i.value)).size === v.items.length, 'Datasource values must be unique')
 export const LEASE_SECONDS = 45
 export const LEASE_RENEW_MS = 15_000

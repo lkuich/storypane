@@ -19,7 +19,7 @@ export async function publishedPages() {
   const paths = new Set<string>();
   return stories.map(story => {
     const path = [story.locale,story.slug].filter(Boolean).join('/');
-    if (!path || path === 'preview' || !/^[a-zA-Z0-9_-]+(?:\/[a-zA-Z0-9_-]+)*$/.test(path) || paths.has(path)) throw new Error(`Invalid, reserved, or duplicate page path: ${path}`);
+    if (!path || path === 'preview' || !/^[\p{L}\p{N}_-]+(?:\/[\p{L}\p{N}_-]+)*$/u.test(path) || paths.has(path)) throw new Error(`Invalid, reserved, or duplicate page path: ${path}`);
     paths.add(path);
     return { params:{ path },props:{ story } };
   });

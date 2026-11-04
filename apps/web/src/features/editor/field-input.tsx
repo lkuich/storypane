@@ -8,12 +8,9 @@ import type {
   FieldDefinition,
   Json,
   LinkValue,
-  OptionPage,
-  OptionSource,
 } from "@storypane/core";
-import { Button, ErrorNotice } from "@storypane/ui";
 import { AssetPicker } from "../assets/asset-picker";
-import { api, errorMessage, jsonRequest } from "./api";
+import { OptionInput } from "./option-input";
 import { localDatetime, utcDatetime } from "./draft-buffer";
 
 function RichTextInput({
@@ -122,166 +119,6 @@ function RichTextInput({
         </button>
       </div>
       <EditorContent editor={editor} />
-    </div>
-  );
-}
-
-export function OptionInput({
-  source,
-  value,
-  multiple = false,
-  onChange,
-  disabled,
-  label,
-}: {
-  source: OptionSource;
-  value: Json | undefined;
-  multiple?: boolean;
-  onChange: (value: Json) => void;
-  disabled: boolean;
-  label: string;
-}) {
-  const [page, setPage] = useState<OptionPage>({ items: [] });
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [query, setQuery] = useState("");
-  const [retry, setRetry] = useState(0);
-  const sourceKey = JSON.stringify(source);
-  const requestGeneration = useRef(0);
-  useEffect(() => {
-    let cancelled = false;
-    const generation = ++requestGeneration.current;
-    const timer = setTimeout(
-      () => {
-        setLoading(true);
-        setError(null);
-        void api<OptionPage>(
-          "/options",
-          jsonRequest("POST", { source: JSON.parse(sourceKey), query }),
-        )
-          .then((result) => {
-            if (!cancelled && generation === requestGeneration.current)
-              setPage(result);
-          })
-          .catch((error) => {
-            if (!cancelled) setError(errorMessage(error));
-          })
-          .finally(() => {
-            if (!cancelled) setLoading(false);
-          });
-      },
-      query ? 200 : 0,
-    );
-    return () => {
-      cancelled = true;
-      clearTimeout(timer);
-    };
-  }, [sourceKey, query, retry]);
-  async function more() {
-    setLoading(true);
-    const generation = requestGeneration.current;
-    try {
-      const next = await api<OptionPage>(
-        "/options",
-        jsonRequest("POST", { source, query, cursor: page.nextCursor }),
-      );
-      if (generation === requestGeneration.current)
-        setPage((current) => ({
-          ...next,
-          items: [
-            ...current.items,
-            ...next.items.filter(
-              (item) =>
-                !current.items.some(
-                  (existing) => existing.value === item.value,
-                ),
-            ),
-          ],
-        }));
-    } catch (error) {
-      setError(errorMessage(error));
-    } finally {
-      setLoading(false);
-    }
-  }
-  const selected = Array.isArray(value)
-    ? value.filter((item): item is string => typeof item === "string")
-    : typeof value === "string" && value
-      ? [value]
-      : [];
-  const choices = [
-    ...page.items,
-    ...selected
-      .filter((value) => !page.items.some((item) => item.value === value))
-      .map((value) => ({ value, label: `${value} (saved selection)` })),
-  ];
-  return (
-    <div>
-      <input
-        type="search"
-        aria-label={`Search ${label} options`}
-        placeholder="Filter choices…"
-        value={query}
-        onChange={(event) => setQuery(event.target.value)}
-        style={{ marginBottom: 8 }}
-        disabled={disabled}
-      />
-      {multiple ? (
-        <div className="multi-options" aria-label={label}>
-          {choices.map((item) => (
-            <label key={item.value}>
-              <input
-                type="checkbox"
-                disabled={disabled}
-                checked={selected.includes(item.value)}
-                onChange={(event) =>
-                  onChange(
-                    event.target.checked
-                      ? [...selected, item.value]
-                      : selected.filter((value) => value !== item.value),
-                  )
-                }
-              />
-              {item.label}
-            </label>
-          ))}
-          {!choices.length && (
-            <span className="small muted">
-              {loading ? "Loading choices…" : "No matching choices"}
-            </span>
-          )}
-        </div>
-      ) : (
-        <select
-          aria-label={label}
-          value={typeof value === "string" ? value : ""}
-          disabled={disabled}
-          onChange={(event) => onChange(event.target.value || null)}
-        >
-          <option value="">
-            {loading ? "Loading choices…" : "Choose an option…"}
-          </option>
-          {choices.map((item) => (
-            <option value={item.value} key={item.value}>
-              {item.label}
-            </option>
-          ))}
-        </select>
-      )}
-      {page.nextCursor && (
-        <Button
-          className="button--small"
-          style={{ marginTop: 8 }}
-          onClick={() => void more()}
-          disabled={loading}
-        >
-          Load more choices
-        </Button>
-      )}
-      <ErrorNotice
-        message={error}
-        retry={() => setRetry((value) => value + 1)}
-      />
     </div>
   );
 }
@@ -503,6 +340,7 @@ export function FieldInput({
     case "options":
       input = (
         <OptionInput
+          id={id}
           source={field.source}
           label={field.label}
           value={value}

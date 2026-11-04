@@ -149,3 +149,5 @@
   .upload-mini { right: 16px; bottom: 16px; }
   .upload-file-actions button { width: 32px; height: 36px; }
 }
+
+.asset-actions[hidden] { display: none; }

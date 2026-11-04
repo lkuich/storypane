@@ -1,15 +1,15 @@
 'use client'
 
+import { UserButton } from '@clerk/react';
 import { useEffect, useState } from 'react'
-import { ArrowRight, Boxes, Building2, FileText, LogOut, Plus, Search, Settings2, Users } from 'lucide-react'
+import { ArrowRight, Boxes, Building2, FileText, Plus, Search, Settings2, Users } from 'lucide-react'
 import type { Space } from '@storypane/core'
 import { Button, EmptyState, ErrorNotice, Loading, Modal } from '@storypane/ui'
-import type { CMSSession } from '../../components/cms-app'
 import { errorMessage, jsonRequest, requestJson } from '../editor/api'
 import './spaces.css'
 import { ThemePicker } from '../../components/theme-picker'
 
-export function SpacesScreen({ user }: { user: CMSSession['user'] }) {
+export function SpacesScreen() {
   const [spaces, setSpaces] = useState<Space[]>([])
   const [loading, setLoading] = useState(true), [error, setError] = useState('')
   const [search, setSearch] = useState(''), [creating, setCreating] = useState(false)
@@ -28,17 +28,14 @@ export function SpacesScreen({ user }: { user: CMSSession['user'] }) {
     <header className="spaces-header">
       <a className="brand-lockup" href="/" aria-label="Storypane home"><span className="brand-mark"><Boxes aria-hidden="true" /></span><span className="brand-name">storypane<span className="brand-period">.</span></span></a>
       <span className="spaces-header-label"><Building2 aria-hidden="true" />Spaces</span>
-      <div className="spaces-account"><ThemePicker /><span className="avatar" aria-hidden="true">{user.name.slice(0, 1).toUpperCase()}</span><div><strong>{user.name}</strong><span>{user.email}</span></div><Button variant="ghost" className="icon-button" aria-label="Sign out" onClick={async () => {
-        try { await requestJson('/api/auth/sign-out', jsonRequest('POST', {})); window.location.reload() }
-        catch (cause) { setError(errorMessage(cause)) }
-      }}><LogOut aria-hidden="true" /></Button></div>
+      <div className="spaces-account"><ThemePicker /><UserButton /></div>
     </header>
     <main className="spaces-main" id="main-content">
       <div className="page-heading"><div><div className="eyebrow">Your workspace, organized</div><h1>Spaces</h1><p>A home for every project. Pick up where your team left off.</p></div><Button variant="primary" onClick={() => { setName(''); setDescription(''); setFormError(''); setCreating(true) }}><Plus aria-hidden="true" />Create space</Button></div>
       <div className="spaces-toolbar"><label className="search-input"><Search aria-hidden="true" /><input type="search" aria-label="Search spaces" placeholder="Search your spaces…" value={search} onChange={event => setSearch(event.target.value)} /></label><span>{spaces.length} {spaces.length === 1 ? 'space' : 'spaces'}</span></div>
       <ErrorNotice message={error} retry={load} />
       {loading ? <Loading label="Loading your spaces…" /> : !error && (filtered.length ? <div className="spaces-grid">{filtered.map(space => <article className="space-card" key={space.id} aria-label={space.name}>
-        <div className="space-card-top"><span className="space-emblem"><Building2 aria-hidden="true" /></span><span className="pill pill--outline">{space.role === 'admin' ? 'Admin' : 'Editor'}</span></div>
+        <div className="space-card-top"><span className="space-emblem"><Building2 aria-hidden="true" /></span><span className="pill pill--outline">{space.roleName}</span></div>
         <h2><a href={`/?space=${space.id}`}>{space.name}</a></h2><p className="space-description">{space.description || 'Your stories, blocks, and assets in one place.'}</p>
         <div className="space-stats"><span><FileText aria-hidden="true" />{space.storyCount} {space.storyCount === 1 ? 'story' : 'stories'}</span><span><Users aria-hidden="true" />{space.memberCount} {space.memberCount === 1 ? 'member' : 'members'}</span></div>
         <footer><a className="button button--ghost button--small" href={`/?space=${space.id}&view=settings`} aria-label={`Settings for ${space.name}`}><Settings2 aria-hidden="true" />Settings</a><a className="space-open" href={`/?space=${space.id}`} aria-label={`Open ${space.name}`}>Open space<ArrowRight aria-hidden="true" /></a></footer>

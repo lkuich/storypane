@@ -3,7 +3,8 @@
 import { Fragment, useEffect, useRef, useState } from "react";
 import { ChevronDown, ChevronRight, Layers, ListTree } from "lucide-react";
 import { Button } from "@storypane/ui";
-import type { BlockDraft, LocaleSnapshot } from "@storypane/core";
+import type { BlockDraft, LocaleSnapshot, PageEditor } from "@storypane/core";
+import { BlockEditorAvatar } from "../../components/editor-avatars";
 
 export function definitionFor(snapshot: LocaleSnapshot, block: BlockDraft) {
   return snapshot.definitions.find(definition => definition.versionId === block.schemaVersionId);
@@ -16,9 +17,11 @@ export function blockSummary(block: BlockDraft) {
   return typeof text === "string" ? text.slice(0, 100) : "";
 }
 
-export function BlockNavigation({ snapshot, selectedId, onSelect, onOutline }: {
+export function BlockNavigation({ snapshot, selectedId, editors, currentUserId, onSelect, onOutline }: {
   snapshot: LocaleSnapshot;
   selectedId: string | null;
+  editors: PageEditor[];
+  currentUserId: string;
   onSelect: (id: string) => Promise<void>;
   onOutline: () => void;
 }) {
@@ -79,7 +82,8 @@ export function BlockNavigation({ snapshot, selectedId, onSelect, onOutline }: {
                 <p>{field?.label ?? item.parentField}<span>{siblings.length} blocks</span></p>
                 {siblings.map((sibling, position) => <button key={sibling.id} aria-current={sibling.id === selectedId ? "true" : undefined} onClick={() => select(sibling.id)}>
                   <span className="block-path-position">{position + 1}</span>
-                  <span><strong>{blockTitle(snapshot, sibling)}</strong><small>{blockSummary(sibling) || `Block ${position + 1}`}</small></span>
+                  <span className="block-path-label"><strong>{blockTitle(snapshot, sibling)}</strong><small>{blockSummary(sibling) || `Block ${position + 1}`}</small></span>
+                  <BlockEditorAvatar blockId={sibling.id} snapshot={snapshot} editors={editors} currentUserId={currentUserId} />
                 </button>)}
               </div>}
             </li>}

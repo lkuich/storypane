@@ -229,7 +229,8 @@ async function folders(request: Request, segments: string[], context: AssetConte
 
 export async function handleAssets(request: Request, segments: string[], context: AssetContext): Promise<Response> {
   try {
-    if (!context.actor.userId || !context.actor.spaceId || !['admin','editor'].includes(context.actor.role)) throw new AssetError(403,'forbidden','Space access required');
+    if (!context.actor.userId || !context.actor.spaceId) throw new AssetError(403,'forbidden','Space access required');
+    if (!['GET','HEAD'].includes(request.method) && !context.canWrite) throw new AssetError(403,'forbidden','Your role cannot change assets');
     const [id, action, sub, part] = segments;
     if (id === 'folders') return await folders(request,segments,context);
     if (id === 'uploads') {

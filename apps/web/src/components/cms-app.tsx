@@ -1,11 +1,12 @@
 "use client";
 
+import { UserButton } from '@clerk/react';
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Box, Boxes, Building2, ChevronsUpDown, ChevronRight, Database, FileText, ImageIcon, LogOut, PanelLeftClose, PanelLeftOpen, Pin, PinOff, Settings2 } from "lucide-react";
+import { Box, Boxes, Building2, ChevronsUpDown, ChevronRight, Database, FileText, ImageIcon, PanelLeftClose, PanelLeftOpen, Pin, PinOff, Settings2 } from "lucide-react";
 import { Button, ErrorNotice, Loading } from "@storypane/ui";
 import { api, errorMessage } from "../features/editor/api";
 import { setStoryLocation } from "../lib/space-url";
-import type { Story } from "@storypane/core";
+import { can, type Space, type Story } from "@storypane/core";
 import { ContentList } from "../features/content/content-list";
 import { SchemaLibrary } from "../features/schema/schema-library";
 import { DatasourceList } from "../features/datasources/datasource-list";
@@ -21,7 +22,7 @@ import type {
 export type CMSSession = {
   sessionId: string;
   user: { id: string; name: string; email: string };
-  space: { id: string; name: string; role: "admin" | "editor" };
+  space: Pick<Space,'id'|'name'|'role'|'roleName'|'permissions'>;
 };
 type Tab = "content" | "blocks" | "datasources" | "assets" | "settings";
 const tabs = [
@@ -34,6 +35,7 @@ const tabs = [
 
 export function CMSApp({ session: initialSession }: { session: CMSSession }) {
   const [session, setSession] = useState(initialSession);
+  useEffect(() => { setSession(initialSession); }, [initialSession]);
   const [tab, setTab] = useState<Tab>(() => typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('view') === 'settings' ? 'settings' : 'content');
   const [story, setStory] = useState<Story | null>(null);
   const [storyId, setStoryId] = useState(() => typeof window === 'undefined' ? null : new URLSearchParams(window.location.search).get('story'));
@@ -79,7 +81,6 @@ export function CMSApp({ session: initialSession }: { session: CMSSession }) {
     document.addEventListener("pointerdown", outside);
     return () => document.removeEventListener("pointerdown", outside);
   }, [editingStory, sidebarOpen, sidebarPinned]);
-  const [signOutError, setSignOutError] = useState<string | null>(null);
   const guard = useRef<NavigationGuard | null>(null);
   const registerGuard = useCallback<RegisterGuard>((next) => {
     guard.current = next;
@@ -98,22 +99,6 @@ export function CMSApp({ session: initialSession }: { session: CMSSession }) {
   async function allSpaces() {
     if (guard.current && !(await guard.current())) return;
     window.location.assign('/');
-  }
-  async function signOut() {
-    if (guard.current && !(await guard.current())) return;
-    try {
-      const result = await fetch("/api/auth/sign-out", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: "{}",
-      });
-      if (!result.ok) throw new Error("Sign out failed. Please try again.");
-      window.location.reload();
-    } catch (error) {
-      setSignOutError(
-        error instanceof Error ? error.message : "Could not sign out.",
-      );
-    }
   }
   return (
     <div className={`app-shell${editingStory ? " app-shell--editing" : ""}`} data-sidebar-pinned={sidebarPinned || undefined}>
@@ -155,40 +140,13 @@ export function CMSApp({ session: initialSession }: { session: CMSSession }) {
             </button>
           ))}
         </nav>
-        <div className="sidebar-footer">
-          <div className="user-profile">
-            <span className="avatar" aria-hidden="true">
-              {session.user.name
-                .split(" ")
-                .map((word) => word[0])
-                .slice(0, 2)
-                .join("")
-                .toUpperCase()}
-            </span>
-            <div><strong>{session.user.name}</strong><span>{session.user.email}</span></div>
-          </div>
-          <Button
-            variant="ghost"
-            className="icon-button"
-            aria-label="Sign out"
-            title="Sign out"
-            onClick={() => void signOut()}
-          >
-            <LogOut />
-          </Button>
-        </div>
       </aside>
       <div className="workspace-body">
       <header className="app-header">
         <div className="header-breadcrumb"><button onClick={() => void allSpaces()} aria-label="All spaces">Spaces</button><ChevronRight aria-hidden="true" /><span className="header-space-name">{session.space.name}</span><ChevronRight aria-hidden="true" /><strong>{tabs.find(item => item.id === tab)?.label}</strong>{story && <><ChevronRight aria-hidden="true" /><span className="header-story">{story.name}</span></>}</div>
-        <div className="header-actions"><ThemePicker /><span className="pill pill--outline">{session.space.role === "admin" ? "Admin" : "Editor"}</span></div>
+        <div className="header-actions"><ThemePicker /><span className="pill pill--outline">{session.space.roleName}</span><UserButton /></div>
       </header>
       <main className="app-main" id="main-content" tabIndex={-1}>
-        {signOutError && (
-          <div className="notice notice--error" role="alert">
-            {signOutError}
-          </div>
-        )}
         {tab === "content" &&
           (storyId ? story ? (
             <StoryWorkspace
@@ -201,22 +159,22 @@ export function CMSApp({ session: initialSession }: { session: CMSSession }) {
           ) : storyError ? (
             <><ErrorNotice message={storyError} retry={() => setStoryAttempt(value => value + 1)} /><Button onClick={closeStory}>Back to content</Button></>
           ) : <Loading label="Opening story…" /> : (
-            <ContentList
+            <ContentList canCreate={can(session.space,"content:edit")}
               onOpen={openStory}
               onBlocks={() => void navigate("blocks")}
             />
           ))}
         {tab === "blocks" && (
           <SchemaLibrary
-            canManage={session.space.role === "admin"}
+            canManage={can(session.space,"schemas:write")}
             registerGuard={registerGuard}
           />
         )}
         {tab === "datasources" && (
-          <DatasourceList canManage={session.space.role === "admin"} />
+          <DatasourceList canManage={can(session.space,"datasources:write")} />
         )}
         {tab === "assets" && <AssetLibrary />}
-        {tab === "settings" && <SpaceSettings registerGuard={registerGuard} onUpdate={space => setSession(current => ({ ...current, space }))} />}
+        {tab === "settings" && <SpaceSettings access={session.space} registerGuard={registerGuard} onUpdate={space => setSession(current => ({ ...current, space }))} />}
       </main>
       </div>
     </div>

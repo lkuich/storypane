@@ -7,13 +7,35 @@ import { assertOrigin, errorResponse, jsonResponse, readJson } from '../../../..
 async function handle(request: Request, route: { params: Promise<{ path: string[] }> }) {
   const services = createServices()
   try {
-    const { actor } = await authenticate(request, services)
+    const { actor, space } = await authenticate(request, services)
     const { path } = await route.params
     const method = request.method
     const isWebSocket = request.headers.get('upgrade')?.toLowerCase() === 'websocket'
     if (!['GET', 'HEAD'].includes(method) || isWebSocket) assertOrigin(request, env.APP_URL)
     const [resource, id, child, localeId, action, targetId] = path
     const store = services.store
+    if(resource==='folders' && !child) {
+      if(method==='GET' && !id)return jsonResponse(await store.listFolders(actor))
+      if(method==='POST' && !id)return jsonResponse(await store.saveFolder(actor,await readJson(request)),201)
+      if(method==='PUT' && id)return jsonResponse(await store.saveFolder(actor,await readJson(request),id))
+      if(method==='DELETE' && id){await store.deleteFolder(actor,id);return jsonResponse({ok:true})}
+    }
+    if (resource === 'presence' && !id && method === 'GET') return jsonResponse(await store.listPageEditors(actor))
+    if (resource === 'roles' && !child) {
+      if (method === 'GET' && !id) return jsonResponse(await store.listSpaceRoles(actor))
+      if (method === 'POST' && !id) { await store.saveSpaceRole(actor, await readJson(request)); return jsonResponse({ok:true},201) }
+      if (method === 'PUT' && id) { await store.saveSpaceRole(actor, await readJson(request),id); return jsonResponse({ok:true}) }
+      if (method === 'DELETE' && id) { await store.deleteSpaceRole(actor,id); return jsonResponse({ok:true}) }
+    }
+    if (resource === 'members' && id && !child) {
+      if (method === 'PUT') { await store.updateSpaceMember(actor, id, await readJson(request)); return jsonResponse({ ok:true }) }
+      if (method === 'DELETE') { await store.removeSpaceMember(actor, id); return jsonResponse({ ok:true }) }
+    }
+    if (resource === 'invitations' && !child) {
+      if (method === 'GET' && !id) return jsonResponse(await store.listSpaceInvitations(actor))
+      if (method === 'POST' && !id) { await store.inviteSpaceMember(actor, await readJson(request)); return jsonResponse({ ok:true }, 201) }
+      if (method === 'DELETE' && id) { await store.revokeSpaceInvitation(actor, id); return jsonResponse({ ok:true }) }
+    }
     if (resource === 'locales') {
       if (method === 'GET' && !id) return jsonResponse(await store.listSpaceLocales(actor))
       if (method === 'POST' && !id) return jsonResponse(await store.createSpaceLocale(actor, await readJson(request)), 201)
@@ -33,7 +55,7 @@ async function handle(request: Request, route: { params: Promise<{ path: string[
       if (method === 'GET') return jsonResponse(await store.getSpace(actor))
       if (method === 'PUT') return jsonResponse(await store.updateSpace(actor, await readJson(request)))
     }
-    if (resource === 'assets') return await handleAssets(request, path.slice(1), { db: services.db, actor, bucket: env.MEDIA, images: env.IMAGES, cache: await caches.open('blok-thumbnails-v1') })
+    if (resource === 'assets') return await handleAssets(request, path.slice(1), { db: services.db, actor, canWrite:space.permissions.includes('assets:write'), bucket: env.MEDIA, images: env.IMAGES, cache: await caches.open('blok-thumbnails-v1') })
     if (resource === 'definitions') {
       if (method === 'GET' && !id) return jsonResponse(await store.listDefinitions(actor))
       if (method === 'POST' && !id) return jsonResponse(await store.createDefinition(actor, await readJson(request)), 201)
@@ -50,6 +72,12 @@ async function handle(request: Request, route: { params: Promise<{ path: string[
       return jsonResponse(await store.resolveOptions(actor, { ...rest, query: search ?? rest.query }))
     }
     if (resource === 'stories') {
+      if(id && child==='location' && !localeId && method==='PUT')return jsonResponse(await store.updateStoryLocation(actor,id,await readJson(request)))
+      if (id && child === 'pin' && !localeId && (method === 'PUT' || method === 'DELETE')) {
+        const pinned=method === 'PUT'
+        await store.setStoryPinned(actor,id,pinned)
+        return jsonResponse({pinned})
+      }
       if (method === 'GET' && !id) return jsonResponse(await store.listStories(actor))
       if (method === 'GET' && id && !child) return jsonResponse(await store.getStory(actor, id))
       if (method === 'POST' && !id) return jsonResponse((await store.createStory(actor, await readJson(request))).story, 201)

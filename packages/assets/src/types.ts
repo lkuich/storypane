@@ -43,4 +43,4 @@ export interface AssetBucket {
   get(key: string, options?: { range?: Headers | { offset: number; length: number } }): Promise<AssetObjectBody | null>;
 }
 
-export interface AssetContext { db: Pool; actor: Actor; bucket: AssetBucket; images?: Pick<ImagesBinding, 'input'>; cache?: Pick<Cache, 'match' | 'put'> }
+export interface AssetContext { db: Pool; actor: Actor; canWrite:boolean; bucket: AssetBucket; images?: Pick<ImagesBinding, 'input'>; cache?: Pick<Cache, 'match' | 'put'> }

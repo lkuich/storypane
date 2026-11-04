@@ -1,4 +1,4 @@
-import { signInApi, signInPage } from './auth'
+import { signInApi, signInPage, authState } from './auth'
 import { expect, test, type Page } from '@playwright/test'
 import type { BlockDefinition, Datasource, LocaleSnapshot, Publication, Story, StoryLocale } from '@storypane/core'
 
@@ -78,7 +78,7 @@ test('admin builds a schema and datasource, then authors and publishes typed con
 
   await page.locator('dialog.schema-drawer').getByRole('button', { name: 'Close dialog', exact: true }).click()
 
-  const editor = await playwright.request.newContext({ baseURL: origin, extraHTTPHeaders: { Origin: origin } })
+  const editor = await playwright.request.newContext({ storageState:authState('editor'), baseURL: origin, extraHTTPHeaders: { Origin: origin } })
   try {
     await signInApi(editor, 'editor')
     const schema = { name: definition.name, displayName: schemaName, kind: definition.kind, fields: definition.fields }
@@ -364,9 +364,11 @@ test('searches allowed blocks and persists tag rules through schema editing and 
   await page.goto(`/?space=11111111-1111-4111-8111-111111111111&story=${story.id}`)
   await page.getByRole('button', { name: 'Add block', exact: true }).click()
   const insert = page.getByRole('dialog', { name: 'Add a block' })
-  await expect(insert.getByLabel('Block type').locator('option')).toHaveText(['Choose a block…', childName])
-  await insert.getByLabel('Block type').selectOption({ label:childName })
-  await insert.getByRole('button', { name: 'Add block', exact: true }).click()
+  await expect(insert.locator('.block-picker-item')).toHaveCount(1)
+  await insert.getByRole('searchbox', { name:'Search blocks' }).fill('no-matching-block')
+  await expect(insert.getByText('No matching blocks', { exact:true })).toBeVisible()
+  await insert.getByRole('searchbox', { name:'Search blocks' }).fill(childName)
+  await insert.getByRole('button', { name:`Add ${childName}`,exact:true }).click()
   await expect(insert).not.toBeVisible()
 })
 
@@ -413,8 +415,7 @@ test('opens the latest selected block schema from content without losing edits',
 
   await panel.getByRole('button', { name: 'Add block', exact: true }).click()
   const add = page.getByRole('dialog', { name: 'Add a block', exact: true })
-  await add.getByLabel('Block type').selectOption(child.id)
-  await add.getByRole('button', { name: 'Add block', exact: true }).click()
+  await add.getByRole('button', { name:`Add ${child.displayName}`,exact:true }).click()
   await expect(add).not.toBeVisible()
   await panel.locator('.block-list-item').getByRole('button', { name: 'Quick feature', exact: true }).click()
   await panel.getByLabel('Caption', { exact: true }).fill('Keep my nested content')

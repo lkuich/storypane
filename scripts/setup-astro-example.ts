@@ -7,16 +7,15 @@ if (existsSync(envPath)) {
 } else {
   const url = (process.env.STORYPANE_URL ?? process.env.BLOK_URL) || 'http://127.0.0.1:3130';
   if (!['127.0.0.1','localhost'].includes(new URL(url).hostname)) throw new Error('Example seeding is restricted to the local CMS. Configure .env manually for a deployed space.');
-  let cookies = '', spaceId = '';
+  const token = process.env.STORYPANE_SESSION_TOKEN;
+  if (!token) throw new Error('Set STORYPANE_SESSION_TOKEN to a current Clerk session token from your local CMS.');
+  let spaceId = '';
   async function request<T>(path:string,method = 'GET',body?:unknown):Promise<T> {
-    const response = await fetch(new URL(path,url),{ method,headers:{ Origin:new URL(url).origin,Cookie:cookies,'Content-Type':'application/json',...(spaceId ? { 'x-blok-space-id':spaceId } : {}) },body:body === undefined ? undefined : JSON.stringify(body) });
+    const response = await fetch(new URL(path,url),{ method,headers:{ Origin:new URL(url).origin,Authorization:`Bearer ${token}`,'Content-Type':'application/json',...(spaceId ? { 'x-blok-space-id':spaceId } : {}) },body:body === undefined ? undefined : JSON.stringify(body) });
     const result = await response.json() as T & { error?:{ message?:string }; message?:string };
     if (!response.ok) throw new Error(`${method} ${path}: ${result.error?.message || result.message || response.status}`);
-    const sessionCookies = response.headers.getSetCookie();
-    if (sessionCookies.length) cookies = sessionCookies.map(value => value.split(';')[0]).join('; ');
     return result;
   }
-  await request('/api/auth/sign-in/email','POST',{ email:'admin@blok.local',password:(process.env.STORYPANE_ADMIN_PASSWORD ?? process.env.BLOK_ADMIN_PASSWORD) || 'blok-local-admin' });
   const space = await request<{ id:string }>('/api/spaces','POST',{ name:'Fieldwork · Astro example',description:'A static Astro site with generated block types and live visual preview.' });
   spaceId = space.id;
   const definitions = new Map<string,BlockDefinition>();

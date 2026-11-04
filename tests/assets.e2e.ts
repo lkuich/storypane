@@ -1,4 +1,4 @@
-import { signInPage, signInApi } from './auth';
+import { signInPage, signInApi, authState } from './auth';
 import { expect, test, type APIRequestContext, type APIResponse } from '@playwright/test';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
@@ -14,8 +14,8 @@ async function expectStatus(response: APIResponse, status: number) {
 }
 
 test('R2 multipart upload survives resume and archive, with authenticated range delivery', async ({ playwright }) => {
-  const client = await playwright.request.newContext({ baseURL: origin, extraHTTPHeaders: { Origin: origin } });
-  const otherEditor = await playwright.request.newContext({ baseURL: origin, extraHTTPHeaders: { Origin: origin } });
+  const client = await playwright.request.newContext({ storageState:authState('admin'), baseURL: origin, extraHTTPHeaders: { Origin: origin } });
+  const otherEditor = await playwright.request.newContext({ storageState:authState('editor'), baseURL: origin, extraHTTPHeaders: { Origin: origin } });
   const anonymous = await playwright.request.newContext({ baseURL: origin });
   let assetId: string | undefined;
   let uploadId: string | undefined;
@@ -96,7 +96,7 @@ test('R2 multipart upload survives resume and archive, with authenticated range 
 });
 
 test('image and PDF uploads verify their content before exposing a stable asset', async ({ playwright }) => {
-  const client = await playwright.request.newContext({ baseURL: origin, extraHTTPHeaders: { Origin: origin } });
+  const client = await playwright.request.newContext({ storageState:authState('admin'), baseURL: origin, extraHTTPHeaders: { Origin: origin } });
   const fixtures = [
     { filename: 'tiny.png', mimeType: 'image/png', bytes: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=', 'base64'), inline: true },
     { filename: 'document.pdf', mimeType: 'application/pdf', bytes: Buffer.from('%PDF-1.4\n1 0 obj\n<< /Type /Catalog >>\nendobj\ntrailer\n<< /Root 1 0 R >>\n%%EOF\n'), inline: false },

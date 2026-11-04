@@ -50,6 +50,7 @@ async function uploadFile(item: UploadItem, signal: AbortSignal, onSession: (id:
 }
 
 const UploadContext = createContext<{
+  canUpload:boolean;
   enqueue: (files: File[], folderId: string | null) => void;
   revision: number;
   count: number;
@@ -63,7 +64,7 @@ export function useAssetUploads() {
   return value;
 }
 
-export function UploadProvider({ children }: { children:ReactNode }) {
+export function UploadProvider({ children, canUpload }: { children:ReactNode; canUpload:boolean }) {
   const [items, setItems] = useState<UploadItem[]>([]);
   const [revision, setRevision] = useState(0);
   const [open, setOpen] = useState(false), [collapsed, setCollapsed] = useState(false);
@@ -86,6 +87,7 @@ export function UploadProvider({ children }: { children:ReactNode }) {
     return () => { mounted.current = false; active.current?.controller.abort(); };
   }, []);
   useEffect(() => {
+    if (!canUpload) { active.current?.controller.abort(); return; }
     if (active.current) return;
     const next = items.find(item => item.status === 'queued' && item.file);
     if (!next) return;
@@ -99,7 +101,7 @@ export function UploadProvider({ children }: { children:ReactNode }) {
       })
       .catch(cause => update(next.id, { status:controller.signal.aborted ? 'paused' : 'error', error:controller.signal.aborted ? undefined : cause instanceof Error ? cause.message : 'Upload failed' }))
       .finally(() => { active.current = null; if (mounted.current) setItems(current => [...current]); });
-  }, [items]);
+  }, [items,canUpload]);
   const busy = items.some(item => item.status === 'queued' || item.status === 'uploading');
   useEffect(() => {
     if (!busy) return;
@@ -109,6 +111,7 @@ export function UploadProvider({ children }: { children:ReactNode }) {
   }, [busy]);
   function show() { setOpen(true); setCollapsed(false); }
   function enqueue(files:File[], folderId:string | null) {
+    if (!canUpload) return;
     const additions = files.map(file => {
       const error = !file.size || file.size > 1024 ** 3 ? 'Choose a file between 1 byte and 1 GiB.' : undefined;
       return { id:crypto.randomUUID(), file, filename:file.name, byteSize:file.size, lastModified:file.lastModified, mimeType:file.type || mimeByExtension[file.name.split('.').pop()?.toLowerCase() ?? ''] || '', folderId, progress:0, status:error ? 'error' as const : 'queued' as const, error };
@@ -121,7 +124,7 @@ export function UploadProvider({ children }: { children:ReactNode }) {
     else update(item.id, { status:'paused' });
   }
   function resume(item:UploadItem, file = item.file) {
-    if (!file) return;
+    if (!canUpload || !file) return;
     if (file.name !== item.filename || file.size !== item.byteSize || (item.lastModified !== null && file.lastModified !== item.lastModified)) {
       update(item.id, { error:'Select the original file to resume this upload.' }); return;
     }
@@ -149,5 +152,5 @@ export function UploadProvider({ children }: { children:ReactNode }) {
       </div>)}
     </div><footer><span>{busy ? 'You can keep working while files upload.' : 'Drop more files into your asset library.'}</span>{completed > 0 && <button type="button" onClick={() => setItems(current => current.filter(item => item.status !== 'done'))}>Clear completed</button>}</footer></>}
   </section>;
-  return <UploadContext.Provider value={{ enqueue, revision, count:items.length, show, setHost }}>{children}{open && (items.length > 0 || recoveryError) && typeof document !== 'undefined' && createPortal(panel, host ?? document.body)}</UploadContext.Provider>;
+  return <UploadContext.Provider value={{ canUpload, enqueue, revision, count:items.length, show, setHost }}>{children}{open && (items.length > 0 || recoveryError) && typeof document !== 'undefined' && createPortal(panel, host ?? document.body)}</UploadContext.Provider>;
 }
