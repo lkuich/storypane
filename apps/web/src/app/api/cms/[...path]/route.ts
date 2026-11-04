@@ -1,0 +1,99 @@
+import { env } from 'cloudflare:workers'
+import { BlokError } from '@blok/core'
+import { handleAssets } from '@blok/assets'
+import { authenticate, createServices } from '../../../../lib/context'
+import { assertOrigin, errorResponse, jsonResponse, readJson } from '../../../../lib/http'
+
+async function handle(request: Request, route: { params: Promise<{ path: string[] }> }) {
+  const services = createServices()
+  try {
+    const { actor } = await authenticate(request, services)
+    const { path } = await route.params
+    const method = request.method
+    const isWebSocket = request.headers.get('upgrade')?.toLowerCase() === 'websocket'
+    if (!['GET', 'HEAD'].includes(method) || isWebSocket) assertOrigin(request, env.APP_URL)
+    const [resource, id, child, localeId, action, targetId] = path
+    const store = services.store
+    if (resource === 'locales') {
+      if (method === 'GET' && !id) return jsonResponse(await store.listSpaceLocales(actor))
+      if (method === 'POST' && !id) return jsonResponse(await store.createSpaceLocale(actor, await readJson(request)), 201)
+      if (method === 'PUT' && id) return jsonResponse(await store.updateSpaceLocale(actor, id, await readJson(request)))
+      if (method === 'DELETE' && id) { await store.deleteSpaceLocale(actor, id); return jsonResponse({ ok:true }) }
+    }
+    if (resource === 'delivery-settings' && !id) {
+      if (method === 'GET') return jsonResponse(await store.getDeliverySettings(actor))
+      if (method === 'PUT') return jsonResponse(await store.updateDeliverySettings(actor, await readJson(request)))
+    }
+    if (resource === 'delivery-tokens') {
+      if (method === 'GET' && !id) return jsonResponse(await store.listDeliveryTokens(actor))
+      if (method === 'POST' && !id) return jsonResponse(await store.createDeliveryToken(actor, await readJson(request)), 201)
+      if (method === 'DELETE' && id) { await store.revokeDeliveryToken(actor, id); return jsonResponse({ ok:true }) }
+    }
+    if (resource === 'space' && !id) {
+      if (method === 'GET') return jsonResponse(await store.getSpace(actor))
+      if (method === 'PUT') return jsonResponse(await store.updateSpace(actor, await readJson(request)))
+    }
+    if (resource === 'assets') return await handleAssets(request, path.slice(1), { db: services.db, actor, bucket: env.MEDIA, images: env.IMAGES, cache: await caches.open('blok-thumbnails-v1') })
+    if (resource === 'definitions') {
+      if (method === 'GET' && !id) return jsonResponse(await store.listDefinitions(actor))
+      if (method === 'POST' && !id) return jsonResponse(await store.createDefinition(actor, await readJson(request)), 201)
+      if (method === 'POST' && id && child === 'versions') return jsonResponse(await store.updateDefinition(actor, id, await readJson(request)))
+    }
+    if (resource === 'datasources') {
+      if (method === 'GET' && !id) return jsonResponse(await store.listDatasources(actor))
+      if ((method === 'POST' && !id) || (method === 'PUT' && id)) return jsonResponse(await store.saveDatasource(actor, await readJson(request), id))
+    }
+    if (resource === 'options' && method === 'POST') {
+      const input = await readJson(request)
+      if (!input || typeof input !== 'object' || Array.isArray(input)) throw new BlokError('invalid', 'Invalid options request')
+      const { search, ...rest } = input as Record<string, unknown>
+      return jsonResponse(await store.resolveOptions(actor, { ...rest, query: search ?? rest.query }))
+    }
+    if (resource === 'stories') {
+      if (method === 'GET' && !id) return jsonResponse(await store.listStories(actor))
+      if (method === 'POST' && !id) return jsonResponse((await store.createStory(actor, await readJson(request))).story, 201)
+      if (id && child === 'locales') {
+        if (!localeId && method === 'GET') return jsonResponse(await store.listLocales(actor, id))
+        if (!localeId && method === 'POST') return jsonResponse((await store.createLocale(actor, id, await readJson(request))).locale, 201)
+        if (localeId) {
+          if (action === 'preview' && method === 'POST') return jsonResponse(await store.createEditorPreview(actor, id, localeId), 201)
+          if (!action && method === 'GET') return jsonResponse(await store.getSnapshot(actor, id, localeId))
+          const room = env.ROOMS.getByName(`${actor.spaceId}:${id}:${localeId}`)
+          const internalHeaders = new Headers({ 'x-blok-actor': JSON.stringify(actor), 'x-blok-story-id': id, 'x-blok-locale-id': localeId })
+          async function notify(payload: unknown) {
+            try {
+              const headers = new Headers(internalHeaders)
+              headers.set('content-type', 'application/json')
+              const result = await room.fetch(new Request('https://room/notify', { method: 'POST', headers, body: JSON.stringify(payload) }))
+              if (!result.ok) console.warn('Room notification failed', { status: result.status })
+            } catch (error) { console.warn('Room notification unavailable; clients will resync', error) }
+          }
+          if (action === 'commands' && method === 'POST') {
+            const result = await store.command(actor, id, localeId, await readJson(request))
+            await notify(result)
+            return jsonResponse(result)
+          }
+          if (action === 'leases') {
+            const input = await readJson(request)
+            if (!input || typeof input !== 'object' || Array.isArray(input)) throw new BlokError('invalid', 'Invalid lease request')
+            const { blockId, token } = input as { blockId?: unknown; token?: unknown }
+            if (typeof blockId !== 'string' || (method !== 'POST' && typeof token !== 'string')) throw new BlokError('invalid', 'Missing lease details')
+            if (method === 'POST') { const lease = await store.acquireLease(actor, id, localeId, blockId); await notify({ type: 'leases' }); return jsonResponse(lease) }
+            if (method === 'PATCH') { const lease = await store.renewLease(actor, id, localeId, blockId, token as string); await notify({ type: 'leases' }); return jsonResponse(lease) }
+            if (method === 'DELETE') { await store.releaseLease(actor, id, localeId, blockId, token as string); await notify({ type: 'leases' }); return jsonResponse({ ok: true }) }
+          }
+          if (action === 'checkpoints' && method === 'GET') return jsonResponse(targetId ? await store.getCheckpoint(actor, id, localeId, targetId) : await store.listCheckpoints(actor, id, localeId))
+          if (action === 'published' && method === 'GET') {
+            const publication = await store.getPublication(actor, id, localeId)
+            if (!publication) throw new BlokError('not_found', 'This locale has not been published.')
+            return jsonResponse(publication)
+          }
+        }
+      }
+    }
+    throw new BlokError('not_found', 'Endpoint not found')
+  } catch (error) { return errorResponse(error) }
+  finally { await services.db.end() }
+}
+
+export { handle as GET, handle as POST, handle as PUT, handle as PATCH, handle as DELETE }

@@ -1,0 +1,5 @@
+{
+  "name": "@blok/ui", "private": true, "type": "module",
+  "exports": { ".": "./src/index.tsx" },
+  "peerDependencies": { "react": "^19.3.1", "react-dom": "^19.3.1" }
+}

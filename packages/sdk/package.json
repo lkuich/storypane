@@ -1,0 +1,19 @@
+{
+  "name": "@blok/sdk",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Published content delivery and live visual preview for Blok",
+  "files": ["dist", "bin", "README.md"],
+  "bin": { "blok": "./bin/blok.mjs" },
+  "sideEffects": false,
+  "exports": {
+    ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" },
+    "./preview": { "types": "./dist/preview.d.ts", "import": "./dist/preview.js" },
+    "./react": { "types": "./dist/react.d.ts", "import": "./dist/react.js" }
+  },
+  "scripts": { "build": "tsc -p tsconfig.json", "prepack": "pnpm build" },
+  "peerDependencies": { "react": ">=18 <20" },
+  "peerDependenciesMeta": { "react": { "optional": true } },
+  "devDependencies": { "react": "19.3.1", "@types/react": "^19", "typescript": "latest" },
+  "engines": { "node": ">=18" }
+}

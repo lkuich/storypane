@@ -1,0 +1,8 @@
+---
+import PreviewShell from '../components/PreviewShell';
+import Layout from '../layouts/Layout.astro';
+import { cmsUrl,spaceId } from '../lib/cms';
+---
+<Layout title="Preview" preview>
+  <PreviewShell client:load cmsUrl={cmsUrl} spaceId={spaceId} />
+</Layout>

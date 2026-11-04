@@ -1,0 +1,13 @@
+packages:
+  - apps/*
+  - packages/*
+
+allowBuilds:
+  esbuild: true
+  workerd: true
+  sharp: true
+
+minimumReleaseAgeExclude:
+  - '@cloudflare/workers-response-store@1.1.5'
+  - '@vinext/cloudflare@1.3.2'
+  - vinext@1.4.2

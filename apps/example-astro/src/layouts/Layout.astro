@@ -1,0 +1,17 @@
+---
+import '../styles/site.css';
+interface Props { title:string; locale?:string; preview?:boolean }
+const { title,locale,preview = false } = Astro.props;
+---
+<!doctype html>
+<html lang={locale || 'en'}>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content="Fieldwork — a small studio for big ideas. An Astro site powered by Blok." />
+    {preview && <meta name="robots" content="noindex, nofollow" />}
+    <title>{title} · Fieldwork</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='12' fill='%23232e27'/%3E%3Ctext x='14' y='48' fill='%23e6ee9c' font-size='44' font-family='Georgia'%3Ef%3C/text%3E%3C/svg%3E" />
+  </head>
+  <body><a class="skip-link" href="#content">Skip to content</a><slot /></body>
+</html>

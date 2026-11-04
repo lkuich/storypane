@@ -1,0 +1,258 @@
+# Blok SDK
+
+TypeScript SDK for published content and live, read-only draft preview. Works with
+Node, Workers, browsers, Next.js client components, and Astro islands/scripts.
+The package has no runtime dependencies; React is an optional peer dependency.
+
+See the [working Astro example](../../apps/example-astro/README.md) in this monorepo
+for a built site, typed block registry, locale pages, and unpublished-story preview.
+
+Build from this monorepo with `pnpm --filter @blok/sdk build`. Until an npm release,
+install a packed archive or link `packages/sdk` into your app. Three entrypoints:
+
+- `@blok/sdk`: delivery client, types, preview detection, editable attributes.
+- `@blok/sdk/preview`: framework-independent browser subscription and editor bridge.
+- `@blok/sdk/react`: `useBlokStory` and `editable` for a client component/island.
+
+## Configure the CMS
+
+In **Space settings → API & preview**, create a **Published content** token and
+set the application preview URL, e.g. `https://site.example/{locale}/{slug}`.
+Default locale contributes an empty path segment; the editor removes doubled
+slashes. `{slug}` is the selected locale's URL slug. Query placeholders also work:
+`https://site.example/preview?slug={slug}&locale={locale}`.
+
+The default preview parameter is `blok_preview=1`. You can change its name in
+settings; use the same name in your SDK options. Your app must permit the CMS
+origin in its CSP `frame-ancestors` policy and must not send a conflicting
+`X-Frame-Options` header. An HTTPS CMS requires an HTTPS app; localhost HTTP is
+supported for development.
+
+## Published content
+
+```ts
+import { createBlokClient, type BlokBlock } from '@blok/sdk'
+
+const blok = createBlokClient({
+  url: process.env.BLOK_URL!,
+  spaceId: process.env.BLOK_SPACE_ID!,
+  token: process.env.BLOK_DELIVERY_TOKEN!,
+})
+
+const page = await blok.getStory({ slug: 'home', locale: '' })
+const byId = await blok.getStory({ id: page.id, locale: '' })
+const { stories, nextOffset } = await blok.listStories({ locale: '', limit: 50 })
+const locales = await blok.listLocales() // [{ id, name: 'Default', slug: '' }, ...]
+```
+
+These reads use the CMS delivery API, which queries publication snapshots in
+Postgres. Drafts and unpublished locales never appear. No locale fallback is
+implicit. A missing published story throws `BlokError` with `status === 404`.
+Each content block includes `_uid` and `component`; nested block fields contain
+arrays. Schema-specific generics are supported: `blok.getStory<MyPage>(...)`.
+
+`listLocales()` reads the names and prefixes configured in **Space settings →
+Locales** using a published or preview token. It exposes no draft content. Use
+these slugs with `getStory` / `listStories` to build routes; locales with no
+published stories return an empty list. Slug changes preserve content IDs but
+require updating old links and rebuilding static routes.
+
+API responses are `no-store` so token revocation and new publications take effect
+on the next request. Your app can deliberately cache/build the published response.
+SSG pages still need a rebuild or framework revalidation after publishing. Preview
+does not modify their static HTML or production cache.
+
+## Static Next.js pages
+
+Keep the published fetch at build time. Put the CMS-rendered part of the page
+inside a client component that receives the initial content. It renders normally
+for visitors, and the hook opens a draft connection only in preview mode.
+
+```tsx
+// app/[slug]/page.tsx — supply generateStaticParams for the routes you build.
+import { createBlokClient } from '@blok/sdk'
+import { Content } from './content'
+
+const blok = createBlokClient({
+  url: process.env.BLOK_URL!, spaceId: process.env.BLOK_SPACE_ID!,
+  token: process.env.BLOK_DELIVERY_TOKEN!,
+})
+
+export default async function Page({ params }: { params: Promise<{ slug: string }> }) {
+  const { slug } = await params
+  const initial = await blok.getStory({ slug }, { cache: 'force-cache' })
+  return <Content initial={initial} cmsUrl={process.env.BLOK_URL!}
+    spaceId={process.env.BLOK_SPACE_ID!} />
+}
+```
+
+```tsx
+// app/[slug]/content.tsx
+'use client'
+import { useBlokStory, editable } from '@blok/sdk/react'
+import type { BlokBlock, BlokStory } from '@blok/sdk'
+
+function Block({ blok }: { blok: BlokBlock }) {
+  // Replace this with your own component registry and schema-specific types.
+  return <section {...editable(blok)} tabIndex={0}>
+    {typeof blok.title === 'string' && <h1>{blok.title}</h1>}
+    {typeof blok.text === 'string' && <p>{blok.text}</p>}
+    {Array.isArray(blok.body) && (blok.body as BlokBlock[]).map(child =>
+      <Block key={child._uid} blok={child} />)}
+  </section>
+}
+
+export function Content({ initial, cmsUrl, spaceId }: {
+  initial: BlokStory; cmsUrl: string; spaceId: string
+}) {
+  const { story, error } = useBlokStory(initial, {
+    cmsUrl, spaceId,
+    mode: {
+      query: { name: 'blok_preview', value: '1' },
+      cookie: { name: 'my_preview', value: '1' },
+      env: process.env.NEXT_PUBLIC_BLOK_PREVIEW,
+    },
+  })
+  return <>{error && <p role="alert">{error.message}</p>}<Block blok={story.content} /></>
+}
+```
+
+`editable(blok)` supplies `data-blok-id`; add it to each block's rendered wrapper.
+In the editor iframe, clicking it selects the corresponding content editor.
+Selecting a block in the editor outlines it in the app. Focusable wrappers support
+Enter/Space selection. Modifier-clicks retain normal link behavior.
+
+For native Next.js Draft Mode, read `const { isEnabled } = await draftMode()` on
+the server and pass it as `mode.draft` to the client component. Do not try to read
+Next's HttpOnly draft cookie from browser JavaScript. Reading Draft Mode invokes
+request-time behavior; a fully static export should use the query/cookie bridge
+above instead. [Next.js Draft Mode documentation](https://nextjs.org/docs/app/api-reference/functions/draft-mode).
+
+An arbitrary Server Component cannot be re-rendered by changing browser data.
+The content that needs live updates must have a client renderer. For stories with
+no built route yet, configure a static `/preview` shell or a dynamic catch-all;
+the SDK cannot make a missing static route return HTML.
+
+## Astro
+
+Use the same React content component as an island (with `@astrojs/react` in your
+app), and hydrate it even on static pages:
+
+```astro
+---
+import { createBlokClient } from '@blok/sdk'
+import { Content } from '../components/Content'
+const blok = createBlokClient({
+  url: import.meta.env.BLOK_URL, spaceId: import.meta.env.BLOK_SPACE_ID,
+  token: import.meta.env.BLOK_DELIVERY_TOKEN,
+})
+const initial = await blok.getStory({ slug: 'home', locale: '' })
+---
+<Content client:load initial={initial} cmsUrl={import.meta.env.BLOK_URL}
+  spaceId={import.meta.env.BLOK_SPACE_ID} />
+```
+
+Use `import.meta.env.PUBLIC_BLOK_PREVIEW` for an Astro browser env flag. Astro
+preview/draft state is app-specific; pass the boolean from your authenticated
+server flow into `mode.draft`. Static pages cannot read per-visitor cookies at
+build time, so use the browser detector for them.
+[Astro client hydration directives](https://docs.astro.build/en/reference/directives-reference/#client-directives).
+
+Without React, use a bundled Astro `<script>` and render the subscribed content:
+
+```ts
+import { connectPreview } from '@blok/sdk/preview'
+const stop = connectPreview({
+  cmsUrl: 'https://cms.example', spaceId: 'your-space-id',
+  story: { slug: 'home', locale: '' },
+  mode: { query: { name: 'blok_preview', value: '1' } },
+  onChange: story => renderWithYourClientComponents(story.content),
+})
+// Call stop() when the page/island unmounts, including Astro client navigation.
+```
+
+Pure `.astro` components are server/build-time templates. A browser script must
+update their DOM, or a hydrated island must render the live region. The SDK does
+not inject HTML or guess how your custom components should render.
+
+## Standalone preview and authorization
+
+Any of these configured signals activates preview: `mode.draft === true`, a true
+env flag (`true`, `'true'`, or `'1'`), a matching cookie, or a matching query param.
+Signals are ORed. Use `query:false` to disable the default URL trigger. A rule
+without `value` checks for presence. HttpOnly cookies require a server-derived
+`draft` boolean. Build-time browser env vars require a rebuild when changed.
+
+Inside the CMS iframe, the SDK requests a session from its parent with
+`postMessage`; both sides check the exact origin and source window. The editor
+uses its authenticated session to grant five minutes of read-only access to one
+story locale. The SDK renews that grant while the editor remains authorized.
+Third-party cookies are not needed in the iframe, and credentials are not added
+to the iframe URL. The browser subscribes directly to the story's Durable Object.
+
+Outside the iframe, provide `getSession`. Your app's authenticated server endpoint
+must verify the visitor may preview before using a **Preview · server only** token:
+
+```ts
+// YOUR APP SERVER: only after checking your editor session/authorization.
+const previewClient = createBlokClient({
+  url: process.env.BLOK_URL!, spaceId: process.env.BLOK_SPACE_ID!,
+  token: process.env.BLOK_PREVIEW_TOKEN!,
+})
+const session = await previewClient.createPreviewSession({ slug: 'home', locale: '' })
+// Return session as JSON with Cache-Control: no-store.
+```
+
+```ts
+// In connectPreview(...) or useBlokStory(...) options:
+getSession: async () => {
+  const response = await fetch('/api/my-authenticated-preview-session', { method: 'POST' })
+  if (!response.ok) throw new Error('Sign in to preview')
+  return response.json()
+}
+```
+
+Use a stable callback for the React hook (module function or `useCallback`). Your
+endpoint must validate the requested story and CSRF protections appropriate to
+your authentication. A query parameter or an unsigned cookie alone must never
+authorize that endpoint. Never put the long-lived preview token in browser code,
+public env vars, static JSON, or URLs. Only the short-lived session reaches the
+browser. The application origin must match the configured preview URL.
+
+Sessions are checked on connect, draft broadcasts, and heartbeats. Revoking a key,
+removing a member, or expiring their login stops subsequent draft delivery.
+Preview sockets accept only sync/heartbeat requests and never hold editing leases.
+After interruptions the SDK reconnects and reads the latest durable draft; older
+revisions are ignored. Errors are exposed through `onStatus` / the React hook.
+
+## Current limits
+
+- Live changes arrive after autosave commits (not on each uncommitted keystroke).
+- Media and link fields retain their structured references; a public media
+  delivery adapter is not part of this SDK version.
+- Component rendering, authentication for standalone preview, application CSP,
+  published-site rebuild/revalidation, and unpublished route handling belong to
+  the consuming app. The Astro example is built and tested through its real React
+  island; the Next.js example remains an integration recipe.
+
+## Generate block types
+
+The package includes a `blok` CLI. Export `BLOK_URL`, `BLOK_SPACE_ID`, and a
+server-only `BLOK_PREVIEW_TOKEN`, then run:
+
+```sh
+blok pull-components --out blok/components.json
+blok generate-types --input blok/components.json --out src/types/blok.ts
+```
+
+The first command reads current schema metadata from the scoped `/api/delivery/schema`
+endpoint. A published-only token cannot read schemas. The second runs offline and
+produces discriminated block interfaces, typed fields, allowed nesting unions,
+inline option unions, and `BlokComponentMap` for component registration. Files are
+written atomically; invalid input does not overwrite existing output. `getSchema()`
+also exposes the metadata through a server-side SDK client.
+
+Types describe current schemas and valid published values. Drafts may be incomplete,
+and older publications retain their original schema versions. Dynamic options stay
+string IDs, media/link references retain their structures, and there is no runtime
+validation or automatic schema migration in generated output.

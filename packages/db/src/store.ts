@@ -1,0 +1,649 @@
+import { createHash, randomUUID, randomBytes } from 'node:crypto'
+import { Pool, type PoolClient } from 'pg'
+import { z } from 'zod'
+import { BlokError, LEASE_SECONDS, commandSchema, datasourceInputSchema, defaultFields, definitionInputSchema, localeInputSchema, optionSourceSchema, parseInput, storyInputSchema, validateFields, type Actor, type BlockDefinition, type BlockDraft, type Checkpoint, type CheckpointDetail, type Command, type CommitResult, type Datasource, type DefinitionInput, type FieldDefinition, type Json, type Lease, type LocaleSnapshot, type OptionPage, type Publication, type Story, type StoryLocale } from '@blok/core'
+import { fetchExternalOptions } from './external-options.js'
+import { spaceInputSchema, spaceLocaleInputSchema, type Space, type SpaceDetails, type SpaceLocale } from '@blok/core'
+import { deliverySettingsSchema, type DeliveredStory, type DeliverySettings, type DeliveryToken, type PreviewSession } from '@blok/core'
+
+const tokenHash = (token: string) => createHash('sha256').update(token).digest('hex')
+const secretToken = (prefix: string) => `${prefix}_${randomBytes(32).toString('base64url')}`
+const deliveryQuerySchema = z.object({ id:z.uuid().optional(), slug:z.string().max(200).optional(), locale:z.string().max(80).default(''), offset:z.number().int().min(0).max(100000).default(0), limit:z.number().int().min(1).max(100).default(50) }).strict()
+const deliveredRow = (row: Row): DeliveredStory => ({ id:row.story_id, name:row.name, slug:row.slug, locale:row.locale, localeId:row.locale_id, revision:Number(row.revision), content:row.content, publishedAt:row.published_at ? iso(row.published_at) : null })
+
+type AccountActor = Pick<Actor, 'userId' | 'sessionId'>
+async function spacesFor(client: PoolClient, userId: string, spaceId: string | null = null): Promise<Space[]> {
+  const result = await client.query(`SELECT s.id,s.name,s.description,m.role,s.created_at AS "createdAt",
+    (SELECT count(*)::integer FROM stories WHERE space_id=s.id) AS "storyCount",
+    (SELECT count(*)::integer FROM memberships WHERE space_id=s.id) AS "memberCount"
+    FROM spaces s JOIN memberships m ON m.space_id=s.id
+    WHERE m.user_id=$1 AND ($2::uuid IS NULL OR s.id=$2) ORDER BY s.created_at,s.id`, [userId, spaceId])
+  return result.rows.map(row => ({ ...row, createdAt: iso(row.createdAt) }))
+}
+
+type Row = Record<string, any>
+const iso = (v: Date | string) => v instanceof Date ? v.toISOString() : v
+const storyRow = (r: Row): Story => ({ id: r.id, name: r.name, slug: r.slug, createdAt: iso(r.created_at), updatedAt: iso(r.updated_at) })
+const localeRow = (r: Row): StoryLocale => ({ id: r.id, storyId: r.story_id, spaceLocaleId:r.space_locale_id, slug: r.slug, name: r.name, urlSlug: r.url_slug, rootBlockId: r.root_block_id, revision: Number(r.revision), checkpointId: r.checkpoint_id, publishedVersionId: r.published_version_id })
+const blockRow = (r: Row): BlockDraft => ({ id: r.id, definitionId: r.definition_id, schemaVersionId: r.schema_version_id, parentId: r.parent_id, parentField: r.parent_field, position: r.position, fields: r.fields, revision: Number(r.revision) })
+const definitionRow = (r: Row): BlockDefinition => ({ ...r.schema, id: r.definition_id, versionId: r.id, version: r.version, createdAt: iso(r.created_at) })
+const checkpointRow = (r: Row): Checkpoint => ({ id: r.id, revision: Number(r.revision), reason: r.reason, actorId: r.actor_id, createdAt: iso(r.created_at) })
+const canonical = (value: unknown): string => JSON.stringify(value, (_key, item) => item && typeof item === 'object' && !Array.isArray(item) ? Object.fromEntries(Object.entries(item).sort(([a], [b]) => a.localeCompare(b))) : item)
+function dbError(error: unknown): never {
+  if (error instanceof BlokError) throw error
+  const code = (error as { code?: string })?.code
+  if (code === '23505') throw new BlokError('invalid', 'That name or slug already exists')
+  if (['23503', '23514', '22P02'].includes(code ?? '')) throw new BlokError('invalid', 'Invalid reference or value')
+  throw error
+}
+function requireBlock(snapshot: LocaleSnapshot, id: string): BlockDraft {
+  const block = snapshot.blocks.find(b => b.id === id)
+  if (!block) throw new BlokError('not_found', 'Blok not found')
+  return block
+}
+function subtree(snapshot: LocaleSnapshot, id: string): BlockDraft[] {
+  const result: BlockDraft[] = []
+  const visit = (blockId: string) => {
+    if (result.some(b => b.id === blockId)) throw new BlokError('invalid', 'Cyclic blok structure')
+    result.push(requireBlock(snapshot, blockId))
+    snapshot.blocks.filter(b => b.parentId === blockId).forEach(b => visit(b.id))
+  }
+  visit(id)
+  return result
+}
+export function assembleContent(snapshot: LocaleSnapshot): Json {
+  const definitions = new Map(snapshot.definitions.map(d => [d.versionId, d]))
+  const visiting = new Set<string>()
+  const visit = (id: string, depth: number): Json => {
+    if (depth > 30 || visiting.has(id)) throw new BlokError('invalid', 'Blok nesting exceeds the supported depth')
+    const block = requireBlock(snapshot, id)
+    const definition = definitions.get(block.schemaVersionId)
+    if (!definition) throw new BlokError('invalid', 'Missing schema version')
+    visiting.add(id)
+    const result: Record<string, Json> = { ...block.fields, _uid: block.id, component: definition.name }
+    for (const field of definition.fields.filter(f => f.type === 'blocks')) result[field.name] = snapshot.blocks.filter(b => b.parentId === id && b.parentField === field.name).sort((a, b) => a.position - b.position || a.id.localeCompare(b.id)).map(b => visit(b.id, depth + 1))
+    visiting.delete(id)
+    return result
+  }
+  return visit(snapshot.locale.rootBlockId, 0)
+}
+
+export class BlokStore {
+  readonly pool: Pool
+  constructor(connection: Pool | string, private options: { externalOptionHosts?: string[] } = {}) { this.pool = typeof connection === 'string' ? new Pool({ connectionString: connection, max: 5 }) : connection }
+
+  private async authorizeSession(client: PoolClient, actor: AccountActor): Promise<void> {
+    if (!actor.userId || !actor.sessionId) throw new BlokError('unauthenticated', 'Sign in to continue')
+    const session = await client.query('SELECT id FROM "session" WHERE id=$1 AND "userId"=$2 AND "expiresAt">clock_timestamp()', [actor.sessionId, actor.userId])
+    if (!session.rowCount) throw new BlokError('unauthenticated', 'Your session has expired')
+  }
+  private async authorize(client: PoolClient, actor: Actor, admin = false): Promise<void> {
+    await this.authorizeSession(client, actor)
+    const membership = await client.query('SELECT role FROM memberships WHERE space_id=$1 AND user_id=$2', [actor.spaceId, actor.userId])
+    if (!membership.rowCount || (admin && membership.rows[0].role !== 'admin')) throw new BlokError('forbidden', admin ? 'Administrator access required' : 'You do not have access to this space')
+  }
+  async assertActor(actor: Actor, admin = false): Promise<void> { await this.tx(actor, async () => undefined, admin) }
+  async listSpaces(actor: AccountActor): Promise<Space[]> {
+    const client = await this.pool.connect()
+    try { await this.authorizeSession(client, actor); return await spacesFor(client, actor.userId) }
+    finally { client.release() }
+  }
+  async createSpace(actor: AccountActor, raw: unknown): Promise<Space> {
+    const input = parseInput(spaceInputSchema, raw)
+    const client = await this.pool.connect()
+    try {
+      await client.query('BEGIN')
+      await this.authorizeSession(client, actor)
+      const { rows } = await client.query('INSERT INTO spaces(name,description) VALUES($1,$2) RETURNING id', [input.name, input.description])
+      await client.query("INSERT INTO space_locales(space_id,name,slug) VALUES($1,'Default','')", [rows[0].id])
+      await client.query("INSERT INTO memberships(space_id,user_id,role) VALUES($1,$2,'admin')", [rows[0].id, actor.userId])
+      const [space] = await spacesFor(client, actor.userId, rows[0].id)
+      await client.query('COMMIT')
+      return space!
+    } catch (error) { await client.query('ROLLBACK'); dbError(error) }
+    finally { client.release() }
+  }
+  async getSpace(actor: Actor): Promise<SpaceDetails> {
+    return this.tx(actor, async client => {
+      const [space] = await spacesFor(client, actor.userId, actor.spaceId)
+      const members = await client.query('SELECT u.id,u.name,u.email,m.role FROM memberships m JOIN "user" u ON u.id=m.user_id WHERE m.space_id=$1 ORDER BY m.role,u.name,u.id', [actor.spaceId])
+      return { ...space!, members: members.rows }
+    })
+  }
+  async updateSpace(actor: Actor, raw: unknown): Promise<Space> {
+    const input = parseInput(spaceInputSchema, raw)
+    return this.tx(actor, async client => {
+      await client.query('UPDATE spaces SET name=$2,description=$3 WHERE id=$1', [actor.spaceId, input.name, input.description])
+      return (await spacesFor(client, actor.userId, actor.spaceId))[0]!
+    }, true)
+  }
+  async listSpaceLocales(actor: Actor): Promise<SpaceLocale[]> {
+    return this.tx(actor, async client => (await client.query(`SELECT c.id,c.name,c.slug,(SELECT count(*)::integer FROM story_locales l WHERE l.space_locale_id=c.id) AS "storyCount"
+      FROM space_locales c WHERE c.space_id=$1 ORDER BY (c.slug='') DESC,c.name,c.id`, [actor.spaceId])).rows)
+  }
+  async createSpaceLocale(actor: Actor, raw: unknown): Promise<SpaceLocale> {
+    const input = parseInput(spaceLocaleInputSchema, raw)
+    return this.tx(actor, async client => {
+      const { rows } = await client.query('INSERT INTO space_locales(space_id,name,slug) VALUES($1,$2,$3) RETURNING id,name,slug', [actor.spaceId,input.name,input.slug])
+      return { ...rows[0], storyCount:0 }
+    }, true)
+  }
+  async updateSpaceLocale(actor: Actor, id: string, raw: unknown): Promise<SpaceLocale> {
+    parseInput(z.uuid(), id)
+    return this.tx(actor, async client => {
+      const { rows } = await client.query('SELECT * FROM space_locales WHERE id=$1 AND space_id=$2 FOR UPDATE', [id,actor.spaceId])
+      if (!rows[0]) throw new BlokError('not_found', 'Locale not found')
+      if (rows[0].slug === '') throw new BlokError('invalid', 'Default always uses an empty slug and cannot be changed')
+      const input = parseInput(spaceLocaleInputSchema, raw)
+      await client.query('UPDATE space_locales SET name=$2,slug=$3 WHERE id=$1', [id,input.name,input.slug])
+      const count = await client.query('SELECT count(*)::integer AS count FROM story_locales WHERE space_locale_id=$1', [id])
+      return { id,...input,storyCount:count.rows[0].count }
+    }, true)
+  }
+  async deleteSpaceLocale(actor: Actor, id: string): Promise<void> {
+    parseInput(z.uuid(), id)
+    await this.tx(actor, async client => {
+      const { rows } = await client.query('SELECT * FROM space_locales WHERE id=$1 AND space_id=$2 FOR UPDATE', [id,actor.spaceId])
+      if (!rows[0]) throw new BlokError('not_found', 'Locale not found')
+      if (rows[0].slug === '') throw new BlokError('invalid', 'Default cannot be removed')
+      if ((await client.query('SELECT id FROM story_locales WHERE space_locale_id=$1 LIMIT 1', [id])).rowCount) throw new BlokError('invalid', 'This locale has story content and cannot be removed')
+      await client.query('DELETE FROM space_locales WHERE id=$1', [id])
+    }, true)
+  }
+  async deliveryLocales(token: string, spaceId: string): Promise<Pick<SpaceLocale,'id' | 'name' | 'slug'>[]> {
+    await this.authenticateDelivery(token, spaceId)
+    return (await this.pool.query("SELECT id,name,slug FROM space_locales WHERE space_id=$1 ORDER BY (slug='') DESC,name,id", [spaceId])).rows
+  }
+  async getDeliverySettings(actor: Actor): Promise<DeliverySettings> {
+    return this.tx(actor, async client => (await client.query('SELECT preview_url AS "previewUrl",preview_parameter AS "previewParameter" FROM spaces WHERE id=$1', [actor.spaceId])).rows[0])
+  }
+  async updateDeliverySettings(actor: Actor, raw: unknown): Promise<DeliverySettings> {
+    const input = parseInput(deliverySettingsSchema, raw)
+    return this.tx(actor, async client => {
+      await client.query('UPDATE spaces SET preview_url=$2,preview_parameter=$3 WHERE id=$1', [actor.spaceId, input.previewUrl, input.previewParameter])
+      return input
+    }, true)
+  }
+  async listDeliveryTokens(actor: Actor): Promise<DeliveryToken[]> {
+    return this.tx(actor, async client => (await client.query('SELECT id,name,scope,created_at AS "createdAt" FROM delivery_tokens WHERE space_id=$1 AND revoked_at IS NULL ORDER BY created_at,id', [actor.spaceId])).rows.map(row => ({ ...row, createdAt:iso(row.createdAt) })), true)
+  }
+  async createDeliveryToken(actor: Actor, raw: unknown): Promise<DeliveryToken & { token:string }> {
+    const input = parseInput(z.object({ name:z.string().trim().min(1).max(80), scope:z.enum(['published','preview']) }).strict(), raw)
+    return this.tx(actor, async client => {
+      const token = secretToken(input.scope === 'published' ? 'bl_pub' : 'bl_preview')
+      const { rows } = await client.query('INSERT INTO delivery_tokens(space_id,name,scope,token_hash) VALUES($1,$2,$3,$4) RETURNING id,name,scope,created_at AS "createdAt"', [actor.spaceId, input.name, input.scope, tokenHash(token)])
+      return { ...rows[0], createdAt:iso(rows[0].createdAt), token }
+    }, true)
+  }
+  async revokeDeliveryToken(actor: Actor, id: string): Promise<void> {
+    parseInput(z.uuid(), id)
+    await this.tx(actor, async client => { await client.query('UPDATE delivery_tokens SET revoked_at=coalesce(revoked_at,now()) WHERE id=$1 AND space_id=$2', [id, actor.spaceId]) }, true)
+  }
+  async authenticateDelivery(token: string, spaceId: string, preview = false): Promise<{ id:string; spaceId:string }> {
+    parseInput(z.uuid(), spaceId)
+    if (!token || token.length > 128) throw new BlokError('unauthenticated', 'A delivery token is required')
+    const { rows } = await this.pool.query('SELECT id,space_id AS "spaceId",scope FROM delivery_tokens WHERE token_hash=$1 AND space_id=$2 AND revoked_at IS NULL', [tokenHash(token), spaceId])
+    if (!rows[0] || (preview && rows[0].scope !== 'preview')) throw new BlokError('unauthenticated', 'Invalid or revoked delivery token')
+    return rows[0]
+  }
+  async deliverySchema(token: string, spaceId: string) {
+    await this.authenticateDelivery(token, spaceId, true)
+    const { rows } = await this.pool.query('SELECT v.* FROM definitions d JOIN definition_versions v ON v.definition_id=d.id AND v.version=d.current_version WHERE d.space_id=$1 ORDER BY d.name', [spaceId])
+    return { components: rows.map(definitionRow).map(definition => ({
+      id:definition.id, name:definition.name, kind:definition.kind, version:definition.version,
+      fields:definition.fields.map(field => ({
+        name:field.name, type:field.type, required:field.required ?? false,
+        ...(field.type === 'text' ? { format:field.format } : {}),
+        ...(field.type === 'blocks' ? { allowedDefinitionIds:field.allowedDefinitionIds ?? [] } : {}),
+        ...((field.type === 'option' || field.type === 'options') && field.source.type === 'inline' ? { options:field.source.items.map(item => item.value) } : {}),
+      })),
+    })) }
+  }
+  async publishedStories(token: string, spaceId: string, raw: unknown): Promise<{ stories:DeliveredStory[]; nextOffset:number | null }> {
+    await this.authenticateDelivery(token, spaceId)
+    const input = parseInput(deliveryQuerySchema, raw)
+    const { rows } = await this.pool.query(`SELECT s.id AS story_id,p.snapshot->'story'->>'name' AS name,l.url_slug AS slug,l.slug AS locale,l.id AS locale_id,p.revision,p.content,p.created_at AS published_at
+      FROM stories s JOIN story_locales l ON l.story_id=s.id JOIN publications p ON p.id=l.published_version_id
+      WHERE s.space_id=$1 AND l.slug=$2 AND ($3::uuid IS NULL OR s.id=$3) AND ($4::text IS NULL OR l.url_slug=$4)
+      ORDER BY s.slug,s.id LIMIT $5 OFFSET $6`, [spaceId, input.locale, input.id ?? null, input.slug ?? null, input.limit + 1, input.offset])
+    return { stories:rows.slice(0,input.limit).map(deliveredRow), nextOffset:rows.length > input.limit ? input.offset + input.limit : null }
+  }
+  async createEditorPreview(actor: Actor, storyId: string, localeId: string): Promise<PreviewSession> {
+    return this.tx(actor, async client => {
+      await this.lockLocale(client, actor, storyId, localeId)
+      return this.insertPreview(client, actor.spaceId, storyId, localeId, { userId:actor.userId, sessionId:actor.sessionId })
+    })
+  }
+  async createTokenPreview(token: string, spaceId: string, raw: unknown): Promise<PreviewSession> {
+    const credential = await this.authenticateDelivery(token, spaceId, true)
+    const input = parseInput(z.object({ id:z.uuid().optional(), slug:z.string().max(200).optional(), locale:z.string().max(80).default('') }).strict().refine(value => !!value.id !== (value.slug !== undefined), 'Specify either id or slug'), raw)
+    const client = await this.pool.connect()
+    try {
+      const { rows } = await client.query('SELECT s.id AS story_id,l.id AS locale_id FROM stories s JOIN story_locales l ON l.story_id=s.id WHERE s.space_id=$1 AND l.slug=$2 AND ($3::uuid IS NULL OR s.id=$3) AND ($4::text IS NULL OR l.url_slug=$4)', [spaceId, input.locale, input.id ?? null, input.slug ?? null])
+      if (!rows[0]) throw new BlokError('not_found', 'Story locale not found')
+      return await this.insertPreview(client, spaceId, rows[0].story_id, rows[0].locale_id, { tokenId:credential.id })
+    } finally { client.release() }
+  }
+  private async insertPreview(client: PoolClient, spaceId: string, storyId: string, localeId: string, owner: { userId?:string; sessionId?:string; tokenId?:string }): Promise<PreviewSession> {
+    const { rows } = await client.query('SELECT s.preview_url,l.url_slug AS slug,l.slug AS locale FROM spaces s JOIN stories st ON st.space_id=s.id JOIN story_locales l ON l.story_id=st.id WHERE s.id=$1 AND st.id=$2 AND l.id=$3', [spaceId, storyId, localeId])
+    if (!rows[0]?.preview_url) throw new BlokError('invalid', 'Set the application preview URL in Space settings first')
+    const origin = new URL(rows[0].preview_url).origin
+    const token = secretToken('bp')
+    await client.query('DELETE FROM preview_sessions WHERE space_id=$1 AND expires_at<now()', [spaceId])
+    const session = await client.query("INSERT INTO preview_sessions(token_hash,space_id,story_id,locale_id,origin,user_id,session_id,delivery_token_id,expires_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,now()+interval '5 minutes') RETURNING expires_at", [tokenHash(token), spaceId, storyId, localeId, origin, owner.userId ?? null, owner.sessionId ?? null, owner.tokenId ?? null])
+    return { token, expiresAt:iso(session.rows[0].expires_at), spaceId, storyId, localeId, slug:rows[0].slug, locale:rows[0].locale }
+  }
+  async authenticatePreview(token: string, origin: string): Promise<{ id:string; spaceId:string; storyId:string; localeId:string }> {
+    if (!/^bp_[\w-]{43}$/.test(token)) throw new BlokError('unauthenticated', 'Invalid preview session')
+    const { rows } = await this.pool.query('SELECT id,space_id AS "spaceId",story_id AS "storyId",locale_id AS "localeId" FROM preview_sessions WHERE token_hash=$1 AND origin=$2 AND expires_at>clock_timestamp()', [tokenHash(token), origin])
+    if (!rows[0]) throw new BlokError('unauthenticated', 'Preview session expired or origin is not allowed')
+    await this.previewStory(rows[0].id)
+    return rows[0]
+  }
+  async previewStory(previewId: string): Promise<DeliveredStory> {
+    const { rows } = await this.pool.query(`SELECT st.id AS story_id,st.name,l.url_slug AS slug,l.slug AS locale,l.id AS locale_id,c.revision,c.content
+      FROM preview_sessions p JOIN spaces sp ON sp.id=p.space_id JOIN stories st ON st.id=p.story_id AND st.space_id=p.space_id
+      JOIN story_locales l ON l.id=p.locale_id AND l.story_id=st.id JOIN checkpoints c ON c.id=l.checkpoint_id
+      WHERE p.id=$1 AND p.expires_at>clock_timestamp() AND (
+        EXISTS(SELECT 1 FROM "session" se JOIN memberships m ON m.user_id=se."userId" AND m.space_id=p.space_id WHERE se.id=p.session_id AND se."userId"=p.user_id AND se."expiresAt">clock_timestamp())
+        OR EXISTS(SELECT 1 FROM delivery_tokens t WHERE t.id=p.delivery_token_id AND t.space_id=p.space_id AND t.scope='preview' AND t.revoked_at IS NULL))`, [previewId])
+    if (!rows[0]) throw new BlokError('unauthenticated', 'Preview access expired or was revoked')
+    return deliveredRow(rows[0])
+  }
+  private async tx<T>(actor: Actor, fn: (client: PoolClient) => Promise<T>, admin = false): Promise<T> {
+    const client = await this.pool.connect()
+    try { await client.query('BEGIN'); await this.authorize(client, actor, admin); const result = await fn(client); await client.query('COMMIT'); return result }
+    catch (error) { await client.query('ROLLBACK'); dbError(error) }
+    finally { client.release() }
+  }
+  private async lockLocale(client: PoolClient, actor: Actor, storyId: string, localeId: string): Promise<void> {
+    const result = await client.query('SELECT l.id FROM story_locales l JOIN stories s ON s.id=l.story_id WHERE l.id=$1 AND s.id=$2 AND s.space_id=$3 FOR UPDATE OF l', [localeId, storyId, actor.spaceId])
+    if (!result.rowCount) throw new BlokError('not_found', 'Story locale not found')
+  }
+  private async snapshot(client: PoolClient, actor: Actor, storyId: string, localeId: string): Promise<LocaleSnapshot> {
+    const story = await client.query('SELECT * FROM stories WHERE id=$1 AND space_id=$2', [storyId, actor.spaceId])
+    const locale = await client.query('SELECT * FROM story_locales WHERE id=$1 AND story_id=$2', [localeId, storyId])
+    if (!story.rowCount || !locale.rowCount) throw new BlokError('not_found', 'Story locale not found')
+    const blocks = await client.query('SELECT b.*, v.definition_id FROM block_drafts b JOIN definition_versions v ON v.id=b.schema_version_id WHERE b.locale_id=$1 ORDER BY b.position,b.id', [localeId])
+    const versions = await client.query('SELECT DISTINCT v.* FROM definition_versions v JOIN block_drafts b ON b.schema_version_id=v.id WHERE b.locale_id=$1', [localeId])
+    const leases = await client.query('SELECT * FROM edit_leases WHERE locale_id=$1 AND expires_at>clock_timestamp()', [localeId])
+    return { story: storyRow(story.rows[0]), locale: localeRow(locale.rows[0]), blocks: blocks.rows.map(blockRow), definitions: versions.rows.map(definitionRow), leases: leases.rows.map(r => ({ blockId: r.block_id, userId: r.user_id, sessionId: r.session_id, expiresAt: iso(r.expires_at), ...(r.session_id === actor.sessionId && r.user_id === actor.userId ? { token: r.token } : {}) })), revision: Number(locale.rows[0].revision), checkpointId: locale.rows[0].checkpoint_id }
+  }
+  private async checkpoint(client: PoolClient, actor: Actor, storyId: string, localeId: string, reason: string): Promise<LocaleSnapshot> {
+    const checkpointId = randomUUID()
+    await client.query('UPDATE story_locales SET revision=revision+1,checkpoint_id=$2 WHERE id=$1', [localeId, checkpointId])
+    await client.query('UPDATE stories SET updated_at=clock_timestamp() WHERE id=$1', [storyId])
+    const snapshot = await this.snapshot(client, actor, storyId, localeId)
+    // shortcut: full snapshots per autosave batch; switch to deltas when measured history storage warrants it.
+    await client.query('INSERT INTO checkpoints(id,locale_id,revision,actor_id,reason,snapshot,content) VALUES($1,$2,$3,$4,$5,$6,$7)', [checkpointId, localeId, snapshot.revision, actor.userId, reason, JSON.stringify({ ...snapshot, leases: [] }), JSON.stringify(assembleContent(snapshot))])
+    return snapshot
+  }
+  async listDefinitions(actor: Actor): Promise<BlockDefinition[]> { return this.tx(actor, async client => (await client.query('SELECT v.* FROM definitions d JOIN definition_versions v ON v.definition_id=d.id AND v.version=d.current_version WHERE d.space_id=$1 ORDER BY d.name', [actor.spaceId])).rows.map(definitionRow)) }
+  private async validateDefinition(client: PoolClient, actor: Actor, input: DefinitionInput): Promise<void> {
+    const issues = validateFields(input, defaultFields(input))
+    if (issues.length) throw new BlokError('invalid', 'Invalid default values', issues)
+    await this.validateReferences(client, actor, input, defaultFields(input))
+    for (const field of input.fields) {
+      if ((field.type === 'option' || field.type === 'options') && field.source.type === 'datasource') {
+        if (!(await client.query('SELECT id FROM datasources WHERE id=$1 AND space_id=$2', [field.source.datasourceId, actor.spaceId])).rowCount) throw new BlokError('invalid', 'Datasource must belong to this space')
+      }
+      if (field.type === 'blocks' && field.allowedDefinitionIds?.length) {
+        const found = await client.query('SELECT id FROM definitions WHERE id=ANY($1::uuid[]) AND space_id=$2', [field.allowedDefinitionIds, actor.spaceId])
+        if (found.rowCount !== new Set(field.allowedDefinitionIds).size) throw new BlokError('invalid', 'Allowed block definitions must belong to this space')
+      }
+    }
+  }
+  async createDefinition(actor: Actor, value: unknown): Promise<BlockDefinition> {
+    const input = parseInput(definitionInputSchema, value)
+    return this.tx(actor, async client => { await this.validateDefinition(client, actor, input); const result = await client.query('INSERT INTO definitions(space_id,name) VALUES($1,$2) RETURNING id', [actor.spaceId, input.name]); const version = await client.query('INSERT INTO definition_versions(definition_id,version,schema) VALUES($1,1,$2) RETURNING *', [result.rows[0].id, JSON.stringify(input)]); return definitionRow(version.rows[0]) }, true)
+  }
+  async updateDefinition(actor: Actor, definitionId: string, value: unknown): Promise<BlockDefinition> {
+    const input = parseInput(definitionInputSchema, value)
+    return this.tx(actor, async client => {
+      const definition = await client.query('SELECT * FROM definitions WHERE id=$1 AND space_id=$2 FOR UPDATE', [definitionId, actor.spaceId])
+      if (!definition.rowCount) throw new BlokError('not_found', 'Definition not found')
+      if (input.name !== definition.rows[0].name) throw new BlokError('invalid', 'Definition API names cannot be renamed')
+      await this.validateDefinition(client, actor, input)
+      const version = definition.rows[0].current_version + 1
+      const result = await client.query('INSERT INTO definition_versions(definition_id,version,schema) VALUES($1,$2,$3) RETURNING *', [definitionId, version, JSON.stringify(input)])
+      await client.query('UPDATE definitions SET current_version=$2 WHERE id=$1', [definitionId, version])
+      return definitionRow(result.rows[0])
+    }, true)
+  }
+  private async currentDefinition(client: PoolClient, actor: Actor, definitionId: string): Promise<BlockDefinition> {
+    const result = await client.query('SELECT v.* FROM definitions d JOIN definition_versions v ON v.definition_id=d.id AND v.version=d.current_version WHERE d.id=$1 AND d.space_id=$2', [definitionId, actor.spaceId])
+    if (!result.rowCount) throw new BlokError('not_found', 'Definition not found')
+    return definitionRow(result.rows[0])
+  }
+  async listStories(actor: Actor): Promise<Story[]> { return this.tx(actor, async client => (await client.query('SELECT * FROM stories WHERE space_id=$1 ORDER BY updated_at DESC,id', [actor.spaceId])).rows.map(storyRow)) }
+  async createStory(actor: Actor, value: unknown): Promise<LocaleSnapshot> {
+    const input = parseInput(storyInputSchema, value)
+    return this.tx(actor, async client => {
+      const definition = await this.currentDefinition(client, actor, input.definitionId)
+      if (definition.kind === 'nestable') throw new BlokError('invalid', 'A story requires a content-type or universal block')
+      const story = await client.query('INSERT INTO stories(space_id,name,slug) VALUES($1,$2,$3) RETURNING id', [actor.spaceId, input.name, input.slug])
+      const rootId = randomUUID()
+      const locale = await client.query("INSERT INTO story_locales(story_id,slug,name,url_slug,root_block_id,space_locale_id) SELECT $1,c.slug,c.name,$2,$3,c.id FROM space_locales c WHERE c.space_id=$4 AND c.slug='' RETURNING id", [story.rows[0].id, input.slug, rootId, actor.spaceId])
+      await client.query('INSERT INTO block_drafts(id,locale_id,schema_version_id,fields) VALUES($1,$2,$3,$4)', [rootId, locale.rows[0].id, definition.versionId, JSON.stringify(defaultFields(definition))])
+      return this.checkpoint(client, actor, story.rows[0].id, locale.rows[0].id, 'Create story')
+    })
+  }
+  async listLocales(actor: Actor, storyId: string): Promise<StoryLocale[]> { return this.tx(actor, async client => {
+    const story = await client.query('SELECT id FROM stories WHERE id=$1 AND space_id=$2', [storyId, actor.spaceId]); if (!story.rowCount) throw new BlokError('not_found', 'Story not found')
+    return (await client.query("SELECT * FROM story_locales WHERE story_id=$1 ORDER BY (slug='') DESC,name", [storyId])).rows.map(localeRow)
+  }) }
+  async createLocale(actor: Actor, storyId: string, value: unknown): Promise<LocaleSnapshot> {
+    const input = parseInput(localeInputSchema, value)
+    return this.tx(actor, async client => {
+      const configured = await client.query('SELECT * FROM space_locales WHERE id=$1 AND space_id=$2 FOR UPDATE', [input.spaceLocaleId,actor.spaceId])
+      if (!configured.rows[0]) throw new BlokError('not_found', 'Configure this locale in Space settings first')
+      if (!(await client.query('SELECT id FROM stories WHERE id=$1 AND space_id=$2', [storyId,actor.spaceId])).rowCount) throw new BlokError('not_found', 'Story not found')
+      const existing = await client.query('SELECT id FROM story_locales WHERE story_id=$1 AND space_locale_id=$2', [storyId,input.spaceLocaleId])
+      if (existing.rows[0]) { await this.lockLocale(client,actor,storyId,existing.rows[0].id); return this.snapshot(client,actor,storyId,existing.rows[0].id) }
+      const original = await client.query("SELECT l.*,b.schema_version_id FROM story_locales l JOIN stories s ON s.id=l.story_id JOIN block_drafts b ON b.id=l.root_block_id AND b.locale_id=l.id WHERE s.id=$1 AND s.space_id=$2 AND l.slug=''", [storyId, actor.spaceId])
+      if (!original.rowCount) throw new BlokError('not_found', 'Story not found')
+      const rootId = randomUUID()
+      const locale = await client.query('INSERT INTO story_locales(story_id,slug,name,url_slug,root_block_id,space_locale_id) VALUES($1,$2,$3,$4,$5,$6) RETURNING id', [storyId, configured.rows[0].slug, configured.rows[0].name, input.urlSlug ?? original.rows[0].url_slug, rootId,input.spaceLocaleId])
+      const version = await client.query('SELECT schema FROM definition_versions WHERE id=$1', [original.rows[0].schema_version_id])
+      await client.query('INSERT INTO block_drafts(id,locale_id,schema_version_id,fields) VALUES($1,$2,$3,$4)', [rootId, locale.rows[0].id, original.rows[0].schema_version_id, JSON.stringify(defaultFields(version.rows[0].schema))])
+      return this.checkpoint(client, actor, storyId, locale.rows[0].id, 'Create locale')
+    })
+  }
+  async getSnapshot(actor: Actor, storyId: string, localeId: string): Promise<LocaleSnapshot> { return this.tx(actor, async client => { await this.lockLocale(client, actor, storyId, localeId); return this.snapshot(client, actor, storyId, localeId) }) }
+  async listCheckpoints(actor: Actor, storyId: string, localeId: string): Promise<Checkpoint[]> { return this.tx(actor, async client => { await this.lockLocale(client, actor, storyId, localeId); return (await client.query('SELECT id,revision,reason,actor_id,created_at FROM checkpoints WHERE locale_id=$1 ORDER BY revision DESC LIMIT 100', [localeId])).rows.map(checkpointRow) }) }
+  async getCheckpoint(actor: Actor, storyId: string, localeId: string, checkpointId: string): Promise<CheckpointDetail> { return this.tx(actor, async client => { await this.lockLocale(client, actor, storyId, localeId); return this.readCheckpoint(client, localeId, checkpointId) }) }
+  private async readCheckpoint(client: PoolClient, localeId: string, checkpointId: string): Promise<CheckpointDetail> {
+    const result = await client.query('SELECT * FROM checkpoints WHERE id=$1 AND locale_id=$2', [checkpointId, localeId]); if (!result.rowCount) throw new BlokError('not_found', 'Checkpoint not found')
+    return { ...checkpointRow(result.rows[0]), snapshot: result.rows[0].snapshot, content: result.rows[0].content }
+  }
+  async acquireLease(actor: Actor, storyId: string, localeId: string, blockId: string): Promise<Lease> {
+    return this.tx(actor, async client => {
+      await this.lockLocale(client, actor, storyId, localeId)
+      if (!(await client.query('SELECT id FROM block_drafts WHERE id=$1 AND locale_id=$2', [blockId, localeId])).rowCount) throw new BlokError('not_found', 'Blok not found')
+      const lease = await client.query('SELECT *,expires_at>clock_timestamp() AS active FROM edit_leases WHERE locale_id=$1 AND block_id=$2 FOR UPDATE', [localeId, blockId])
+      const old = lease.rows[0]
+      if (old?.active && (old.user_id !== actor.userId || old.session_id !== actor.sessionId)) throw new BlokError('locked', 'This blok is being edited by someone else')
+      const token = old?.active ? old.token : randomUUID()
+      const updated = await client.query(`INSERT INTO edit_leases(locale_id,block_id,user_id,session_id,token,expires_at) VALUES($1,$2,$3,$4,$5,clock_timestamp()+interval '${LEASE_SECONDS} seconds') ON CONFLICT(locale_id,block_id) DO UPDATE SET user_id=EXCLUDED.user_id,session_id=EXCLUDED.session_id,token=EXCLUDED.token,expires_at=EXCLUDED.expires_at RETURNING *`, [localeId, blockId, actor.userId, actor.sessionId, token])
+      return { blockId, userId: actor.userId, sessionId: actor.sessionId, token, expiresAt: iso(updated.rows[0].expires_at) }
+    })
+  }
+  async renewLease(actor: Actor, storyId: string, localeId: string, blockId: string, token: string): Promise<Lease> {
+    return this.tx(actor, async client => {
+      await this.lockLocale(client, actor, storyId, localeId)
+      const result = await client.query(`UPDATE edit_leases SET expires_at=clock_timestamp()+interval '${LEASE_SECONDS} seconds' WHERE locale_id=$1 AND block_id=$2 AND user_id=$3 AND session_id=$4 AND token=$5 AND expires_at>clock_timestamp() RETURNING *`, [localeId, blockId, actor.userId, actor.sessionId, token])
+      if (!result.rowCount) throw new BlokError('locked', 'Your editing lease expired; reconnect before editing')
+      return { blockId, userId: actor.userId, sessionId: actor.sessionId, token, expiresAt: iso(result.rows[0].expires_at) }
+    })
+  }
+  async releaseLease(actor: Actor, storyId: string, localeId: string, blockId: string, token: string): Promise<void> { await this.tx(actor, async client => { await this.lockLocale(client, actor, storyId, localeId); await client.query('DELETE FROM edit_leases WHERE locale_id=$1 AND block_id=$2 AND user_id=$3 AND session_id=$4 AND token=$5', [localeId, blockId, actor.userId, actor.sessionId, token]) }) }
+
+  private async requireLease(client: PoolClient, actor: Actor, localeId: string, block: BlockDraft, command: Command): Promise<void> {
+    if (command.expectedRevisions[block.id] !== block.revision) throw new BlokError('stale_revision', 'This blok changed; review the latest version before retrying')
+    const token = command.leaseTokens[block.id]
+    if (!token || !z.uuid().safeParse(token).success) throw new BlokError('locked', 'Acquire this blok before editing')
+    const lease = await client.query('SELECT block_id FROM edit_leases WHERE locale_id=$1 AND block_id=$2 AND user_id=$3 AND session_id=$4 AND token=$5 AND expires_at>clock_timestamp()', [localeId, block.id, actor.userId, actor.sessionId, token])
+    if (!lease.rowCount) throw new BlokError('locked', 'Your editing lease expired; reconnect before editing')
+  }
+  private async noCompetingLeases(client: PoolClient, actor: Actor, localeId: string, blockIds: string[]): Promise<void> {
+    const result = await client.query('SELECT block_id FROM edit_leases WHERE locale_id=$1 AND block_id=ANY($2::uuid[]) AND expires_at>clock_timestamp() AND (user_id<>$3 OR session_id<>$4)', [localeId, blockIds, actor.userId, actor.sessionId])
+    if (result.rowCount) throw new BlokError('locked', 'Another editor is working in the affected subtree')
+  }
+  private nestingField(snapshot: LocaleSnapshot, parent: BlockDraft, fieldName: string, definition: BlockDefinition): Extract<FieldDefinition, { type: 'blocks' }> {
+    const parentDefinition = snapshot.definitions.find(d => d.versionId === parent.schemaVersionId)!
+    const field = parentDefinition.fields.find(f => f.name === fieldName)
+    if (!field || field.type !== 'blocks') throw new BlokError('invalid', 'Select a Blocks field')
+    if (definition.kind === 'content-type' || (field.allowedDefinitionIds?.length && !field.allowedDefinitionIds.includes(definition.id))) throw new BlokError('invalid', 'This blok type is not allowed here')
+    return field
+  }
+  private async validateReferences(client: PoolClient, actor: Actor, schema: DefinitionInput, fields: Record<string, Json>): Promise<void> {
+    for (const field of schema.fields) {
+      const value = fields[field.name]
+      if (value === null || value === undefined || value === '') continue
+      const assetId = field.type === 'asset' ? (value as { assetId: string }).assetId : field.type === 'link' && (value as { type: string }).type === 'asset' ? (value as { assetId: string }).assetId : undefined
+      if (assetId) {
+        const asset = (await client.query('SELECT mime_type FROM assets WHERE id=$1 AND space_id=$2', [assetId, actor.spaceId])).rows[0]
+        if (!asset) throw new BlokError('invalid', 'Asset must belong to this space')
+        if (field.type === 'asset' && field.mimeTypes?.length && !field.mimeTypes.some(allowed => {
+          const mime = String(asset.mime_type).toLowerCase()
+          const restriction = allowed.toLowerCase()
+          return restriction.endsWith('/*') ? mime.startsWith(restriction.slice(0, -1)) : mime === restriction
+        })) throw new BlokError('invalid', `${field.label} does not allow this asset type`)
+      }
+      const storyIds = field.type === 'link' && (value as { type: string }).type === 'story' ? [(value as { storyId: string }).storyId] : (field.type === 'option' || field.type === 'options') && field.source.type === 'stories' ? (Array.isArray(value) ? value : [value]) : []
+      if (storyIds.length) {
+        if (!storyIds.every(v => typeof v === 'string' && z.uuid().safeParse(v).success)) throw new BlokError('invalid', 'Expected story IDs')
+        const stories = await client.query('SELECT id FROM stories WHERE space_id=$1 AND id=ANY($2::uuid[])', [actor.spaceId, storyIds])
+        if (stories.rowCount !== new Set(storyIds).size) throw new BlokError('invalid', 'Story references must belong to this space')
+      }
+    }
+  }
+  private async validateSnapshot(client: PoolClient, actor: Actor, snapshot: LocaleSnapshot, publish: boolean): Promise<void> {
+    const issues = []
+    for (const block of snapshot.blocks) {
+      const definition = snapshot.definitions.find(d => d.versionId === block.schemaVersionId)!
+      issues.push(...validateFields(definition, block.fields, publish).map(i => ({ ...i, path: `${block.id}.${i.path}` })))
+      for (const field of definition.fields.filter(f => f.type === 'blocks')) {
+        const children = snapshot.blocks.filter(b => b.parentId === block.id && b.parentField === field.name)
+        if (publish && (field.required || field.minItems) && children.length < Math.max(field.required ? 1 : 0, field.minItems ?? 0)) issues.push({ path: `${block.id}.${field.name}`, message: `Requires at least ${Math.max(field.required ? 1 : 0, field.minItems ?? 0)} bloks` })
+        if (field.maxItems !== undefined && children.length > field.maxItems) issues.push({ path: `${block.id}.${field.name}`, message: `Allows at most ${field.maxItems} bloks` })
+        for (const child of children) this.nestingField(snapshot, block, field.name, snapshot.definitions.find(d => d.versionId === child.schemaVersionId)!)
+      }
+      await this.validateReferences(client, actor, definition, block.fields)
+    }
+    if (issues.length) throw new BlokError('invalid', publish ? 'Resolve validation errors before publishing' : 'Invalid field values', issues)
+    assembleContent(snapshot)
+  }
+  private async normalizePositions(client: PoolClient, localeId: string, parentId: string, field: string, orderedIds?: string[]): Promise<void> {
+    const ids = orderedIds ?? (await client.query('SELECT id FROM block_drafts WHERE locale_id=$1 AND parent_id=$2 AND parent_field=$3 ORDER BY position,id', [localeId, parentId, field])).rows.map(r => r.id)
+    for (let i = 0; i < ids.length; i++) await client.query('UPDATE block_drafts SET position=$3 WHERE locale_id=$1 AND id=$2', [localeId, ids[i], i])
+    await client.query('UPDATE block_drafts SET revision=revision+1 WHERE locale_id=$1 AND id=$2', [localeId, parentId])
+  }
+  async command(actor: Actor, storyId: string, localeId: string, value: unknown): Promise<CommitResult> {
+    const command = parseInput(commandSchema, value)
+    const hash = createHash('sha256').update(canonical({ command, userId: actor.userId, sessionId: actor.sessionId })).digest('hex')
+    return this.tx(actor, async client => {
+      await this.lockLocale(client, actor, storyId, localeId)
+      const receipt = await client.query('SELECT * FROM mutation_receipts WHERE locale_id=$1 AND mutation_id=$2', [localeId, command.mutationId])
+      if (receipt.rowCount) {
+        const previous = receipt.rows[0]
+        if (previous.actor_id !== actor.userId || previous.request_hash !== hash) throw new BlokError('invalid', 'Mutation ID was already used for a different request')
+        const checkpoint = await this.readCheckpoint(client, localeId, previous.checkpoint_id)
+        return { mutationId: command.mutationId, localeRevision: checkpoint.revision, changedBlockIds: previous.changed_block_ids, checkpointId: checkpoint.id, snapshot: checkpoint.snapshot, ...(previous.publication_id ? { publicationId: previous.publication_id } : {}) }
+      }
+      const before = await this.snapshot(client, actor, storyId, localeId)
+      const changed = new Set<string>()
+      let publicationId: string | undefined
+      const requireOwned = (block: BlockDraft) => this.requireLease(client, actor, localeId, block, command)
+      if (command.type === 'saveBlock') {
+        const block = requireBlock(before, command.payload.blockId)
+        await requireOwned(block)
+        const definition = before.definitions.find(d => d.versionId === block.schemaVersionId)!
+        const issues = validateFields(definition, command.payload.fields)
+        if (issues.length) throw new BlokError('invalid', 'Invalid field values', issues)
+        await this.validateReferences(client, actor, definition, command.payload.fields)
+        await client.query('UPDATE block_drafts SET fields=$3,revision=revision+1 WHERE locale_id=$1 AND id=$2', [localeId, block.id, JSON.stringify(command.payload.fields)])
+        changed.add(block.id)
+      } else if (command.type === 'insertBlock') {
+        const parent = requireBlock(before, command.payload.parentId)
+        await requireOwned(parent)
+        const definition = await this.currentDefinition(client, actor, command.payload.definitionId)
+        this.nestingField(before, parent, command.payload.parentField, definition)
+        const id = randomUUID()
+        const siblings = before.blocks.filter(b => b.parentId === parent.id && b.parentField === command.payload.parentField).sort((a, b) => a.position - b.position).map(b => b.id)
+        const position = command.payload.position ?? siblings.length
+        if (position > siblings.length) throw new BlokError('invalid', 'Invalid insertion position')
+        siblings.splice(position, 0, id)
+        await client.query('INSERT INTO block_drafts(id,locale_id,schema_version_id,parent_id,parent_field,fields) VALUES($1,$2,$3,$4,$5,$6)', [id, localeId, definition.versionId, parent.id, command.payload.parentField, JSON.stringify(defaultFields(definition))])
+        await this.normalizePositions(client, localeId, parent.id, command.payload.parentField, siblings)
+        changed.add(parent.id); changed.add(id)
+      } else if (command.type === 'moveBlock') {
+        const block = requireBlock(before, command.payload.blockId)
+        if (!block.parentId || !block.parentField) throw new BlokError('invalid', 'The root blok cannot be moved')
+        const oldParent = requireBlock(before, block.parentId)
+        const parent = requireBlock(before, command.payload.parentId)
+        await requireOwned(block); await requireOwned(oldParent); if (parent.id !== oldParent.id) await requireOwned(parent)
+        const affected = subtree(before, block.id)
+        await this.noCompetingLeases(client, actor, localeId, affected.map(b => b.id))
+        if (affected.some(b => b.id === parent.id)) throw new BlokError('invalid', 'A blok cannot contain itself')
+        this.nestingField(before, parent, command.payload.parentField, before.definitions.find(d => d.versionId === block.schemaVersionId)!)
+        const siblings = before.blocks.filter(b => b.parentId === parent.id && b.parentField === command.payload.parentField && b.id !== block.id).sort((a, b) => a.position - b.position).map(b => b.id)
+        if (command.payload.position > siblings.length) throw new BlokError('invalid', 'Invalid move position')
+        siblings.splice(command.payload.position, 0, block.id)
+        await client.query('UPDATE block_drafts SET parent_id=$3,parent_field=$4,revision=revision+1 WHERE locale_id=$1 AND id=$2', [localeId, block.id, parent.id, command.payload.parentField])
+        if (oldParent.id !== parent.id || block.parentField !== command.payload.parentField) await this.normalizePositions(client, localeId, oldParent.id, block.parentField)
+        await this.normalizePositions(client, localeId, parent.id, command.payload.parentField, siblings)
+        changed.add(block.id); changed.add(parent.id); changed.add(oldParent.id)
+      } else if (command.type === 'deleteBlock') {
+        const block = requireBlock(before, command.payload.blockId)
+        if (!block.parentId || !block.parentField) throw new BlokError('invalid', 'The root blok cannot be deleted')
+        await requireOwned(block); await requireOwned(requireBlock(before, block.parentId))
+        const affected = subtree(before, block.id)
+        await this.noCompetingLeases(client, actor, localeId, affected.map(b => b.id))
+        await client.query('DELETE FROM block_drafts WHERE locale_id=$1 AND id=$2', [localeId, block.id])
+        await this.normalizePositions(client, localeId, block.parentId, block.parentField)
+        affected.forEach(b => changed.add(b.id)); changed.add(block.parentId)
+      } else if (command.type === 'importBlocks') {
+        const parent = requireBlock(before, command.payload.parentId)
+        await requireOwned(parent)
+        if (command.payload.sourceLocaleId === localeId || before.locale.slug === '') throw new BlokError('invalid', 'Import from Default into another locale')
+        await this.lockLocale(client, actor, storyId, command.payload.sourceLocaleId)
+        const source = await this.snapshot(client, actor, storyId, command.payload.sourceLocaleId)
+        if (source.locale.slug !== '') throw new BlokError('invalid', 'Only Default can be used as an import source')
+        const selected = new Set(command.payload.blockIds)
+        const roots = command.payload.blockIds.filter(id => { let current = requireBlock(source, id); while (current.parentId) { if (selected.has(current.parentId)) return false; current = requireBlock(source, current.parentId) } return true })
+        let position = before.blocks.filter(b => b.parentId === parent.id && b.parentField === command.payload.parentField).length
+        for (const rootId of roots) {
+          const root = requireBlock(source, rootId)
+          this.nestingField(before, parent, command.payload.parentField, source.definitions.find(d => d.versionId === root.schemaVersionId)!)
+          const items = subtree(source, rootId)
+          const ids = new Map(items.map(b => [b.id, randomUUID()]))
+          for (const block of items) {
+            const id = ids.get(block.id)!
+            await client.query('INSERT INTO block_drafts(id,locale_id,schema_version_id,parent_id,parent_field,position,fields) VALUES($1,$2,$3,$4,$5,$6,$7)', [id, localeId, block.schemaVersionId, block.id === rootId ? parent.id : ids.get(block.parentId!)!, block.id === rootId ? command.payload.parentField : block.parentField, block.id === rootId ? position++ : block.position, JSON.stringify(block.fields)])
+            changed.add(id)
+          }
+        }
+        await this.normalizePositions(client, localeId, parent.id, command.payload.parentField)
+        changed.add(parent.id)
+      } else if (command.type === 'restoreBlock') {
+        const block = requireBlock(before, command.payload.blockId)
+        if (!block.parentId) throw new BlokError('invalid', 'Use page restore to restore the root blok and its descendants')
+        await requireOwned(block)
+        const current = subtree(before, block.id)
+        await this.noCompetingLeases(client, actor, localeId, current.map(b => b.id))
+        const historical = await this.readCheckpoint(client, localeId, command.payload.checkpointId)
+        const restored = subtree(historical.snapshot, block.id)
+        if (block.parentId) {
+          const parent = requireBlock(before, block.parentId)
+          this.nestingField(before, parent, block.parentField!, historical.snapshot.definitions.find(d => d.versionId === restored[0].schemaVersionId)!)
+        }
+        const removedIds = new Set(current.map(b => b.id))
+        const ids = new Map(restored.map(b => [b.id, before.blocks.some(existing => existing.id === b.id && !removedIds.has(existing.id)) ? randomUUID() : b.id]))
+        await client.query('DELETE FROM block_drafts WHERE locale_id=$1 AND id=$2', [localeId, block.id])
+        for (const old of restored) {
+          const id = ids.get(old.id)!
+          const previous = before.blocks.find(b => b.id === old.id)
+          await client.query('INSERT INTO block_drafts(id,locale_id,schema_version_id,parent_id,parent_field,position,fields,revision) VALUES($1,$2,$3,$4,$5,$6,$7,$8)', [id, localeId, old.schemaVersionId, old.id === block.id ? block.parentId : ids.get(old.parentId!)!, old.id === block.id ? block.parentField : old.parentField, old.id === block.id ? block.position : old.position, JSON.stringify(old.fields), (previous?.revision ?? old.revision) + 1])
+          changed.add(id)
+        }
+        current.forEach(b => changed.add(b.id))
+      } else if (command.type === 'restorePage') {
+        await requireOwned(requireBlock(before, before.locale.rootBlockId))
+        if (command.expectedRevisions.$locale !== before.revision) throw new BlokError('stale_revision', 'The page changed; review it before restoring')
+        await this.noCompetingLeases(client, actor, localeId, before.blocks.map(b => b.id))
+        const historical = await this.readCheckpoint(client, localeId, command.payload.checkpointId)
+        await client.query('DELETE FROM block_drafts WHERE locale_id=$1', [localeId])
+        for (const block of historical.snapshot.blocks) {
+          await client.query('INSERT INTO block_drafts(id,locale_id,schema_version_id,parent_id,parent_field,position,fields,revision) VALUES($1,$2,$3,$4,$5,$6,$7,$8)', [block.id, localeId, block.schemaVersionId, block.parentId, block.parentField, block.position, JSON.stringify(block.fields), Math.max(block.revision, before.blocks.find(b => b.id === block.id)?.revision ?? 0) + 1])
+          changed.add(block.id)
+        }
+        before.blocks.forEach(b => changed.add(b.id))
+        await client.query('UPDATE story_locales SET root_block_id=$2 WHERE id=$1', [localeId, historical.snapshot.locale.rootBlockId])
+      } else if (command.type === 'publishCheckpoint') {
+        const historical = await this.readCheckpoint(client, localeId, command.payload.checkpointId)
+        await this.validateSnapshot(client, actor, historical.snapshot, true)
+        publicationId = randomUUID()
+        await client.query('INSERT INTO publications(id,locale_id,checkpoint_id,revision,actor_id,content,snapshot) VALUES($1,$2,$3,$4,$5,$6,$7)', [publicationId, localeId, historical.id, historical.revision, actor.userId, JSON.stringify(historical.content), JSON.stringify(historical.snapshot)])
+        await client.query('UPDATE story_locales SET published_version_id=$2 WHERE id=$1', [localeId, publicationId])
+      }
+      const after = await this.snapshot(client, actor, storyId, localeId)
+      await this.validateSnapshot(client, actor, after, false)
+      if (after.blocks.length > 1000) throw new BlokError('invalid', 'A locale supports at most 1,000 bloks')
+      const snapshot = await this.checkpoint(client, actor, storyId, localeId, command.type)
+      await client.query('INSERT INTO mutation_receipts(locale_id,mutation_id,actor_id,request_hash,checkpoint_id,changed_block_ids,publication_id) VALUES($1,$2,$3,$4,$5,$6,$7)', [localeId, command.mutationId, actor.userId, hash, snapshot.checkpointId, JSON.stringify([...changed]), publicationId ?? null])
+      return { mutationId: command.mutationId, localeRevision: snapshot.revision, changedBlockIds: [...changed], checkpointId: snapshot.checkpointId!, snapshot, ...(publicationId ? { publicationId } : {}) }
+    })
+  }
+  async getPublication(actor: Actor, storyId: string, localeId: string): Promise<Publication | null> {
+    return this.tx(actor, async client => {
+      await this.lockLocale(client, actor, storyId, localeId)
+      const result = await client.query('SELECT p.* FROM publications p JOIN story_locales l ON l.published_version_id=p.id WHERE l.id=$1', [localeId])
+      if (!result.rowCount) return null
+      const r = result.rows[0]
+      return { id: r.id, checkpointId: r.checkpoint_id, revision: Number(r.revision), createdAt: iso(r.created_at), content: r.content }
+    })
+  }
+  async getPublished(actor: Actor, storyId: string, localeId: string): Promise<Publication | null> { return this.getPublication(actor, storyId, localeId) }
+  async listDatasources(actor: Actor): Promise<Datasource[]> { return this.tx(actor, async client => (await client.query('SELECT id,name,slug,items FROM datasources WHERE space_id=$1 ORDER BY name', [actor.spaceId])).rows as Datasource[]) }
+  async saveDatasource(actor: Actor, value: unknown, datasourceId?: string): Promise<Datasource> {
+    const input = parseInput(datasourceInputSchema, value)
+    return this.tx(actor, async client => {
+      const result = datasourceId ? await client.query('UPDATE datasources SET name=$3,slug=$4,items=$5 WHERE id=$1 AND space_id=$2 RETURNING id,name,slug,items', [datasourceId, actor.spaceId, input.name, input.slug, JSON.stringify(input.items)]) : await client.query('INSERT INTO datasources(space_id,name,slug,items) VALUES($1,$2,$3,$4) RETURNING id,name,slug,items', [actor.spaceId, input.name, input.slug, JSON.stringify(input.items)])
+      if (!result.rowCount) throw new BlokError('not_found', 'Datasource not found')
+      return result.rows[0]
+    }, true)
+  }
+  async resolveOptions(actor: Actor, value: unknown): Promise<OptionPage> {
+    const input = parseInput(z.object({ source: optionSourceSchema, query: z.string().max(200).optional(), cursor: z.string().regex(/^\d{1,6}$/).optional() }).strict(), value)
+    const start = Number(input.cursor ?? 0)
+    const search = input.query?.toLocaleLowerCase() ?? ''
+    if (input.source.type === 'external') {
+      await this.assertActor(actor)
+      const items = await fetchExternalOptions(input.source.url, this.options.externalOptionHosts ?? [])
+      const filtered = items.filter(i => i.label.toLocaleLowerCase().includes(search) || i.value.toLocaleLowerCase().includes(search))
+      return { items: filtered.slice(start, start + 50), ...(filtered.length > start + 50 ? { nextCursor: String(start + 50) } : {}) }
+    }
+    return this.tx(actor, async client => {
+      if (input.source.type === 'stories') {
+        const result = await client.query(`SELECT s.id AS value,s.name AS label FROM stories s WHERE s.space_id=$1 AND ($2='' OR s.name ILIKE '%' || $2 || '%' OR s.slug ILIKE '%' || $2 || '%') AND ($3::uuid IS NULL OR EXISTS(SELECT 1 FROM story_locales l JOIN block_drafts b ON b.id=l.root_block_id AND b.locale_id=l.id JOIN definition_versions v ON v.id=b.schema_version_id WHERE l.story_id=s.id AND l.slug='' AND v.definition_id=$3)) ORDER BY s.name,s.id LIMIT 51 OFFSET $4`, [actor.spaceId, input.query ?? '', input.source.contentTypeId ?? null, start])
+        return { items: result.rows.slice(0, 50), ...(result.rows.length > 50 ? { nextCursor: String(start + 50) } : {}) }
+      }
+      let items = input.source.type === 'inline' ? input.source.items : []
+      if (input.source.type === 'datasource') { const source = await client.query('SELECT items FROM datasources WHERE id=$1 AND space_id=$2', [input.source.datasourceId, actor.spaceId]); if (!source.rowCount) throw new BlokError('not_found', 'Datasource not found'); items = source.rows[0].items }
+      const filtered = items.filter(i => i.label.toLocaleLowerCase().includes(search) || i.value.toLocaleLowerCase().includes(search))
+      return { items: filtered.slice(start, start + 50), ...(filtered.length > start + 50 ? { nextCursor: String(start + 50) } : {}) }
+    })
+  }
+
+  // Seed is only used by the explicit local setup script; it is never exposed by an HTTP route.
+  async seed(actor: Actor): Promise<void> {
+    const client = await this.pool.connect()
+    try {
+      await client.query('BEGIN')
+      await client.query('INSERT INTO spaces(id,name) VALUES($1,$2) ON CONFLICT(id) DO NOTHING', [actor.spaceId, 'My space'])
+      await client.query("INSERT INTO space_locales(space_id,name,slug) VALUES($1,'Default','') ON CONFLICT(space_id,slug) DO NOTHING", [actor.spaceId])
+      await client.query("INSERT INTO memberships(space_id,user_id,role) VALUES($1,$2,'admin') ON CONFLICT(space_id,user_id) DO NOTHING", [actor.spaceId, actor.userId])
+      const definitions: DefinitionInput[] = [
+        { name: 'hero', displayName: 'Hero', kind: 'nestable', fields: [{ name: 'title', label: 'Title', type: 'text', format: 'singleline', required: true, defaultValue: 'Build something worth sharing.' }, { name: 'description', label: 'Description', type: 'text', format: 'textarea', defaultValue: 'Your next story starts here.' }, { name: 'image', label: 'Image', type: 'asset' }] },
+        { name: 'footer', displayName: 'Footer', kind: 'nestable', fields: [{ name: 'text', label: 'Footer text', type: 'text', format: 'singleline', defaultValue: 'Made with Blok.' }, { name: 'link', label: 'Link', type: 'link' }] },
+        { name: 'page', displayName: 'Page', kind: 'content-type', fields: [{ name: 'title', label: 'Page title', type: 'text', format: 'singleline', required: true, defaultValue: 'Home' }, { name: 'body', label: 'Body', type: 'blocks' }] },
+      ]
+      const versions = new Map<string, string>()
+      for (const definition of definitions) {
+        const result = await client.query('INSERT INTO definitions(space_id,name) VALUES($1,$2) ON CONFLICT(space_id,name) DO UPDATE SET name=EXCLUDED.name RETURNING id,current_version', [actor.spaceId, definition.name])
+        const version = await client.query('INSERT INTO definition_versions(definition_id,version,schema) VALUES($1,1,$2) ON CONFLICT(definition_id,version) DO UPDATE SET definition_id=EXCLUDED.definition_id RETURNING id', [result.rows[0].id, JSON.stringify(definition)])
+        versions.set(definition.name, version.rows[0].id)
+      }
+      if (!(await client.query('SELECT id FROM stories WHERE space_id=$1 LIMIT 1', [actor.spaceId])).rowCount) {
+        const story = await client.query("INSERT INTO stories(space_id,name,slug) VALUES($1,'Home','home') RETURNING id", [actor.spaceId])
+        const root = randomUUID()
+        const locale = await client.query("INSERT INTO story_locales(story_id,slug,name,url_slug,root_block_id,space_locale_id) SELECT $1,c.slug,c.name,'home',$2,c.id FROM space_locales c WHERE c.space_id=$3 AND c.slug='' RETURNING id", [story.rows[0].id, root,actor.spaceId])
+        await client.query('INSERT INTO block_drafts(id,locale_id,schema_version_id,fields) VALUES($1,$2,$3,$4)', [root, locale.rows[0].id, versions.get('page'), JSON.stringify(defaultFields(definitions[2]))])
+        for (const [position, name] of ['hero', 'footer'].entries()) await client.query("INSERT INTO block_drafts(id,locale_id,schema_version_id,parent_id,parent_field,position,fields) VALUES($1,$2,$3,$4,'body',$5,$6)", [randomUUID(), locale.rows[0].id, versions.get(name), root, position, JSON.stringify(defaultFields(definitions.find(d => d.name === name)!))])
+        await this.checkpoint(client, actor, story.rows[0].id, locale.rows[0].id, 'Starter page')
+      }
+      await client.query('COMMIT')
+    } catch (error) { await client.query('ROLLBACK'); throw error } finally { client.release() }
+  }
+}

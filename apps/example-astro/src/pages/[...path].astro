@@ -1,0 +1,13 @@
+---
+import type { BlokStory } from '@blok/sdk';
+import type { BlokContentType } from '../types/blok';
+import Story from '../components/Story';
+import Layout from '../layouts/Layout.astro';
+import { publishedPages,cmsUrl,spaceId } from '../lib/cms';
+export const getStaticPaths = publishedPages;
+interface Props { story:BlokStory<BlokContentType> }
+const { story } = Astro.props;
+---
+<Layout title={story.name} locale={story.locale}>
+  <Story client:load initial={story} cmsUrl={cmsUrl} spaceId={spaceId} />
+</Layout>

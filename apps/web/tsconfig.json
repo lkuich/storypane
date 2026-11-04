@@ -1,0 +1,9 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "types": ["vinext/types", "node"],
+    "paths": { "@/*": ["./src/*"] }
+  },
+  "include": ["src", "*.ts", ".cloudflare/types"],
+  "exclude": ["node_modules", "dist"]
+}

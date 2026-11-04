@@ -1,0 +1,38 @@
+{
+  "name": "blok",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@12.4.2",
+  "engines": { "node": ">=24.22.0 <25" },
+  "scripts": {
+    "dev": "pnpm --filter @blok/web dev",
+    "dev:example": "pnpm --filter @blok/sdk build && pnpm --filter @blok/example-astro dev",
+    "example:setup": "tsx scripts/setup-astro-example.ts && pnpm --filter @blok/sdk build && pnpm --filter @blok/example-astro blok:generate",
+    "build:example": "pnpm --filter @blok/sdk build && pnpm --filter @blok/example-astro build",
+    "build": "pnpm --filter @blok/sdk build && pnpm --filter @blok/web build",
+    "types": "pnpm --filter @blok/web exec cf workers types",
+    "typecheck": "pnpm --filter @blok/sdk build && pnpm types && tsc --noEmit && pnpm --filter @blok/example-astro typecheck",
+    "test": "vitest run",
+    "test:e2e": "playwright test",
+    "db:start": "docker compose up -d --wait",
+    "db:setup": "tsx scripts/setup.ts",
+    "db:test": "tsx scripts/test-database.ts"
+  },
+  "dependencies": {
+    "@blok/core": "workspace:*",
+    "@blok/db": "workspace:*",
+    "better-auth": "1.7.15",
+    "pg": "^8.16.3"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "latest",
+    "@playwright/test": "latest",
+    "@types/node": "^24",
+    "@types/pg": "^8",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "tsx": "^4.23.0",
+    "typescript": "latest",
+    "vitest": "latest"
+  }
+}

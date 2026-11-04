@@ -1,0 +1,155 @@
+import { signInPage as login } from './auth'
+import { expect, test, type APIRequestContext, type Page } from '@playwright/test'
+import type { BlockDefinition, CommitResult, Lease, LocaleSnapshot, Story, StoryLocale, SpaceLocale } from '@blok/core'
+
+const origin = 'http://127.0.0.1:3130'
+async function json<T>(request: APIRequestContext, path: string, body?: unknown): Promise<T> {
+  const response = body === undefined ? await request.get(`/api/cms${path}`) : await request.post(`/api/cms${path}`, { headers: { Origin: origin }, data: body })
+  expect(response.ok(), await response.text()).toBeTruthy()
+  return await response.json() as T
+}
+async function fixture(request: APIRequestContext) {
+  const definitions = await json<BlockDefinition[]>(request, '/definitions')
+  const name = `Editor check ${Date.now()}`
+  const story = await json<Story>(request, '/stories', { name, slug: `editor-${Date.now()}`, definitionId: definitions.find(d => d.name === 'page')!.id })
+  const [locale] = await json<StoryLocale[]>(request, `/stories/${story.id}/locales`)
+  const base = `/stories/${story.id}/locales/${locale.id}`
+  let snapshot = await json<LocaleSnapshot>(request, base)
+  const root = snapshot.locale.rootBlockId
+  const lease = await json<Lease>(request, `${base}/leases`, { blockId: root })
+  for (const kind of ['hero', 'footer']) {
+    const result = await json<CommitResult>(request, `${base}/commands`, { type: 'insertBlock', mutationId: crypto.randomUUID(), expectedRevisions: { [root]: snapshot.blocks.find(b => b.id === root)!.revision }, leaseTokens: { [root]: lease.token }, payload: { parentId: root, parentField: 'body', definitionId: definitions.find(d => d.name === kind)!.id } })
+    snapshot = result.snapshot
+  }
+  expect((await request.delete(`/api/cms${base}/leases`, { headers: { Origin: origin }, data: { blockId: root, token: lease.token } })).ok()).toBeTruthy()
+  return { story, base, snapshot }
+}
+
+test('two editors work on separate blocks, autosave, publish a fixed checkpoint, and recover after offline', async ({ browser }) => {
+  test.setTimeout(90_000)
+  const admin = await browser.newContext()
+  const peer = await browser.newContext()
+  try {
+    const page = await admin.newPage()
+    const other = await peer.newPage()
+    await login(page, 'admin')
+    await login(other, 'editor')
+    const { story, base } = await fixture(admin.request)
+    await page.reload(); await other.reload()
+    await page.getByRole('button', { name: story.name, exact: true }).click()
+    await page.getByRole('complementary', { name: 'Block outline' }).getByRole('button', { name: 'Hero', exact: true }).click()
+    await expect(page.getByRole('textbox', { name: /^Title/ })).toBeEditable()
+    await page.getByRole('textbox', { name: /^Title/ }).fill('A hero saved automatically')
+    await expect(page.getByText('All changes saved', { exact: true })).toBeVisible()
+    await other.getByRole('button', { name: story.name, exact: true }).click()
+    await other.getByRole('complementary', { name: 'Block outline' }).getByRole('button', { name: /^Hero(?: Being edited)?$/ }).click()
+    await expect(other.getByText('Another editor is working on this block. Other blocks are available.')).toBeVisible()
+    await expect(other.getByRole('textbox', { name: /^Title/ })).toBeDisabled()
+    await expect(other.getByRole('complementary', { name: 'Block outline' }).getByRole('button', { name: 'Reorder Hero', exact: true })).toBeDisabled()
+    await other.getByRole('complementary', { name: 'Block outline' }).getByRole('button', { name: 'Footer', exact: true }).click()
+    await expect(other.getByLabel('Footer text', { exact: true })).toBeEditable()
+    await other.getByLabel('Footer text', { exact: true }).fill('Footer before review')
+    await expect(other.getByText('All changes saved', { exact: true })).toBeVisible()
+    await page.getByRole('button', { name: 'Review & publish' }).click()
+    const review = page.getByRole('dialog', { name: 'Review before publishing' })
+    await expect(review.locator('pre')).toContainText('Footer before review')
+    await other.getByLabel('Footer text', { exact: true }).fill('Footer after review stays a draft')
+    await expect(other.getByText('All changes saved', { exact: true })).toBeVisible()
+    await review.getByRole('button', { name: /Publish revision/ }).click()
+    await expect(review).not.toBeVisible()
+    const published = await json<{ content: unknown }>(admin.request, `${base}/published`)
+    expect(JSON.stringify(published.content)).toContain('Footer before review')
+    expect(JSON.stringify(published.content)).not.toContain('Footer after review')
+    expect(JSON.stringify((await json<LocaleSnapshot>(admin.request, base)).blocks)).toContain('Footer after review stays a draft')
+    await page.getByRole('textbox', { name: /^Title/ }).fill('Recover this unsent hero')
+    await admin.setOffline(true)
+    await expect(page.getByText('Offline · edits preserved', { exact: true })).toBeVisible()
+    await expect(page.getByRole('textbox', { name: /^Title/ })).toBeDisabled()
+    await expect(page.getByRole('complementary', { name: 'Block outline' }).getByRole('button', { name: 'Reorder Hero', exact: true })).toBeDisabled()
+    expect(await page.evaluate(() => Object.keys(localStorage).some(key => key.startsWith('blok:drafts:')))).toBeTruthy()
+    await admin.setOffline(false)
+    await expect(page.getByRole('textbox', { name: /^Title/ })).toBeEditable({ timeout: 20_000 })
+    await expect(page.getByText('All changes saved', { exact: true })).toBeVisible()
+    await expect.poll(async () => JSON.stringify((await json<LocaleSnapshot>(admin.request, base)).blocks)).toContain('Recover this unsent hero')
+  } finally { await admin.close(); await peer.close() }
+})
+
+test('add from a child block and reorder siblings with drag handles and the keyboard', async ({ page }) => {
+  await login(page, 'admin')
+  const { story, base, snapshot } = await fixture(page.request)
+  const children = (value: LocaleSnapshot) => value.blocks.filter(block => block.parentId === value.locale.rootBlockId && block.parentField === 'body').sort((a, b) => a.position - b.position).map(block => block.id)
+  const [heroId, footerId] = children(snapshot)
+  await page.reload()
+  await page.getByRole('button', { name: story.name, exact: true }).click()
+  const outline = page.getByRole('complementary', { name: 'Block outline' })
+  await outline.getByRole('button', { name: 'Footer', exact: true }).click()
+  await expect(page.getByLabel('Footer text', { exact: true })).toBeEditable()
+  await outline.getByRole('button', { name: 'Add block', exact: true }).click()
+  const insert = page.getByRole('dialog', { name: 'Add a block' })
+  await insert.getByLabel('Block type').selectOption({ label: 'Hero' })
+  await insert.getByRole('button', { name: 'Add block', exact: true }).click()
+  await expect(insert).not.toBeVisible()
+  const added = await json<LocaleSnapshot>(page.request, base)
+  expect(children(added)).toHaveLength(3)
+  const newId = children(added)[2]
+  await expect(outline.getByRole('button', { name: 'Hero', exact: true })).toHaveCount(2)
+
+  await outline.getByRole('button', { name: 'Reorder Footer', exact: true }).dragTo(outline.locator('.tree-row').filter({ has: page.getByRole('button', { name: 'Hero', exact: true }) }).first(), { steps: 10, targetPosition: { x: 20, y: 4 } })
+  await expect.poll(async () => children(await json<LocaleSnapshot>(page.request, base))).toEqual([footerId, heroId, newId])
+  await expect(outline.getByRole('button', { name: 'Reorder Footer', exact: true })).toBeEnabled()
+  await outline.getByRole('button', { name: 'Reorder Footer', exact: true }).focus()
+  await page.keyboard.press('ArrowDown')
+  await expect.poll(async () => children(await json<LocaleSnapshot>(page.request, base))).toEqual([heroId, footerId, newId])
+  await expect(page.getByRole('status').filter({ hasText: 'Footer moved to position 2 of 3.' })).toBeVisible()
+
+  await outline.getByRole('button', { name: 'Page', exact: true }).click()
+  const panel = page.getByRole('region', { name: 'Block editor' })
+  await expect(page.getByRole('textbox', { name: /^Page title/ })).toBeEditable()
+  const lastRow = panel.locator('.block-list-item').last()
+  await lastRow.scrollIntoViewIfNeeded()
+  const bounds = await lastRow.boundingBox()
+  await panel.getByRole('button', { name: 'Reorder Hero', exact: true }).first().dragTo(lastRow, { steps: 10, targetPosition: { x: 20, y: bounds!.height - 4 } })
+  await expect.poll(async () => children(await json<LocaleSnapshot>(page.request, base))).toEqual([footerId, newId, heroId])
+  await page.reload()
+  await page.getByRole('button', { name: story.name, exact: true }).click()
+  await expect(outline.locator('.tree-item')).toHaveText(['Page', 'Footer', 'Hero', 'Hero'])
+  expect(children(await json<LocaleSnapshot>(page.request, base))).toEqual([footerId, newId, heroId])
+})
+
+test('locale imports copy blocks independently and restoration keeps history', async ({ page }) => {
+  await login(page, 'admin')
+  const { story, base } = await fixture(page.request)
+  const configured = (await json<SpaceLocale[]>(page.request, '/locales')).find(locale => locale.slug === 'fr') ?? await json<SpaceLocale>(page.request, '/locales', { name:'French',slug:'fr' });
+  await page.reload()
+  await page.getByRole('button', { name: story.name, exact: true }).click()
+  await expect(page.getByRole('textbox', { name: /^Page title/ })).toBeEditable()
+  await page.getByRole('tab', { name:`${configured.name} ${configured.slug}`, exact:true }).click()
+  await expect(page.getByRole('textbox', { name: /^Page title/ })).toBeEditable()
+  await page.getByRole('button', { name: 'Import from Default', exact: true }).click()
+  const imports = page.getByRole('dialog', { name: 'Import from Default' })
+  await imports.getByRole('checkbox').nth(0).check()
+  await imports.getByRole('checkbox').nth(1).check()
+  await imports.getByRole('button', { name: 'Import 2 selected' }).click()
+  await expect(imports).not.toBeVisible()
+  const locales = await json<StoryLocale[]>(page.request, `/stories/${story.id}/locales`)
+  const frenchBase = `/stories/${story.id}/locales/${locales.find(l => l.slug === 'fr')!.id}`
+  const french = await json<LocaleSnapshot>(page.request, frenchBase)
+  const original = await json<LocaleSnapshot>(page.request, base)
+  expect(french.blocks).toHaveLength(3)
+  expect(french.blocks.every(b => !original.blocks.some(other => other.id === b.id))).toBeTruthy()
+  await page.getByRole('complementary', { name: 'Block outline' }).getByRole('button', { name: 'Hero', exact: true }).click()
+  await expect(page.getByRole('textbox', { name: /^Title/ })).toBeEditable()
+  await page.getByRole('textbox', { name: /^Title/ }).fill('Bonjour le monde')
+  await expect(page.getByText('All changes saved', { exact: true })).toBeVisible()
+  expect(JSON.stringify((await json<LocaleSnapshot>(page.request, base)).blocks)).not.toContain('Bonjour le monde')
+  await page.getByRole('button', { name: 'History', exact: true }).click()
+  const history = page.getByRole('dialog', { name: 'Story history' })
+  page.once('dialog', dialog => void dialog.accept())
+  await history.locator('.history-item').nth(1).getByRole('button', { name: 'This block', exact: true }).click()
+  await expect(history).not.toBeVisible()
+  await expect(page.getByRole('textbox', { name: /^Title/ })).not.toHaveValue('Bonjour le monde')
+  const restored = await json<LocaleSnapshot>(page.request, frenchBase)
+  expect(restored.revision).toBeGreaterThan(french.revision + 1)
+  await page.getByRole('button', { name: 'History', exact: true }).click()
+  await expect(history.locator('.history-item').first()).toContainText('restore block')
+})
