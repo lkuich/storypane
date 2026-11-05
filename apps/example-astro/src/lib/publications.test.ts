@@ -13,6 +13,7 @@ const story: StorypaneStory<StorypaneContentType> = {
   publishedAt: '2026-11-04T00:00:00Z',
   content: { _uid: 'root', component: 'page', title: 'Home', body: [], footer: 'shared' },
 };
+const locales = [{ slug: '' }, { slug: 'fr' }];
 it('builds nested/localized routes with the selected footer and rejects ambiguous or reserved paths', () => {
   const footer: StorypaneStory<StorypaneContentType> = {
     ...story,
@@ -20,30 +21,37 @@ it('builds nested/localized routes with the selected footer and rejects ambiguou
     slug: 'footer',
     content: { _uid: 'footer', component: 'footer', text: 'Contact us' },
   };
-  const pages = pageEntries([story, footer, { ...story, locale: 'fr', slug: 'studio/home' }]);
+  const pages = pageEntries(
+    [story, footer, { ...story, locale: 'fr', slug: 'studio/home' }],
+    locales,
+  );
   expect(pages[2]?.params.path).toBe('fr/studio/home');
   expect(pages[2]?.props.references.footers.shared?.text).toBe('Contact us');
-  expect(() => pageEntries([story, story])).toThrow('duplicate');
-  for (const slug of ['preview', '../secret', 'bad?query'])
-    expect(() => pageEntries([{ ...story, slug }])).toThrow('Invalid');
+  expect(() => pageEntries([story, story], locales)).toThrow('duplicate');
+  for (const slug of ['', '../secret', 'bad?query', 'a//b', '/home', 'home/'])
+    expect(() => pageEntries([{ ...story, slug }], locales)).toThrow('Invalid');
+  for (const slug of ['preview', 'preview/nested', 'media', 'media/asset', '_astro', '_astro/app'])
+    expect(() => pageEntries([{ ...story, slug }], locales)).toThrow('Reserved');
+  // A configured locale reserves its prefix even before any translations are published.
+  for (const slug of ['fr', 'fr/home'])
+    expect(() => pageEntries([{ ...story, slug }], locales)).toThrow('conflicts with a locale');
+  expect(() => pageEntries([{ ...story, slug: 'preview', locale: 'media' }], locales)).toThrow(
+    'Reserved',
+  );
+  expect(() => pageEntries([story, { ...story, slug: 'studio/équipe' }], locales)).not.toThrow();
 });
-it('fetches every publication page for every configured locale', async () => {
+it('uses SDK pagination for every configured locale', async () => {
   const calls: unknown[] = [];
   const client = {
-    listLocales: async () => [{ slug: '' }, { slug: 'fr' }],
-    listStories: async (query: { locale: string; offset: number }) => {
+    listLocales: async () => locales,
+    listAllStories: async (query: { locale: string }) => {
       calls.push(query);
-      return {
-        stories: [{ ...story, locale: query.locale }],
-        nextOffset: query.offset === 0 ? 100 : null,
-      };
+      return [{ ...story, locale: query.locale }];
     },
   } as unknown as Parameters<typeof fetchPublishedStories>[0];
-  expect(await fetchPublishedStories(client)).toHaveLength(4);
-  expect(calls).toEqual([
-    { locale: '', offset: 0, limit: 100 },
-    { locale: '', offset: 100, limit: 100 },
-    { locale: 'fr', offset: 0, limit: 100 },
-    { locale: 'fr', offset: 100, limit: 100 },
-  ]);
+  expect(await fetchPublishedStories(client)).toEqual({
+    locales,
+    stories: [story, { ...story, locale: 'fr' }],
+  });
+  expect(calls).toEqual([{ locale: '' }, { locale: 'fr' }]);
 });

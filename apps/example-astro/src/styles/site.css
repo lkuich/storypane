@@ -147,6 +147,9 @@ h2 {
 .round-link:hover span {
   transform: rotate(45deg);
 }
+.hero-art[hidden] {
+  display: none;
+}
 .hero-art {
   position: relative;
   isolation: isolate;

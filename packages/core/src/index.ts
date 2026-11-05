@@ -258,7 +258,10 @@ export const jsonSchema = z.custom<Json>((value) => {
 export const optionItemSchema = z
   .object({ value: z.string().max(500), label: z.string().max(500) })
   .strict();
-export type OptionItem = z.infer<typeof optionItemSchema> & { description?: string };
+export type OptionItem = z.infer<typeof optionItemSchema> & {
+  description?: string;
+  publication?: { status: PublicationStatus; localeName: string; localeSlug: string };
+};
 export type OptionPage = { items: OptionItem[]; nextCursor?: string };
 export const optionSourceSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('inline'), items: z.array(optionItemSchema).max(1000) }).strict(),
@@ -522,6 +525,26 @@ export type Checkpoint = {
   createdAt: string;
 };
 export type CheckpointDetail = Checkpoint & { snapshot: LocaleSnapshot; content: Json };
+export const publicationReferenceChoiceSchema = z
+  .object({
+    localeId: z.uuid(),
+    checkpointId: z.uuid(),
+    action: z.enum(['publish', 'omit']),
+  })
+  .strict();
+export const publicationReferenceChoicesSchema = z.array(publicationReferenceChoiceSchema).max(100);
+export type PublicationReferenceChoice = z.infer<typeof publicationReferenceChoiceSchema>;
+export type PublicationReference = {
+  storyId: string;
+  storyName: string;
+  localeId: string;
+  localeName: string;
+  checkpointId: string;
+  revision: number;
+  canPublish: boolean;
+  usages: { localeId: string; storyName: string; field: string; canOmit: boolean }[];
+};
+export type PublicationReview = CheckpointDetail & { references: PublicationReference[] };
 export type Publication = {
   id: string;
   checkpointId: string;
@@ -680,7 +703,12 @@ export const commandSchema = z.discriminatedUnion('type', [
     .object({
       ...mutationBase,
       type: z.literal('publishCheckpoint'),
-      payload: z.object({ checkpointId: id }).strict(),
+      payload: z
+        .object({
+          checkpointId: id,
+          referenceChoices: publicationReferenceChoicesSchema.optional(),
+        })
+        .strict(),
     })
     .strict(),
   z
@@ -978,6 +1006,7 @@ export const lifecycleReviewLocaleSchema = z
     id: z.uuid(),
     checkpointId: z.uuid().nullable(),
     publicationId: z.uuid().nullable(),
+    referenceChoices: publicationReferenceChoicesSchema.optional(),
   })
   .strict();
 export type LifecycleReview = {
@@ -1063,6 +1092,7 @@ export const scheduleInputSchema = z
     requestId: z.uuid(),
     checkpointId: z.uuid(),
     dueAt: z.iso.datetime(),
+    referenceChoices: publicationReferenceChoicesSchema.optional(),
     timezone: z.string().min(1).max(100),
     localTime: z.string().regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/),
     expectedScheduleId: z.uuid().nullable(),

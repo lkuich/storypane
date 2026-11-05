@@ -3,14 +3,8 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { expect, it } from 'vitest';
 import type { StorypaneStory } from '@storypane/sdk';
 import type { FooterBlock, PageBlock, StorypaneContentType } from '../types/storypane';
-import {
-  assetIds,
-  linkHref,
-  referencesFor,
-  storyReferences,
-  type SiteReferences,
-} from '../lib/content';
-import { Content } from './blocks';
+import { assetIds, linkHref, referencesFor, type SiteReferences } from '../lib/content';
+import { Content } from './content';
 
 const footer: FooterBlock = {
   _uid: 'footer-block',
@@ -54,9 +48,7 @@ function render(block: StorypaneContentType = page, preview = false) {
     createElement(Content, {
       block,
       references,
-      cmsUrl: 'http://localhost:3130',
-      spaceId: 'space',
-      preview,
+      preview: preview ? { cmsUrl: 'http://localhost:3130', spaceId: 'space' } : undefined,
     }),
   );
 }
@@ -85,6 +77,23 @@ it('tolerates empty draft fields and unresolved unpublished footers', () => {
   expect(html).not.toContain('<img');
   expect(html).not.toContain('Stay in touch');
 });
+it('keeps separate feature groups in order and renders a selected footer only once', () => {
+  const body: PageBlock['body'] = [
+    { _uid: 'one', component: 'feature', title: 'First' },
+    { _uid: 'two', component: 'feature', title: 'Second' },
+    { _uid: 'middle', component: 'hero', title: 'Between groups' },
+    { _uid: 'three', component: 'feature', title: 'Third' },
+    footer,
+  ];
+  const html = render({ ...page, body });
+  expect(html.match(/class="feature-grid"/g)).toHaveLength(2);
+  expect(html.match(/id="ideas"/g)).toHaveLength(1);
+  expect(html.match(/class="site-footer"/g)).toHaveLength(1);
+  const positions = body.map((block) => html.indexOf(`data-storypane-id="${block._uid}"`));
+  expect(positions.every((position) => position >= 0)).toBe(true);
+  expect(positions).toEqual([...positions].sort((a, b) => a - b));
+  expect(render({ ...page, body: [], footer: null })).toContain('<main id="content"></main>');
+});
 it('uses live referenced footer drafts, switches selections, and clears stale build references', () => {
   const draftFooter = { ...footer, _uid: 'new-footer', text: 'Unpublished footer' };
   const reference: StorypaneStory<FooterBlock> = {
@@ -107,18 +116,16 @@ it('uses live referenced footer drafts, switches selections, and clears stale bu
     renderToStaticMarkup(
       createElement(Content, {
         block: story.content,
-        references: storyReferences(story, references),
-        cmsUrl: 'http://localhost:3130',
-        spaceId: 'space',
-        preview: true,
+        references: referencesFor(story.references ?? [], story.locale),
+        preview: { cmsUrl: 'http://localhost:3130', spaceId: 'space' },
       }),
     );
   expect(renderDraft(draft)).toContain('Unpublished footer');
   expect(renderDraft({ ...draft, content: { ...draft.content, footer: null } })).not.toContain(
     'Unpublished footer',
   );
-  expect(storyReferences({ ...initial, references: [] }, references).footers).toEqual({});
-  expect(storyReferences(initial, references)).toBe(references);
+  expect(renderDraft({ ...draft, references: [] })).not.toContain('Unpublished footer');
+  expect(renderDraft({ ...draft, references: [] })).not.toContain('Stay in touch');
   expect(
     renderDraft({
       ...draft,

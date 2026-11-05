@@ -7,9 +7,43 @@ import type {
   LifecycleReview,
   Story,
   StoryAction,
+  PublicationReview,
+  PublicationReferenceChoice,
 } from '@storypane/core';
 import { Button, ErrorNotice, Field, Loading, Modal } from '@storypane/ui';
 import { api, errorMessage, jsonRequest } from '../editor/api';
+import { PublicationReferences, publicationSelection } from '../editor/publication-references';
+
+async function publicationReviewsFor(reviews: LifecycleReview[]) {
+  const entries = await Promise.all(
+    reviews.flatMap((review) =>
+      review.locales
+        .filter((locale) => locale.checkpointId)
+        .map(async (locale) => {
+          try {
+            const publication = await api<PublicationReview>(
+              `/stories/${review.story.id}/locales/${locale.id}/publication-review/${locale.checkpointId}`,
+            );
+            if (publication.snapshot.access?.publish === false)
+              return {
+                id: locale.id,
+                publication: null,
+                error: 'You do not have permission to publish this locale.',
+              };
+            return { id: locale.id, publication, error: null };
+          } catch (error) {
+            return { id: locale.id, publication: null, error: errorMessage(error) };
+          }
+        }),
+    ),
+  );
+  return {
+    reviews: Object.fromEntries(
+      entries.flatMap((entry) => (entry.publication ? [[entry.id, entry.publication]] : [])),
+    ),
+    errors: Object.fromEntries(entries.map((entry) => [entry.id, entry.error])),
+  };
+}
 
 export type StoryActionKind = StoryAction['action'];
 export function StoryActionsDialog({
@@ -35,6 +69,13 @@ export function StoryActionsDialog({
   const [error, setError] = useState<string | null>(null);
   const [results, setResults] = useState<BulkStoryActionResult[]>([]);
   const [checkpoint, setCheckpoint] = useState<CheckpointDetail | null>(null);
+  const [publicationReviews, setPublicationReviews] = useState<Record<string, PublicationReview>>(
+    {},
+  );
+  const [publicationErrors, setPublicationErrors] = useState<Record<string, string | null>>({});
+  const [referenceChoices, setReferenceChoices] = useState<
+    Record<string, PublicationReferenceChoice[]>
+  >({});
   const request = useRef<{ items: { storyId: string; input: StoryAction }[] } | null>(null);
   useEffect(() => {
     let stopped = false;
@@ -42,8 +83,12 @@ export function StoryActionsDialog({
       Promise.all(stories.map((story) => api<LifecycleReview>(`/stories/${story.id}/review`))),
       api<ContentFolder[]>('/folders'),
     ])
-      .then(([next, available]) => {
+      .then(async ([next, available]) => {
+        const publications =
+          action === 'publish' ? await publicationReviewsFor(next) : { reviews: {}, errors: {} };
         if (stopped) return;
+        setPublicationReviews(publications.reviews);
+        setPublicationErrors(publications.errors);
         setReviews(next);
         setFolders(available);
         setSelected(
@@ -60,7 +105,7 @@ export function StoryActionsDialog({
     return () => {
       stopped = true;
     };
-  }, [stories, localeId]);
+  }, [stories, localeId, action]);
   const localesRequired = action === 'publish' || action === 'unpublish';
   async function reviewFailures() {
     setBusy(true);
@@ -70,6 +115,16 @@ export function StoryActionsDialog({
       const next = await Promise.all(
         failed.map((result) => api<LifecycleReview>(`/stories/${result.storyId}/review`)),
       );
+      const publications =
+        action === 'publish' ? await publicationReviewsFor(next) : { reviews: {}, errors: {} };
+      setPublicationReviews(publications.reviews);
+      setPublicationErrors(publications.errors);
+      setSelected((current) =>
+        current.filter((id) =>
+          next.some((review) => review.locales.some((locale) => locale.id === id)),
+        ),
+      );
+      setReferenceChoices({});
       setReviews(next);
       setResults([]);
       request.current = null;
@@ -95,6 +150,14 @@ export function StoryActionsDialog({
                   id,
                   checkpointId,
                   publicationId,
+                  ...(action === 'publish'
+                    ? {
+                        referenceChoices: publicationSelection(
+                          publicationReviews[id] ?? null,
+                          referenceChoices[id] ?? [],
+                        ).choices,
+                      }
+                    : {}),
                 }));
               if (action === 'publish' || action === 'unpublish')
                 input = { ...common, action, locales, acknowledgeReferences: acknowledge };
@@ -146,6 +209,7 @@ export function StoryActionsDialog({
       title={`${action[0].toUpperCase() + action.slice(1)} ${stories.length === 1 ? stories[0].name : `${stories.length} stories`}`}
       description="Review these explicit selections. Each story succeeds or fails independently."
       wide
+      className="story-actions-dialog"
     >
       <ErrorNotice message={error} />
       {!reviews.length && !error ? (
@@ -196,51 +260,74 @@ export function StoryActionsDialog({
             </p>
           )}
           {reviews.map((review) => (
-            <section key={review.story.id}>
+            <section className="story-action-review" key={review.story.id}>
               <h3>{review.story.name}</h3>
               {review.locales.map((locale) => (
-                <div key={locale.id} className="dialog-actions">
-                  {localesRequired && (
-                    <input
-                      type="checkbox"
-                      aria-label={`${review.story.name}: ${locale.name}`}
-                      checked={selected.includes(locale.id)}
-                      disabled={busy || !!request.current}
-                      onChange={(event) =>
-                        setSelected((current) =>
-                          event.target.checked
-                            ? [...current, locale.id]
-                            : current.filter((id) => id !== locale.id),
-                        )
-                      }
-                    />
+                <div key={locale.id}>
+                  <div className="story-action-locale">
+                    {localesRequired && (
+                      <input
+                        type="checkbox"
+                        aria-label={`${review.story.name}: ${locale.name}`}
+                        checked={selected.includes(locale.id)}
+                        disabled={busy || !!request.current}
+                        onChange={(event) =>
+                          setSelected((current) =>
+                            event.target.checked
+                              ? [...current, locale.id]
+                              : current.filter((id) => id !== locale.id),
+                          )
+                        }
+                      />
+                    )}
+                    <div className="story-action-locale-info">
+                      <strong>{locale.name}</strong>
+                      <code>
+                        /
+                        {[
+                          locale.slug,
+                          action === 'unpublish'
+                            ? (locale.publishedUrlSlug ?? locale.urlSlug)
+                            : locale.urlSlug,
+                        ]
+                          .filter(Boolean)
+                          .join('/')}
+                      </code>
+                      <span>
+                        Revision {locale.revision}
+                        {locale.publicationId ? ' · Live' : ' · Unpublished'}
+                      </span>
+                    </div>
+                    {action === 'publish' && locale.checkpointId && (
+                      <Button
+                        className="button--small"
+                        onClick={() =>
+                          void api<CheckpointDetail>(
+                            `/stories/${review.story.id}/locales/${locale.id}/checkpoints/${locale.checkpointId}`,
+                          )
+                            .then(setCheckpoint)
+                            .catch((error) => setError(errorMessage(error)))
+                        }
+                      >
+                        Inspect saved content
+                      </Button>
+                    )}
+                  </div>
+                  {action === 'publish' && selected.includes(locale.id) && (
+                    <ErrorNotice message={publicationErrors[locale.id] ?? null} />
                   )}
-                  <span>
-                    {locale.name} · /
-                    {[
-                      locale.slug,
-                      action === 'unpublish'
-                        ? (locale.publishedUrlSlug ?? locale.urlSlug)
-                        : locale.urlSlug,
-                    ]
-                      .filter(Boolean)
-                      .join('/')}{' '}
-                    · revision {locale.revision}
-                    {locale.publicationId ? ' · live' : ' · unpublished'}
-                  </span>
-                  {action === 'publish' && locale.checkpointId && (
-                    <Button
-                      onClick={() =>
-                        void api<CheckpointDetail>(
-                          `/stories/${review.story.id}/locales/${locale.id}/checkpoints/${locale.checkpointId}`,
-                        )
-                          .then(setCheckpoint)
-                          .catch((error) => setError(errorMessage(error)))
-                      }
-                    >
-                      Inspect saved content
-                    </Button>
-                  )}
+                  {action === 'publish' &&
+                    selected.includes(locale.id) &&
+                    publicationReviews[locale.id] && (
+                      <PublicationReferences
+                        review={publicationReviews[locale.id]}
+                        choices={referenceChoices[locale.id] ?? []}
+                        onChange={(choices) =>
+                          setReferenceChoices((current) => ({ ...current, [locale.id]: choices }))
+                        }
+                        disabled={busy || !!request.current}
+                      />
+                    )}
                 </div>
               ))}
               {!!review.incomingReferences.length && (
@@ -256,7 +343,7 @@ export function StoryActionsDialog({
             reviews.some((review) =>
               review.incomingReferences.some((reference) => reference.published),
             ) && (
-              <label>
+              <label className="checkbox-field">
                 <input
                   type="checkbox"
                   checked={acknowledge}
@@ -286,8 +373,20 @@ export function StoryActionsDialog({
               Close
             </Button>
             <Button
-              variant="primary"
-              disabled={busy || !reviews.length || (localesRequired && !selected.length)}
+              variant={action === 'delete' || action === 'unpublish' ? 'danger' : 'primary'}
+              disabled={
+                busy ||
+                !reviews.length ||
+                (localesRequired && !selected.length) ||
+                (action === 'publish' &&
+                  selected.some(
+                    (id) =>
+                      !publicationSelection(
+                        publicationReviews[id] ?? null,
+                        referenceChoices[id] ?? [],
+                      ).complete,
+                  ))
+              }
               onClick={() => void execute()}
             >
               {busy ? 'Applying…' : request.current ? 'Retry same selections' : `Confirm ${action}`}

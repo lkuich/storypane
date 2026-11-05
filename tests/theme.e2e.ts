@@ -129,6 +129,10 @@ test('dark surfaces cover spaces, schema drawers, settings, assets, and the edit
   await page.keyboard.press('Escape');
   await page.keyboard.press('Escape');
   await nav.getByRole('button', { name: 'Settings', exact: true }).click();
+  await page
+    .getByRole('navigation', { name: 'Settings sections' })
+    .getByRole('button', { name: 'API & preview' })
+    .click();
   await expect(page.locator('.delivery-settings')).toBeVisible();
   await page
     .locator('.delivery-settings')

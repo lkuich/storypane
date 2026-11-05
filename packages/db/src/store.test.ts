@@ -1101,15 +1101,37 @@ describe('Postgres collaboration and immutable history', () => {
       content: { text: 'Pied de page' },
     });
     const key = await store.createDeliveryToken(alice, { name: 'Public', scope: 'published' });
+    const publicationReview = await store.reviewPublication(
+      alice,
+      snapshot.story.id,
+      snapshot.locale.id,
+      snapshot.checkpointId!,
+    );
     await run(alice, snapshot, {
       ...commandBase(),
       type: 'publishCheckpoint',
-      payload: { checkpointId: snapshot.checkpointId! },
+      payload: {
+        checkpointId: snapshot.checkpointId!,
+        referenceChoices: publicationReview.references.map(({ localeId, checkpointId }) => ({
+          localeId,
+          checkpointId,
+          action: 'omit',
+        })),
+      },
     });
     const published = await store.publishedStories(key.token, alice.spaceId, {
       id: snapshot.story.id,
     });
     expect(published.stories[0].references).toBeUndefined();
+    expect(published.stories[0].content).toMatchObject({ footer: null, related: [], link: null });
+    expect(
+      blockNamed(await store.getSnapshot(alice, snapshot.story.id, snapshot.locale.id), 'page')
+        .fields,
+    ).toMatchObject({
+      footer: shared.story.id,
+      related: [shared.story.id],
+      link: { type: 'story', storyId: other.story.id },
+    });
     expect(JSON.stringify(published)).not.toContain('Edited in another tab');
     // Simulate stale or malformed stored references without weakening normal command validation.
     const current = await store.getSnapshot(alice, snapshot.story.id, snapshot.locale.id);
@@ -1845,6 +1867,7 @@ describe('Postgres collaboration and immutable history', () => {
         value: snapshot.story.id,
         label: snapshot.story.name,
         description: `/${snapshot.story.slug}`,
+        publication: { status: 'draft', localeName: 'Default', localeSlug: '' },
       },
     );
     await expect(
@@ -2179,6 +2202,80 @@ describe('Space roles and permissions', () => {
 });
 
 describe('Searchable page references', () => {
+  it('reports draft, published, and changed status for selected values and search results', async () => {
+    const input = { source: { type: 'stories' }, values: [snapshot.story.id] };
+    expect((await store.resolveOptions(bob, input)).items[0].publication?.status).toBe('draft');
+    await run(alice, snapshot, {
+      ...commandBase(),
+      type: 'publishCheckpoint',
+      payload: { checkpointId: snapshot.checkpointId! },
+    });
+    expect((await store.resolveOptions(bob, input)).items[0].publication?.status).toBe('published');
+    const hero = blockNamed(snapshot, 'hero');
+    await save(alice, snapshot, hero, { ...hero.fields, title: 'Not live yet' });
+    expect((await store.resolveOptions(bob, input)).items[0].publication?.status).toBe('changed');
+    expect(
+      (await store.resolveOptions(bob, { source: input.source, query: snapshot.story.name }))
+        .items[0].publication?.status,
+    ).toBe('changed');
+  });
+  it('uses the requested locale and published Default fallback instead of other locale drafts', async () => {
+    const french = await store.createSpaceLocale(alice, { name: 'French', slug: 'fr' });
+    const translated = await store.createLocale(alice, snapshot.story.id, {
+      spaceLocaleId: french.id,
+    });
+    const input = { source: { type: 'stories' }, values: [snapshot.story.id], locale: 'fr' };
+    expect((await store.resolveOptions(bob, input)).items[0].publication).toEqual({
+      status: 'draft',
+      localeName: 'French',
+      localeSlug: 'fr',
+    });
+    await run(alice, snapshot, {
+      ...commandBase(),
+      type: 'publishCheckpoint',
+      payload: { checkpointId: snapshot.checkpointId! },
+    });
+    expect((await store.resolveOptions(bob, input)).items[0].publication).toEqual({
+      status: 'published',
+      localeName: 'Default',
+      localeSlug: '',
+    });
+    await run(alice, translated, {
+      ...commandBase(),
+      type: 'publishCheckpoint',
+      payload: { checkpointId: translated.checkpointId! },
+    });
+    expect((await store.resolveOptions(bob, input)).items[0].publication).toEqual({
+      status: 'published',
+      localeName: 'French',
+      localeSlug: 'fr',
+    });
+    const hero = blockNamed(snapshot, 'hero');
+    await save(alice, snapshot, hero, { ...hero.fields, title: 'Default draft changes' });
+    expect((await store.resolveOptions(bob, input)).items[0].publication?.status).toBe('published');
+  });
+  it('does not disclose publication metadata for a locale outside read access', async () => {
+    const french = await store.createSpaceLocale(alice, { name: 'French', slug: 'fr' });
+    await store.createLocale(alice, snapshot.story.id, { spaceLocaleId: french.id });
+    await run(alice, snapshot, {
+      ...commandBase(),
+      type: 'publishCheckpoint',
+      payload: { checkpointId: snapshot.checkpointId! },
+    });
+    await pool.query("UPDATE space_roles SET content_scopes=$2 WHERE space_id=$1 AND id='editor'", [
+      alice.spaceId,
+      JSON.stringify(contentScopesSchema.parse({ read: { localeIds: [french.id] } })),
+    ]);
+    const items = (
+      await store.resolveOptions(bob, {
+        source: { type: 'stories' },
+        values: [snapshot.story.id],
+        locale: 'fr',
+      })
+    ).items;
+    expect(items).toHaveLength(1);
+    expect(items[0].publication).toBeUndefined();
+  });
   it('resolves pasted IDs and paths while retaining space and content-type restrictions', async () => {
     const source = { type: 'stories' as const };
     expect(
@@ -2189,6 +2286,7 @@ describe('Searchable page references', () => {
         value: snapshot.story.id,
         label: snapshot.story.name,
         description: `/${snapshot.story.slug}`,
+        publication: { status: 'draft', localeName: 'Default', localeSlug: '' },
       },
     ]);
     expect(

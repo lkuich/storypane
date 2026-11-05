@@ -1,5 +1,5 @@
 import type { StorypaneLink, StorypaneStory } from '@storypane/sdk';
-import type { FooterBlock, StorypaneContentType } from '../types/storypane';
+import type { FooterBlock } from '../types/storypane';
 
 export type SiteReferences = {
   paths: Record<string, string>;
@@ -28,15 +28,6 @@ export function referencesFor(
       references.footers[story.id] = story.content as FooterBlock;
   }
   return references;
-}
-
-export function storyReferences(
-  story: StorypaneStory<StorypaneContentType>,
-  published: SiteReferences,
-): SiteReferences {
-  if (!story.references) return published;
-  const drafts = referencesFor(story.references, story.locale);
-  return { paths: { ...published.paths, ...drafts.paths }, footers: drafts.footers };
 }
 
 export function assetPath(id: string): string {

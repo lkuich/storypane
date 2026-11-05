@@ -159,7 +159,8 @@ export function ContentList({
     filters.status ||
     filters.modified ||
     filters.modifiedBy ||
-    filters.contentType
+    filters.contentType ||
+    scheduleFilter
   );
   function changeFilters(next: ContentFilters) {
     setFilters(next);
@@ -274,64 +275,50 @@ export function ContentList({
           </Button>
         )}
       </nav>
-      <div className="dialog-actions">
-        <Button
-          aria-pressed={deleted}
-          onClick={() => {
-            setDeleted((value) => !value);
-            setScheduleFilter('');
-            setSelectedIds([]);
-          }}
-        >
-          {deleted ? 'Show active stories' : 'Deleted stories'}
-        </Button>
-        {!deleted && (
-          <label>
-            Schedules{' '}
-            <select
-              aria-label="Filter schedules"
-              value={scheduleFilter}
-              onChange={(event) => setScheduleFilter(event.target.value)}
-            >
-              <option value="">All</option>
-              <option value="pending">Scheduled</option>
-              <option value="failed">Failed</option>
-            </select>
-          </label>
-        )}
-        {!!selectedIds.length && (
-          <>
-            <span>{selectedIds.length} selected (maximum 50)</span>
-            {deleted ? (
-              canCreate && <Button onClick={() => openAction('restore')}>Restore</Button>
-            ) : (
-              <>
-                {canPublish && (
-                  <>
-                    <Button onClick={() => openAction('publish')}>Publish</Button>
-                    <Button onClick={() => openAction('unpublish')}>Unpublish</Button>
-                  </>
-                )}
-                {canCreate && (
-                  <>
-                    <Button onClick={() => openAction('duplicate')}>Duplicate</Button>
-                    <Button onClick={() => openAction('move')}>Move</Button>
-                    <Button onClick={() => openAction('delete')}>Delete</Button>
-                  </>
-                )}
-              </>
-            )}
-            <Button onClick={() => setSelectedIds([])}>Clear selection</Button>
-          </>
-        )}
-      </div>
       <ContentFilterBar
         filters={filters}
         onChange={changeFilters}
         stories={scopedStories}
         count={filtered.length}
         loading={loading}
+        deleted={deleted}
+        onToggleDeleted={() => {
+          setDeleted((value) => !value);
+          setScheduleFilter('');
+          setSelectedIds([]);
+        }}
+        scheduleFilter={scheduleFilter}
+        onScheduleChange={setScheduleFilter}
       />
+      {!!selectedIds.length && (
+        <div className="content-bulk-actions" role="group" aria-label="Selected story actions">
+          <span className="content-selection-count" title="Select up to 50 stories">
+            {selectedIds.length} selected
+          </span>
+          {deleted ? (
+            canCreate && <Button onClick={() => openAction('restore')}>Restore</Button>
+          ) : (
+            <>
+              {canPublish && (
+                <>
+                  <Button onClick={() => openAction('publish')}>Publish</Button>
+                  <Button onClick={() => openAction('unpublish')}>Unpublish</Button>
+                </>
+              )}
+              {canCreate && (
+                <>
+                  <Button onClick={() => openAction('duplicate')}>Duplicate</Button>
+                  <Button onClick={() => openAction('move')}>Move</Button>
+                  <Button variant="danger" onClick={() => openAction('delete')}>
+                    Delete
+                  </Button>
+                </>
+              )}
+            </>
+          )}
+          <Button onClick={() => setSelectedIds([])}>Clear selection</Button>
+        </div>
+      )}
       {!!children.length && (
         <section className="content-folders" aria-label="Folders">
           {children.map((item) => (
@@ -550,7 +537,12 @@ export function ContentList({
             }
             action={
               hasFilters ? (
-                <Button onClick={() => changeFilters({ ...defaultFilters, sort: filters.sort })}>
+                <Button
+                  onClick={() => {
+                    changeFilters({ ...defaultFilters, sort: filters.sort });
+                    setScheduleFilter('');
+                  }}
+                >
                   Clear search and filters
                 </Button>
               ) : (

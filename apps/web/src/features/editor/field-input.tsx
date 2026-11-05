@@ -113,11 +113,13 @@ function LinkInput({
   onChange,
   disabled,
   id,
+  referenceRefreshKey,
 }: {
   value: Json | undefined;
   onChange: (value: Json) => void;
   disabled: boolean;
   id: string;
+  referenceRefreshKey?: string;
 }) {
   const link =
     value && typeof value === 'object' && !Array.isArray(value) && 'type' in value
@@ -173,6 +175,7 @@ function LinkInput({
         <OptionInput
           source={{ type: 'stories' }}
           label="Linked story"
+          refreshKey={referenceRefreshKey}
           value={link?.type === 'story' ? link.storyId : null}
           disabled={disabled}
           onChange={(value) =>
@@ -197,12 +200,14 @@ export function FieldInput({
   onChange,
   disabled,
   error,
+  referenceRefreshKey,
 }: {
   field: Exclude<FieldDefinition, { type: 'blocks' }>;
   value: Json | undefined;
   onChange: (value: Json) => void;
   disabled: boolean;
   error?: string;
+  referenceRefreshKey?: string;
 }) {
   const id = useId();
   const common = {
@@ -310,6 +315,7 @@ export function FieldInput({
         <OptionInput
           id={id}
           source={field.source}
+          refreshKey={field.source.type === 'stories' ? referenceRefreshKey : undefined}
           label={field.label}
           value={value}
           multiple={field.type === 'options'}
@@ -332,7 +338,15 @@ export function FieldInput({
       );
       break;
     case 'link':
-      input = <LinkInput id={id} value={value} onChange={onChange} disabled={disabled} />;
+      input = (
+        <LinkInput
+          id={id}
+          value={value}
+          onChange={onChange}
+          disabled={disabled}
+          referenceRefreshKey={referenceRefreshKey}
+        />
+      );
       break;
   }
   return (

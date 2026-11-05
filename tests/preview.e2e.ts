@@ -63,7 +63,7 @@ test('a static app receives live drafts, selects blocks in the editor, and leave
       },
     });
     expect(publish.status(), await publish.text()).toBe(200);
-    await page.goto(`/?space=${spaceId}&view=settings`);
+    await page.goto(`/?space=${spaceId}&view=settings&section=delivery`);
     await page.getByRole('button', { name: 'Add preview URL', exact: true }).click();
     const stagingRow = page.getByRole('group', { name: 'Preview URL 1', exact: true });
     await stagingRow.getByLabel('Preview name', { exact: true }).fill('Staging');
@@ -280,7 +280,7 @@ test('a static app receives live drafts, selects blocks in the editor, and leave
       .getByRole('navigation', { name: 'Main navigation' })
       .getByRole('button', { name: 'Content', exact: true })
       .click();
-    await page.goto(`/?space=${spaceId}&view=settings`);
+    await page.goto(`/?space=${spaceId}&view=settings&section=delivery`);
     await page.getByRole('button', { name: 'Remove preview 2', exact: true }).click();
     await expect(stagingRow.getByRole('radio')).toBeChecked();
     await page.getByRole('button', { name: 'Save preview settings', exact: true }).click();

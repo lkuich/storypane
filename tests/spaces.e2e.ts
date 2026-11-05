@@ -77,12 +77,15 @@ test('manage spaces centrally, persist settings, and keep the selected workspace
       .getByRole('button', { name: 'Settings', exact: true })
       .click();
     await expect(page.getByRole('heading', { name: 'Space settings' })).toBeVisible();
+    const sections = page.getByRole('navigation', { name: 'Settings sections' });
+    await sections.getByRole('button', { name: 'Members & roles' }).click();
     await expect(page.getByRole('table', { name: 'Space members' })).toContainText(
       'admin@storypane.local',
     );
     await expect(page.getByRole('table', { name: 'Space members' })).not.toContainText(
       'editor@storypane.local',
     );
+    await sections.getByRole('button', { name: 'General' }).click();
     await page.getByLabel('Space name', { exact: true }).fill(`${title} updated`);
     await page.getByLabel(/^Description/).fill('Updated project description');
     await page.getByRole('button', { name: 'Save changes' }).click();
@@ -91,6 +94,10 @@ test('manage spaces centrally, persist settings, and keep the selected workspace
     await expect(page.getByLabel('Space name', { exact: true })).toHaveValue(`${title} updated`);
     await expect(page.getByLabel(/^Description/)).toHaveValue('Updated project description');
     await page.getByLabel('Space name', { exact: true }).fill('Unsaved name');
+    await sections.getByRole('button', { name: 'Locales' }).click();
+    await expect(sections.getByRole('img', { name: 'Unsaved changes' })).toBeVisible();
+    await sections.getByRole('button', { name: 'General' }).click();
+    await expect(page.getByLabel('Space name', { exact: true })).toHaveValue('Unsaved name');
     page.once('dialog', (dialog) => dialog.dismiss());
     await page.getByRole('button', { name: 'All spaces', exact: true }).click();
     await expect(page.getByRole('heading', { name: 'Space settings' })).toBeVisible();
@@ -149,6 +156,8 @@ test('editors see settings without admin controls', async ({ page }) => {
     .click();
   await expect(page.getByLabel('Space name', { exact: true })).toBeDisabled();
   await expect(page.getByRole('button', { name: 'Save changes' })).not.toBeVisible();
+  const sections = page.getByRole('navigation', { name: 'Settings sections' });
+  await sections.getByRole('button', { name: 'Locales' }).click();
   await expect(page.getByRole('button', { name: 'Add locale', exact: true })).not.toBeVisible();
   expect(
     (
@@ -158,6 +167,7 @@ test('editors see settings without admin controls', async ({ page }) => {
       })
     ).status(),
   ).toBe(403);
+  await sections.getByRole('button', { name: 'Members & roles' }).click();
   await expect(page.getByRole('table', { name: 'Space members' })).toContainText(
     'editor@storypane.local',
   );
@@ -188,7 +198,7 @@ test('space locales appear on stories and rename without replacing their content
       role: 'admin',
     } satisfies Actor);
     const headers = { Origin: origin, 'x-storypane-space-id': spaceId! };
-    await page.goto(`/?space=${spaceId}&view=settings`);
+    await page.goto(`/?space=${spaceId}&view=settings&section=locales`);
     const section = page.getByRole('region', { name: 'Space locales' });
     await expect(section).toContainText('Empty slug');
     await section.getByRole('button', { name: 'Add locale', exact: true }).click();

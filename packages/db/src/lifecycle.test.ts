@@ -4,7 +4,14 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { StorypaneStore } from './store.js';
 import { contentScopesSchema, definitionInput } from '@storypane/core';
 import { migrate } from './migrate.js';
-import type { Actor, BlockDraft, Command, Lease, LocaleSnapshot } from '@storypane/core';
+import type {
+  Actor,
+  BlockDraft,
+  Command,
+  Lease,
+  LocaleSnapshot,
+  PublicationReferenceChoice,
+} from '@storypane/core';
 
 const databaseUrl =
   process.env.TEST_DATABASE_URL ?? 'postgresql://blok:blok@127.0.0.1:55432/blok_test';
@@ -95,11 +102,15 @@ async function deletion(storyId = snapshot.story.id) {
     })),
   };
 }
-async function schedule(checkpointId = snapshot.checkpointId!) {
+async function schedule(
+  checkpointId = snapshot.checkpointId!,
+  referenceChoices?: PublicationReferenceChoice[],
+) {
   const localTime = new Date(Date.now() + 3600000).toISOString().slice(0, 16);
   return store.schedulePublication(alice, snapshot.story.id, snapshot.locale.id, {
     requestId: randomUUID(),
     checkpointId,
+    referenceChoices,
     localTime,
     dueAt: localTime + ':00.000Z',
     timezone: 'UTC',
@@ -974,5 +985,329 @@ describe('Scoped lifecycle, scheduling, and media integration', () => {
     expect(usage.nextCursor).toBeNull();
     await scopedEditor({ read: { fieldIds: [] } });
     expect((await store.listAssetUsage(bob, assetId)).items).toEqual([]);
+  });
+});
+
+async function copiedStory(name = 'Shared footer') {
+  const copied = await store.storyAction(alice, snapshot.story.id, {
+    action: 'duplicate',
+    requestId: randomUUID(),
+    folderId: null,
+    name,
+  });
+  return store.getSnapshot(alice, copied.story.id, copied.localeIds[0]);
+}
+async function linkStory(parent: LocaleSnapshot, target: LocaleSnapshot) {
+  const footer = blockNamed(parent, 'footer');
+  return (
+    await save(alice, parent, footer, {
+      ...footer.fields,
+      link: { type: 'story', storyId: target.story.id },
+    })
+  ).snapshot;
+}
+const referenceReview = (state: LocaleSnapshot, actor = alice) =>
+  store.reviewPublication(actor, state.story.id, state.locale.id, state.checkpointId!);
+const publishWith = (
+  state: LocaleSnapshot,
+  referenceChoices: PublicationReferenceChoice[] = [],
+  actor = alice,
+) =>
+  run(actor, state, {
+    ...commandBase(),
+    type: 'publishCheckpoint',
+    payload: { checkpointId: state.checkpointId!, referenceChoices },
+  });
+
+describe('Publication reference choices', () => {
+  it('rolls back the page publication when a linked publication fails after writes begin', async () => {
+    const original = await copiedStory();
+    await publishWith(original);
+    await store.storyAction(alice, original.story.id, {
+      action: 'move',
+      requestId: randomUUID(),
+      location: { folderId: null, slug: 'moved-footer', localeSlugs: {} },
+    });
+    const linked = await store.createStory(alice, {
+      name: 'Replacement footer',
+      slug: original.story.slugSegment!,
+      definitionId: blockNamed(snapshot, 'page').definitionId,
+    });
+    snapshot = await linkStory(snapshot, linked);
+    await expect(
+      publishWith(snapshot, [
+        { localeId: linked.locale.id, checkpointId: linked.checkpointId!, action: 'publish' },
+      ]),
+    ).rejects.toMatchObject({
+      code: 'invalid',
+      message: expect.stringContaining('Another page still publishes this URL'),
+    });
+    expect(await store.getPublication(alice, snapshot.story.id, snapshot.locale.id)).toBeNull();
+    expect(await store.getPublication(alice, linked.story.id, linked.locale.id)).toBeNull();
+    expect(await store.getPublication(alice, original.story.id, original.locale.id)).not.toBeNull();
+  });
+  it('requires an explicit choice, publishes pinned linked revisions atomically, and replays safely', async () => {
+    const linked = await copiedStory();
+    snapshot = await linkStory(snapshot, linked);
+    const review = await referenceReview(snapshot);
+    expect(review.references).toMatchObject([
+      {
+        storyName: 'Shared footer',
+        canPublish: true,
+        checkpointId: linked.checkpointId,
+        usages: [{ canOmit: true }],
+      },
+    ]);
+    await expect(publishWith(snapshot)).rejects.toMatchObject({ code: 'invalid' });
+    const hero = blockNamed(linked, 'hero');
+    await save(alice, linked, hero, { ...hero.fields, title: 'Unreviewed later edit' });
+    const input: Command = {
+      ...commandBase(),
+      type: 'publishCheckpoint',
+      payload: {
+        checkpointId: snapshot.checkpointId!,
+        referenceChoices: [
+          { localeId: linked.locale.id, checkpointId: linked.checkpointId!, action: 'publish' },
+        ],
+      },
+    };
+    const first = await run(alice, snapshot, input);
+    expect((await run(alice, snapshot, input)).publicationId).toBe(first.publicationId);
+    expect(
+      (await store.getPublication(alice, linked.story.id, linked.locale.id))?.checkpointId,
+    ).toBe(linked.checkpointId);
+    expect(
+      JSON.stringify(
+        (await store.getPublication(alice, linked.story.id, linked.locale.id))?.content,
+      ),
+    ).not.toContain('Unreviewed later edit');
+    expect(
+      (
+        await pool.query(
+          'SELECT count(*)::int AS count FROM publications WHERE locale_id=ANY($1::uuid[])',
+          [[snapshot.locale.id, linked.locale.id]],
+        )
+      ).rows[0].count,
+    ).toBe(2);
+  });
+  it('omits only the published reference and leaves both drafts intact', async () => {
+    const linked = await copiedStory();
+    snapshot = await linkStory(snapshot, linked);
+    await publishWith(snapshot, [
+      { localeId: linked.locale.id, checkpointId: linked.checkpointId!, action: 'omit' },
+    ]);
+    const published = (
+      await pool.query('SELECT snapshot FROM publications WHERE locale_id=$1', [snapshot.locale.id])
+    ).rows[0].snapshot as LocaleSnapshot;
+    expect(blockNamed(published, 'footer').fields.link).toBeNull();
+    const draft = await store.getSnapshot(alice, snapshot.story.id, snapshot.locale.id);
+    expect(blockNamed(draft, 'footer').fields.link).toEqual({
+      type: 'story',
+      storyId: linked.story.id,
+    });
+    expect(draft.publicationStatus).toBe('changed');
+    expect(await store.getPublication(alice, linked.story.id, linked.locale.id)).toBeNull();
+  });
+  it('respects linked-story publishing scopes and rolls back the entire selection', async () => {
+    const linked = await copiedStory();
+    snapshot = await linkStory(snapshot, linked);
+    await scopedEditor({
+      publish: { locations: { folderIds: [], storyIds: [snapshot.story.id] } },
+    });
+    const review = await referenceReview(snapshot, bob);
+    expect(review.references[0].canPublish).toBe(false);
+    await expect(
+      publishWith(
+        snapshot,
+        [{ localeId: linked.locale.id, checkpointId: linked.checkpointId!, action: 'publish' }],
+        bob,
+      ),
+    ).rejects.toMatchObject({ code: 'forbidden' });
+    expect(await store.getPublication(alice, snapshot.story.id, snapshot.locale.id)).toBeNull();
+    expect(await store.getPublication(alice, linked.story.id, linked.locale.id)).toBeNull();
+    await publishWith(
+      snapshot,
+      [{ localeId: linked.locale.id, checkpointId: linked.checkpointId!, action: 'omit' }],
+      bob,
+    );
+    await scopedEditor({ read: { locations: { folderIds: [], storyIds: [snapshot.story.id] } } });
+    const restrictedReview = await referenceReview(snapshot, bob);
+    expect(restrictedReview.references).toEqual([]);
+    expect(restrictedReview.snapshot.access?.publish).toBe(false);
+    expect(JSON.stringify(restrictedReview)).not.toContain(linked.story.id);
+  });
+  it('rejects omission of required references', async () => {
+    const linked = await copiedStory();
+    snapshot = await linkStory(snapshot, linked);
+    const definition = snapshot.definitions.find((item) => item.name === 'footer')!;
+    await store.updateDefinition(alice, definition.id, {
+      ...definitionInput(definition),
+      fields: definition.fields.map((field) =>
+        field.name === 'link' ? { ...field, required: true } : field,
+      ),
+    });
+    const migration = (await store.listMigrations(alice)).find((item) => item.status === 'active')!;
+    const migrationReview = await store.reviewMigration(alice, migration.id);
+    await store.deployMigration(alice, migration.id, migrationReview.token, {
+      confirmation: migrationReview.confirmation ?? undefined,
+    });
+    snapshot = await store.getSnapshot(alice, snapshot.story.id, snapshot.locale.id);
+    const review = await referenceReview(snapshot);
+    expect(review.references[0].usages[0].canOmit).toBe(false);
+    await expect(
+      publishWith(snapshot, [
+        {
+          localeId: linked.locale.id,
+          checkpointId: review.references[0].checkpointId,
+          action: 'omit',
+        },
+      ]),
+    ).rejects.toMatchObject({ code: 'invalid' });
+    expect(await store.getPublication(alice, snapshot.story.id, snapshot.locale.id)).toBeNull();
+  });
+  it('handles nested references and cycles without implicitly publishing anything', async () => {
+    let linked = await copiedStory(),
+      nested = await copiedStory('Nested');
+    linked = await linkStory(linked, nested);
+    nested = await linkStory(nested, linked);
+    snapshot = await linkStory(snapshot, linked);
+    const review = await referenceReview(snapshot);
+    expect(review.references).toHaveLength(2);
+    const choices = review.references.map(({ localeId, checkpointId }) => ({
+      localeId,
+      checkpointId,
+      action: 'publish' as const,
+    }));
+    await expect(publishWith(snapshot, choices.slice(0, 1))).rejects.toMatchObject({
+      code: 'invalid',
+    });
+    await publishWith(snapshot, choices);
+    expect(await store.getPublication(alice, linked.story.id, linked.locale.id)).not.toBeNull();
+    expect(await store.getPublication(alice, nested.story.id, nested.locale.id)).not.toBeNull();
+  });
+  it('prunes omitted subtrees and rejects unrelated selections', async () => {
+    let linked = await copiedStory();
+    const nested = await copiedStory('Nested');
+    linked = await linkStory(linked, nested);
+    snapshot = await linkStory(snapshot, linked);
+    const review = await referenceReview(snapshot);
+    expect(review.references).toHaveLength(2);
+    await expect(
+      publishWith(
+        snapshot,
+        review.references.map(({ localeId, checkpointId }) => ({
+          localeId,
+          checkpointId,
+          action: 'omit',
+        })),
+      ),
+    ).rejects.toMatchObject({ code: 'stale_revision' });
+    await publishWith(snapshot, [
+      { localeId: linked.locale.id, checkpointId: linked.checkpointId!, action: 'omit' },
+    ]);
+    expect(await store.getPublication(alice, linked.story.id, linked.locale.id)).toBeNull();
+    expect(await store.getPublication(alice, nested.story.id, nested.locale.id)).toBeNull();
+  });
+  it('keeps using the published Default fallback without publishing newer drafts', async () => {
+    const linked = await copiedStory();
+    const published = await publishWith(linked);
+    const hero = blockNamed(linked, 'hero');
+    await save(alice, linked, hero, { ...hero.fields, title: 'Still a draft' });
+    snapshot = await linkStory(snapshot, linked);
+    const french = await store.createSpaceLocale(alice, { name: 'French', slug: 'fr' });
+    const translation = await store.createLocale(alice, snapshot.story.id, {
+      spaceLocaleId: french.id,
+    });
+    const translated = await store.getSnapshot(alice, snapshot.story.id, translation.locale.id);
+    expect((await referenceReview(translated)).references).toEqual([]);
+    await publishWith(translated);
+    expect(
+      (await store.getSnapshot(alice, linked.story.id, linked.locale.id)).locale.publishedVersionId,
+    ).toBe(published.publicationId);
+  });
+  it('persists scheduled choices and uses the pinned linked checkpoint when due', async () => {
+    const linked = await copiedStory();
+    snapshot = await linkStory(snapshot, linked);
+    const job = await schedule(snapshot.checkpointId!, [
+      { localeId: linked.locale.id, checkpointId: linked.checkpointId!, action: 'publish' },
+    ]);
+    const hero = blockNamed(linked, 'hero');
+    await save(alice, linked, hero, { ...hero.fields, title: 'Not scheduled' });
+    await due(job.id);
+    await store.runScheduledPublications();
+    expect(
+      (await store.listSchedules(alice, snapshot.story.id, snapshot.locale.id))[0].status,
+    ).toBe('published');
+    expect(
+      (await store.getPublication(alice, linked.story.id, linked.locale.id))?.checkpointId,
+    ).toBe(linked.checkpointId);
+  });
+  it('fails a schedule as a unit if linked-story publishing access is lost', async () => {
+    const linked = await copiedStory();
+    snapshot = await linkStory(snapshot, linked);
+    const job = await schedule(snapshot.checkpointId!, [
+      { localeId: linked.locale.id, checkpointId: linked.checkpointId!, action: 'publish' },
+    ]);
+    await scopedEditor({
+      publish: { locations: { folderIds: [], storyIds: [snapshot.story.id] } },
+    });
+    await pool.query("UPDATE memberships SET role='editor' WHERE space_id=$1 AND user_id='alice'", [
+      alice.spaceId,
+    ]);
+    await due(job.id);
+    await store.runScheduledPublications();
+    expect(
+      (await store.listSchedules(alice, snapshot.story.id, snapshot.locale.id))[0].status,
+    ).toBe('failed');
+    expect(await store.getPublication(alice, snapshot.story.id, snapshot.locale.id)).toBeNull();
+    expect(await store.getPublication(alice, linked.story.id, linked.locale.id)).toBeNull();
+  });
+  it('supports bulk publishing shared dependencies without overwriting an unrelated publication', async () => {
+    const linked = await copiedStory(),
+      second = await copiedStory('Second page');
+    const parents = [await linkStory(snapshot, linked), await linkStory(second, linked)];
+    const items = await Promise.all(
+      parents.map(async (parent) => {
+        const review = await store.reviewStoryAction(alice, parent.story.id);
+        return {
+          storyId: parent.story.id,
+          input: {
+            requestId: randomUUID(),
+            action: 'publish',
+            locales: review.locales.map((locale) => ({
+              id: locale.id,
+              checkpointId: locale.checkpointId,
+              publicationId: locale.publicationId,
+              referenceChoices: [
+                {
+                  localeId: linked.locale.id,
+                  checkpointId: linked.checkpointId!,
+                  action: 'publish',
+                },
+              ],
+            })),
+          },
+        };
+      }),
+    );
+    const result = await store.bulkStoryAction(alice, { items });
+    expect(result.every((item) => item.result)).toBe(true);
+    expect(
+      (
+        await pool.query('SELECT count(*)::int AS count FROM publications WHERE locale_id=$1', [
+          linked.locale.id,
+        ])
+      ).rows[0].count,
+    ).toBe(1);
+    const hero = blockNamed(linked, 'hero');
+    const changed = (
+      await save(alice, linked, hero, { ...hero.fields, title: 'Published independently' })
+    ).snapshot;
+    await publishWith(changed);
+    await expect(
+      publishWith(parents[0], [
+        { localeId: linked.locale.id, checkpointId: linked.checkpointId!, action: 'publish' },
+      ]),
+    ).rejects.toMatchObject({ code: 'stale_revision' });
   });
 });

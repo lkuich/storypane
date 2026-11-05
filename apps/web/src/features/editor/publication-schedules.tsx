@@ -1,6 +1,12 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
-import { scheduleInstants, type CheckpointDetail, type PublicationSchedule } from '@storypane/core';
+import { CalendarClock } from 'lucide-react';
+import {
+  scheduleInstants,
+  type CheckpointDetail,
+  type PublicationSchedule,
+  type PublicationReferenceChoice,
+} from '@storypane/core';
 import { Button, ErrorNotice, Field } from '@storypane/ui';
 import { api, dateLabel, errorMessage, jsonRequest } from './api';
 
@@ -65,7 +71,7 @@ export function PublicationSchedules({
     <>
       <ErrorNotice message={error} />
       {visible.map((schedule) => (
-        <div className="publication-note" key={schedule.id}>
+        <div className="publication-note publication-schedule" key={schedule.id}>
           <span>
             <strong>
               {schedule.status === 'pending' ? 'Scheduled' : 'Schedule failed'} · revision{' '}
@@ -76,12 +82,20 @@ export function PublicationSchedules({
             {schedule.error && ` · ${schedule.error}`}
           </span>
           {canPublish && (
-            <div className="dialog-actions">
-              <Button disabled={busy} onClick={() => onReview(schedule.checkpointId)}>
-                Review / reschedule / publish now
+            <div className="publication-schedule-actions">
+              <Button
+                className="button--small"
+                disabled={busy}
+                onClick={() => onReview(schedule.checkpointId)}
+              >
+                Review schedule
               </Button>
               {schedule.status === 'pending' && (
-                <Button disabled={busy} onClick={() => void cancel(schedule)}>
+                <Button
+                  className="button--small"
+                  disabled={busy}
+                  onClick={() => void cancel(schedule)}
+                >
                   Cancel schedule
                 </Button>
               )}
@@ -96,11 +110,15 @@ export function PublicationSchedules({
 export function ScheduleForm({
   base,
   checkpoint,
+  referenceChoices,
   onScheduled,
+  onCancel,
 }: {
   base: string;
   checkpoint: CheckpointDetail;
+  referenceChoices: PublicationReferenceChoice[];
   onScheduled: () => void;
+  onCancel: () => void;
 }) {
   const [timezone, setTimezone] = useState(() => Intl.DateTimeFormat().resolvedOptions().timeZone);
   const [localTime, setLocalTime] = useState('');
@@ -145,6 +163,7 @@ export function ScheduleForm({
       payload.current ??= {
         requestId: crypto.randomUUID(),
         checkpointId: checkpoint.id,
+        referenceChoices,
         dueAt: chosen,
         timezone,
         localTime,
@@ -160,16 +179,18 @@ export function ScheduleForm({
     }
   }
   return (
-    <section>
+    <section className="schedule-form" aria-label="Schedule publication">
       <h3>Schedule revision {checkpoint.revision}</h3>
       <p>
-        Only this saved revision will publish. Later edits remain drafts.
+        This saved revision and your linked-story choices will publish together. Later edits remain
+        drafts.
         {existing ? ' This replaces the pending schedule.' : ''}
       </p>
       <Field label="Local date and time" htmlFor="schedule-time">
         <input
           type="datetime-local"
           id="schedule-time"
+          autoFocus
           value={localTime}
           disabled={busy || !!payload.current}
           onChange={(event) => {
@@ -212,15 +233,25 @@ export function ScheduleForm({
         </p>
       )}
       <ErrorNotice message={timeError ?? error} />
-      <Button disabled={busy || !loaded || !chosen || !!timeError} onClick={() => void schedule()}>
-        {busy
-          ? 'Scheduling…'
-          : payload.current
-            ? 'Retry schedule'
-            : existing
-              ? 'Replace schedule'
-              : 'Schedule publication'}
-      </Button>
+      <div className="dialog-actions">
+        <Button disabled={busy} onClick={onCancel}>
+          Back to publish now
+        </Button>
+        <Button
+          variant="primary"
+          disabled={busy || !loaded || !chosen || !!timeError}
+          onClick={() => void schedule()}
+        >
+          <CalendarClock aria-hidden="true" />
+          {busy
+            ? 'Scheduling…'
+            : payload.current
+              ? 'Retry schedule'
+              : existing
+                ? 'Replace schedule'
+                : 'Schedule publication'}
+        </Button>
+      </div>
     </section>
   );
 }

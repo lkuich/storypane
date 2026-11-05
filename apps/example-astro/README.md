@@ -1,13 +1,14 @@
 # Fieldwork · Astro example
 
-A complete, statically built website using `@storypane/sdk`. It follows the reference
-Storyblok app's structure: Astro routes, a hydrated React component registry,
-pulled schema JSON, and generated TypeScript block props.
+A complete, statically built website using `@storypane/sdk`: Astro routes, a typed
+React block components, pulled schema JSON, and generated TypeScript block props.
+Published pages render at build time; only the dedicated preview route hydrates React.
 
-The [Next.js version](../example-next/README.md) shares the renderer, styles and
-generated types, and can be selected as another Storypane preview application.
+The [Next.js version](../example-next/README.md) implements the same content contract
+and can be selected as another Storypane preview application. Each example owns
+its renderer, styles, schema snapshot, generated types, and publication helpers.
 
-Configuration uses `STORYPANE_*` / `PUBLIC_STORYPANE_*` variables.
+Configuration uses server-only `STORYPANE_*` variables.
 
 ## Run it
 
@@ -37,10 +38,13 @@ Manage locale names and URL prefixes in **Space settings → Locales**. The buil
 discovers them with `client.listLocales()`; no `STORYPANE_LOCALES` environment variable
 is needed. A locale gets a public route only when that story locale is published.
 After adding or renaming locales, rebuild the site (or restart the dev server).
+The SDK paginates publications for every configured locale. Route generation rejects
+invalid or duplicate paths, the reserved `preview`, `media`, and `_astro` prefixes,
+and Default slugs that occupy a configured locale prefix, such as `fr/home`.
 
 To use an existing space instead, copy `.env.example` to `.env`, configure its
 URL/space/tokens, and run `pnpm --filter @storypane/example-astro storypane:generate`.
-Adjust the component registry to match that space's schemas. Do not put either
+Adjust the block components to match that space's schemas. Do not put either
 token in a `PUBLIC_` variable. Preview tokens are used only by schema tooling;
 published tokens are used only by the Astro build/server.
 
@@ -61,12 +65,16 @@ This static shell loads a story through the authenticated editor bridge, includi
 unpublished stories/locales with no built route. Open **Work in progress → Preview**
 to try it. Opening `/preview` outside the CMS shows instructions, not draft data.
 
-To test preview on the built page itself, change **Settings → API & preview →
-Application preview URL** to `http://127.0.0.1:3132/{locale}/{slug}`. Default locale
-has no prefix; French uses `/fr/home`. The query parameter, a `storypane_preview=1`
-cookie, or `PUBLIC_STORYPANE_PREVIEW=true` activates the SDK in `Story.tsx`; the parent
-editor still supplies authorization. Standalone preview needs your own
+Use this `/preview` URL for existing integrations too. Published routes such as
+`/home` and `/fr/home` always show the built publication, including inside an iframe;
+preview query parameters, cookies, and the old `PUBLIC_STORYPANE_PREVIEW*` settings
+no longer activate drafts on those routes. Standalone preview needs your own
 authenticated session endpoint (see the SDK guide).
+
+`PreviewShell.tsx` uses `useStorypanePreview` and the current URL's story and locale.
+Changing the URL without reloading clears the old draft and disconnects its live
+subscription before connecting the new story. References arrive with the authorized
+preview payload, so the shell does not need a build-time copy of published stories.
 
 To prove preview works after a static build, stop the dev server and run:
 
@@ -75,10 +83,10 @@ pnpm build:example
 pnpm --filter @storypane/example-astro preview
 ```
 
-Now edit in the CMS again. The public HTML remains the published snapshot; preview
-updates through the React island. Publishing requires rebuilding/redeploying the
-public site. Astro's [`client:load` integration](https://docs.astro.build/en/guides/integrations-guide/react/)
-hydrates the same component tree that produced the build-time HTML.
+Now edit in the CMS again. The public HTML remains the published snapshot; `/preview`
+updates through its React island. Publishing requires rebuilding/redeploying the
+public site. Published pages ship no React runtime or preview subscription; a small
+script restores the decorative artwork if a hero image fails to load.
 
 ## Pull schemas and generate TypeScript
 
@@ -132,8 +140,10 @@ function Hero({ block }: { block: HeroBlock }) {
 }
 ```
 
-The registry in `src/components/blocks.tsx` uses `satisfies StorypaneComponentMap`'s
-mapped props, so missing registrations or incompatible props fail type checking.
+The switch in `src/components/blocks/block.tsx` maps each schema name to a typed
+component in its own file. Add a case when adding a schema. `Page` composes the
+header, `PageBody`, and selected footer; `PageBody` groups adjacent feature cards.
+References and preview settings are explicit props, matching the Next.js example.
 Drafts can be incomplete; renderers should tolerate missing required content.
 Generated types are compile-time contracts, not runtime validators. They describe
 the pulled deployed migration. The delivery client and preview components pass
@@ -143,8 +153,9 @@ receiving content. Schema deployment migrates both drafts and live publications.
 The current example supports hero images, rich-text descriptions, linked feature cards placed directly in
 a page body, and a shared footer selected through `page.footer`. Story links and
 footer references use published stories in the page's locale, with Default as a
-fallback. Publish the referenced footer and rebuild before it appears on the public
-site. In authenticated live preview, the selected footer uses its current draft,
+fallback. Publish the referenced footer (separately or with the page during publish
+review) and rebuild before it appears on the public site. In authenticated live
+preview, the selected footer uses its current draft,
 including unpublished footers. Changes made in another tab refresh on the preview
 heartbeat (within 15 seconds); changing the selection refreshes with the page save.
 
@@ -190,15 +201,15 @@ for supported variants, still-frame animation, and image size limits.
 
 ## Files and checks
 
-| File                                                  | Purpose                                                                |
-| ----------------------------------------------------- | ---------------------------------------------------------------------- |
-| `src/lib/cms.ts`                                      | Discover space locales, fetch publications, paginate, build routes     |
-| `src/lib/publications.ts`                             | Shared publication pagination and route validation for both frameworks |
-| `src/pages/[...path].astro`                           | Static route generation                                                |
-| `src/components/Story.tsx`                            | Published-first rendering and live preview hook                        |
-| `src/components/PreviewShell.tsx`                     | Preview of unpublished stories/locales                                 |
-| `src/components/blocks.tsx`                           | Typed component registry and editable markers                          |
-| `storypane/components.json`, `src/types/storypane.ts` | Pulled schema and generated types                                      |
+| File                                                  | Purpose                                                            |
+| ----------------------------------------------------- | ------------------------------------------------------------------ |
+| `src/lib/cms.ts`                                      | Discover space locales, fetch publications, paginate, build routes |
+| `src/lib/publications.ts`                             | SDK publication pagination and Astro route validation              |
+| `src/pages/[...path].astro`                           | Static route generation                                            |
+| `src/components/PreviewShell.tsx`                     | Preview of unpublished stories/locales                             |
+| `src/components/content.tsx`                          | Shared entry point for public and preview rendering                |
+| `src/components/blocks/`                              | Block switch, individual components, and page body layout          |
+| `storypane/components.json`, `src/types/storypane.ts` | Pulled schema and generated types                                  |
 
 From the repository root, `pnpm lint:example` checks both self-contained examples with ESLint and Prettier. The shared configuration includes recommended
 JavaScript/TypeScript/Astro rules, React hook checks, and Next.js rules for the Next
@@ -214,9 +225,17 @@ connection. With the CMS running and the example built, run:
 pnpm exec playwright test tests/astro.e2e.ts
 ```
 
-Playwright starts the built Astro preview server, verifies live updates, nested
-selection, locales, unpublished preview, unchanged public HTML, and absence of
-API keys in browser assets. It restores the edited draft and preview settings.
+Playwright starts the built Astro preview server. The publication and preview
+contract test checks static pages, assets and image fallback, locales, unpublished
+preview, selected footers, URL changes, and absence of API keys in browser assets.
+It uses the local example's preview token and requires no saved Clerk session:
+
+```sh
+pnpm exec playwright test tests/astro.e2e.ts -g 'Astro publication and preview contract'
+```
+
+The editor integration test also verifies live edits and nested selection using
+a configured Clerk admin session. It restores the edited draft and preview settings.
 The full browser suite skips this test if the example has not been configured.
 
 The generated `dist/` can be hosted as static assets, including on Cloudflare.

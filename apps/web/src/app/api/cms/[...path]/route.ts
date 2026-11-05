@@ -411,6 +411,8 @@ async function handle(request: Request, route: { params: Promise<{ path: string[
                 ? await store.getCheckpoint(actor, id, localeId, targetId)
                 : await store.listCheckpoints(actor, id, localeId),
             );
+          if (action === 'publication-review' && targetId && method === 'GET')
+            return jsonResponse(await store.reviewPublication(actor, id, localeId, targetId));
           if (action === 'published' && method === 'GET') {
             const publication = await store.getPublication(actor, id, localeId);
             if (!publication)

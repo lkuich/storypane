@@ -33,6 +33,7 @@ export async function migrate(pool: Pool): Promise<void> {
       '018_production_media',
       '019_content_scopes',
       '020_storypane_preview',
+      '021_publication_references',
     ]) {
       if (
         (await client.query('SELECT name FROM storypane_migrations WHERE name=$1', [name])).rowCount

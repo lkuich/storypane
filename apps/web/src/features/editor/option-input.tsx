@@ -5,9 +5,41 @@ import { Check, ChevronDown, ExternalLink, Search, X } from 'lucide-react';
 import type { Json, OptionItem, OptionPage, OptionSource } from '@storypane/core';
 import { Button, ErrorNotice } from '@storypane/ui';
 import { EditorAvatars } from '../../components/editor-avatars';
+import { PublicationStatus } from '../../components/publication-status';
 import { usePageEditors } from './use-page-editors';
 import { api, errorMessage, jsonRequest } from './api';
 import { selectedSpaceId, storyUrl } from '../../lib/space-url';
+
+function StoryOptionStatus({
+  item,
+  locale,
+  id,
+}: {
+  item?: OptionItem;
+  locale: string;
+  id?: string;
+}) {
+  const publication = item?.publication;
+  if (!publication) return null;
+  const explanation =
+    publication.status === 'draft'
+      ? 'This story has not been published.'
+      : publication.status === 'changed'
+        ? 'The previous published version is live; newer draft changes are not published.'
+        : 'This story is published.';
+  return (
+    <span
+      id={id}
+      className="option-story-status"
+      title={`${publication.localeName}: ${explanation}`}
+    >
+      <PublicationStatus
+        status={publication.status}
+        localeName={publication.localeSlug !== locale ? publication.localeName : undefined}
+      />
+    </span>
+  );
+}
 
 export function OptionInput({
   source,
@@ -18,6 +50,7 @@ export function OptionInput({
   label,
   id: controlId,
   placeholder,
+  refreshKey,
 }: {
   id?: string;
   source: OptionSource;
@@ -27,7 +60,13 @@ export function OptionInput({
   disabled: boolean;
   label: string;
   placeholder?: string;
+  refreshKey?: string;
 }) {
+  const spaceId = selectedSpaceId();
+  const locale =
+    source.type === 'stories' && typeof window !== 'undefined'
+      ? (new URLSearchParams(window.location.search).get('locale') ?? '')
+      : '';
   const [open, setOpen] = useState(false),
     [query, setQuery] = useState(''),
     [retry, setRetry] = useState(0);
@@ -50,28 +89,55 @@ export function OptionInput({
     selectedKey = JSON.stringify(selected);
   useEffect(() => {
     setSaved([]);
-  }, [sourceKey]);
+  }, [sourceKey, spaceId, locale]);
   useEffect(() => {
     let cancelled = false;
-    if (JSON.parse(selectedKey).length)
-      void api<OptionPage>(
-        '/options',
-        jsonRequest('POST', { source: JSON.parse(sourceKey), values: JSON.parse(selectedKey) }),
-      )
-        .then((result) => {
-          if (!cancelled)
-            setSaved((current) => [
-              ...current.filter((item) => !result.items.some((next) => next.value === item.value)),
-              ...result.items,
-            ]);
-        })
-        .catch(() => {
-          /* Preserve the stored value when its label cannot be loaded. */
+    let busy = false;
+    const values: string[] = JSON.parse(selectedKey);
+    if (!values.length) return;
+    const controller = new AbortController();
+    async function refresh() {
+      if (busy || document.visibilityState === 'hidden') return;
+      busy = true;
+      try {
+        const result = await api<OptionPage>('/options', {
+          ...jsonRequest('POST', { source: JSON.parse(sourceKey), values, locale }),
+          signal: AbortSignal.any([controller.signal, AbortSignal.timeout(20_000)]),
         });
+        if (!cancelled)
+          setSaved((current) => [
+            ...current.filter((item) => !values.includes(item.value)),
+            ...values.map(
+              (value) =>
+                result.items.find((item) => item.value === value) ?? {
+                  value,
+                  label: current.find((item) => item.value === value)?.label ?? value,
+                },
+            ),
+          ]);
+      } catch {
+        // Keep labels usable without claiming a stale publication status.
+        if (!cancelled)
+          setSaved((current) => current.map(({ publication: _publication, ...item }) => item));
+      } finally {
+        busy = false;
+      }
+    }
+    void refresh();
+    const stories = JSON.parse(sourceKey).type === 'stories';
+    const timer = stories ? setInterval(() => void refresh(), 30_000) : undefined;
+    if (stories) {
+      window.addEventListener('focus', refresh);
+      document.addEventListener('visibilitychange', refresh);
+    }
     return () => {
       cancelled = true;
+      controller.abort();
+      clearInterval(timer);
+      window.removeEventListener('focus', refresh);
+      document.removeEventListener('visibilitychange', refresh);
     };
-  }, [sourceKey, selectedKey, retry]);
+  }, [sourceKey, selectedKey, retry, spaceId, locale, refreshKey]);
   useEffect(() => {
     const current = ++generation.current;
     if (!open) return;
@@ -82,7 +148,7 @@ export function OptionInput({
     const timer = setTimeout(
       () => {
         void api<OptionPage>('/options', {
-          ...jsonRequest('POST', { source: JSON.parse(sourceKey), query }),
+          ...jsonRequest('POST', { source: JSON.parse(sourceKey), query, locale }),
           signal: controller.signal,
         })
           .then((result) => {
@@ -103,7 +169,7 @@ export function OptionInput({
       controller.abort();
       generation.current += 1;
     };
-  }, [sourceKey, query, retry, open]);
+  }, [sourceKey, query, retry, open, locale, spaceId, refreshKey]);
   useEffect(() => {
     if (!open) return;
     search.current?.focus();
@@ -139,7 +205,7 @@ export function OptionInput({
     try {
       const next = await api<OptionPage>(
         '/options',
-        jsonRequest('POST', { source, query, cursor: page.nextCursor }),
+        jsonRequest('POST', { source, query, cursor: page.nextCursor, locale }),
       );
       if (current === generation.current) {
         search.current?.focus();
@@ -157,14 +223,14 @@ export function OptionInput({
       if (current === generation.current) setLoading(false);
     }
   }
+  const itemFor = (value: string) =>
+    saved.find((item) => item.value === value) ?? page.items.find((item) => item.value === value);
   const titleFor = (value: string) =>
-    page.items.find((item) => item.value === value)?.label ??
-    saved.find((item) => item.value === value)?.label ??
+    itemFor(value)?.label ??
     (source.type === 'inline'
       ? source.items.find((item) => item.value === value)?.label
       : undefined) ??
     value;
-  const spaceId = selectedSpaceId();
   return (
     <div
       className="option-picker"
@@ -207,7 +273,7 @@ export function OptionInput({
           type="button"
           className="option-trigger"
           aria-label={label}
-          aria-describedby={`${id}-value`}
+          aria-describedby={`${id}-value${selected.length === 1 && itemFor(selected[0])?.publication ? ` ${id}-status` : ''}`}
           aria-haspopup="dialog"
           aria-expanded={open}
           aria-controls={open ? id : undefined}
@@ -217,12 +283,15 @@ export function OptionInput({
             setOpen((current) => !current);
           }}
         >
-          <span id={`${id}-value`}>
+          <span id={`${id}-value`} className="option-trigger-value">
             {selected.length
               ? selected.map(titleFor).join(', ')
               : (placeholder ??
                 (source.type === 'stories' ? 'Choose a page…' : 'Choose an option…'))}
           </span>
+          {source.type === 'stories' && selected.length === 1 && (
+            <StoryOptionStatus item={itemFor(selected[0])} locale={locale} id={`${id}-status`} />
+          )}
           <ChevronDown aria-hidden="true" />
         </button>
         {source.type === 'stories' && spaceId && selected.length === 1 && (
@@ -249,6 +318,7 @@ export function OptionInput({
               aria-label={`Open ${titleFor(value)} story (new tab)`}
             >
               {titleFor(value)}
+              <StoryOptionStatus item={itemFor(value)} locale={locale} />
               <ExternalLink size={13} aria-hidden="true" />
             </a>
           ))}
@@ -300,6 +370,7 @@ export function OptionInput({
               >
                 <span>
                   <strong>{item.label}</strong>
+                  {source.type === 'stories' && <StoryOptionStatus item={item} locale={locale} />}
                   {item.description && <small>{item.description}</small>}
                   {source.type === 'stories' && <small className="mono">{item.value}</small>}
                 </span>

@@ -162,6 +162,7 @@ export function CMSApp({ session: initialSession }: { session: CMSSession }) {
     closeStory();
     setTab(next);
     const url = new URL(window.location.href);
+    url.searchParams.delete('section');
     if (next !== 'content') url.searchParams.set('view', next);
     else url.searchParams.delete('view');
     window.history.replaceState(window.history.state, '', url);

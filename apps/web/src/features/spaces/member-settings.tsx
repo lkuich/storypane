@@ -105,7 +105,7 @@ export function MemberSettings({
       </header>
       <div className="panel-body member-intro">
         <p className="muted">
-          Assign a role to control each member’s access. Manage role permissions above.
+          Assign a role to control each member’s access. Manage permissions in Roles.
         </p>
         {canManage && (
           <Button variant="ghost" className="button--small" onClick={() => void copyLink()}>

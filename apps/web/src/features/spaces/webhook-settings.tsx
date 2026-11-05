@@ -169,13 +169,17 @@ export function WebhookSettings({
     }
   }
   return (
-    <section className="panel">
+    <section className="panel webhook-settings">
       <header className="panel-heading">
         <h2>
           <Webhook aria-hidden="true" />
           Webhooks
         </h2>
-        <Button disabled={!configured || busy || loading} onClick={() => open(null)}>
+        <Button
+          className="button--small"
+          disabled={!configured || busy || loading}
+          onClick={() => open(null)}
+        >
           <Plus aria-hidden="true" />
           New webhook
         </Button>
@@ -197,14 +201,22 @@ export function WebhookSettings({
         {loading ? (
           <Loading />
         ) : endpoints.length ? (
-          <div className="roles-list">
+          <div className="webhook-list">
             {endpoints.map((endpoint) => (
-              <article className="role-card" key={endpoint.id}>
-                <div>
-                  <strong>{endpoint.name}</strong>
-                  <span className="pill">{endpoint.enabled ? 'Enabled' : 'Disabled'}</span>
+              <article className="webhook-card" key={endpoint.id}>
+                <div className="webhook-card-details">
+                  <div className="webhook-card-heading">
+                    <h3>{endpoint.name}</h3>
+                    <span className="pill">{endpoint.enabled ? 'Enabled' : 'Disabled'}</span>
+                  </div>
                   <p className="mono">{endpoint.url}</p>
-                  <p>{endpoint.events.join(' · ')}</p>
+                  <div className="webhook-events">
+                    {endpoint.events.map((event) => (
+                      <span className="pill pill--outline" key={event}>
+                        {event}
+                      </span>
+                    ))}
+                  </div>
                 </div>
                 <div className="button-group">
                   <Button disabled={busy || !configured} onClick={() => open(endpoint)}>
@@ -290,7 +302,7 @@ export function WebhookSettings({
               </label>
             ))}
           </fieldset>
-          <label>
+          <label className="checkbox-field">
             <input
               type="checkbox"
               checked={enabled}
@@ -364,12 +376,14 @@ export function WebhookSettings({
         {logsLoading ? (
           <Loading />
         ) : page?.deliveries.length ? (
-          <div className="history-list">
+          <div className="history-list webhook-deliveries">
             {page.deliveries.map((delivery) => (
               <article className="history-item" key={delivery.id}>
                 <div>
-                  <strong>{delivery.type}</strong>
-                  <span className="pill">{delivery.status}</span>
+                  <div className="webhook-delivery-heading">
+                    <strong>{delivery.type}</strong>
+                    <span className="pill">{delivery.status}</span>
+                  </div>
                   <p>
                     {dateLabel(delivery.createdAt)} · {delivery.attemptCount} attempts
                     {delivery.httpStatus ? ' · HTTP ' + delivery.httpStatus : ''}

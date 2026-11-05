@@ -1,9 +1,9 @@
 ---
 import type { StorypaneStory } from '@storypane/sdk';
 import type { StorypaneContentType } from '../types/storypane';
-import Story from '../components/Story';
+import { Content } from '../components/content';
 import Layout from '../layouts/Layout.astro';
-import { publishedPages, cmsUrl, spaceId } from '../lib/cms';
+import { publishedPages } from '../lib/cms';
 import type { SiteReferences } from '../lib/content';
 export const getStaticPaths = publishedPages;
 interface Props {
@@ -14,13 +14,17 @@ const { story, references } = Astro.props;
 ---
 
 <Layout title={story.name} locale={story.locale}>
-  <Story
-    client:load
-    initial={story}
-    references={references}
-    cmsUrl={cmsUrl}
-    spaceId={spaceId}
-    previewParameter={import.meta.env.PUBLIC_STORYPANE_PREVIEW_PARAMETER || 'storypane_preview'}
-    previewEnabled={import.meta.env.PUBLIC_STORYPANE_PREVIEW}
-  />
+  <Content block={story.content} references={references} />
 </Layout>
+
+<script>
+  // Keep image failure recovery without hydrating the public page's React tree.
+  for (const image of document.querySelectorAll<HTMLImageElement>('.hero-image')) {
+    const fallback = () => {
+      image.parentElement!.hidden = true;
+      image.parentElement!.nextElementSibling!.removeAttribute('hidden');
+    };
+    image.addEventListener('error', fallback, { once: true });
+    if (image.complete && !image.naturalWidth) fallback();
+  }
+</script>

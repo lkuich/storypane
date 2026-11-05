@@ -101,6 +101,10 @@ Docker volumes, databases, buckets, or Durable Object namespaces.
 - Content selection supports reviewed bulk publish/unpublish/move/delete, draft-only
   duplication, and soft-delete recovery. History is preserved; live references and
   editing leases are checked before destructive actions.
+- Publish review asks whether to publish each unpublished linked story too or omit
+  its reference from the live copy. Omission preserves drafts and cannot bypass required
+  fields. Selected revisions publish together atomically, including scheduled and bulk
+  publication; existing live references continue using their published versions.
 - Schedule a reviewed locale checkpoint with an explicit timezone. Later edits remain
   drafts; a minute cron checks current permissions, schema, and URL conflicts before
   publication. Pending/failed schedules appear in the list and editor.

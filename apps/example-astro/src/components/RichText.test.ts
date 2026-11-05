@@ -1,7 +1,7 @@
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { expect, it } from 'vitest';
-import { RichText } from './RichText';
+import { RichText } from '@storypane/sdk/rich-text';
 
 it('renders formatted rich text safely and accepts legacy text and empty drafts', () => {
   const html = renderToStaticMarkup(

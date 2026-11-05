@@ -10,6 +10,9 @@ import {
   type StoryActionResult,
   type BulkStoryActionResult,
   type PublicationSchedule,
+  type PublicationReview,
+  type PublicationReference,
+  type PublicationReferenceChoice,
 } from '@storypane/core';
 import { createHash, randomUUID, randomBytes } from 'node:crypto';
 import { Pool, type PoolClient, type QueryResultRow } from 'pg';
@@ -3879,6 +3882,7 @@ export class StorypaneStore {
           storyId,
           localeId,
           command.payload.checkpointId,
+          command.payload.referenceChoices,
         );
         await this.cancelPendingSchedules(client, localeId);
       } else if (command.type === 'unpublishLocale') {
@@ -4088,14 +4092,236 @@ export class StorypaneStore {
       [localeId],
     );
   }
+  async reviewPublication(
+    actor: Actor,
+    storyId: string,
+    localeId: string,
+    checkpointId: string,
+  ): Promise<PublicationReview> {
+    return this.tx(
+      actor,
+      async (client) => {
+        await this.lockLocale(client, actor, storyId, localeId);
+        const checkpoint = await this.readCheckpoint(client, localeId, checkpointId);
+        if (
+          !projectSnapshot(await this.contentAccess(client, actor), checkpoint.snapshot).access
+            .publish
+        )
+          return { ...checkpoint, references: [] };
+        const { references } = await this.publicationPlan(client, actor, checkpoint);
+        return { ...checkpoint, references };
+      },
+      'content:read',
+    );
+  }
+
+  private async publicationPlan(
+    client: PoolClient,
+    actor: Actor,
+    root: CheckpointDetail,
+    choices?: PublicationReferenceChoice[],
+  ) {
+    const selected = new Map(choices?.map((choice) => [choice.localeId, choice]));
+    if (selected.size !== (choices?.length ?? 0))
+      throw new StorypaneError('invalid', 'Choose each linked locale once.');
+    const used = new Set<string>();
+    const checkpoints = new Map([[root.snapshot.locale.id, structuredClone(root)]]);
+    const references = new Map<string, PublicationReference>();
+    const existing = new Map<string, Json>();
+    const access = await this.contentAccess(client, actor);
+    await this.requirePublicationAccess(client, actor, root.snapshot);
+    // A bounded graph handles shared references and cycles without recursively publishing by implication.
+    for (const checkpoint of checkpoints.values()) {
+      const snapshot = checkpoint.snapshot;
+      for (const block of snapshot.blocks) {
+        const definition = snapshot.definitions.find(
+          (item) => item.versionId === block.schemaVersionId,
+        )!;
+        for (const field of definition.fields) {
+          const value = block.fields[field.name];
+          const ids =
+            field.type === 'link' &&
+            value &&
+            typeof value === 'object' &&
+            !Array.isArray(value) &&
+            value.type === 'story'
+              ? [value.storyId as string]
+              : (field.type === 'option' || field.type === 'options') &&
+                  field.source.type === 'stories'
+                ? ((Array.isArray(value) ? value : value ? [value] : []) as string[])
+                : [];
+          for (const storyId of new Set(ids)) {
+            const locales = (
+              await client.query(
+                `SELECT l.*,s.name AS story_name,s.folder_id,c.id AS checkpoint_id,p.checkpoint_id AS published_checkpoint_id,p.content AS published_content
+               FROM story_locales l JOIN stories s ON s.id=l.story_id
+               JOIN checkpoints c ON c.id=l.checkpoint_id
+               LEFT JOIN publications p ON p.id=l.published_version_id
+               WHERE s.id=$1 AND s.space_id=$2 AND s.deleted_at IS NULL AND l.slug IN ($3,'')
+               ORDER BY (l.slug=$3) DESC`,
+                [storyId, actor.spaceId, snapshot.locale.slug],
+              )
+            ).rows;
+            const target = locales.find((locale) => locale.published_version_id) ?? locales[0];
+            if (!target)
+              throw new StorypaneError(
+                'invalid',
+                'A linked story is unavailable. Remove the reference and review again.',
+              );
+            if (target.id === root.snapshot.locale.id) continue;
+            const choice = selected.get(target.id);
+            if (target.published_version_id && !choice) continue;
+            if (!access.locales.some((locale) => locale.id === target.id))
+              throw new StorypaneError('forbidden', 'A linked locale is outside your read access.');
+            used.add(target.id);
+            if (choices && !choice)
+              throw new StorypaneError(
+                'invalid',
+                `Choose whether to publish ${target.story_name} too or omit it from this publication.`,
+              );
+            let reference = references.get(target.id);
+            if (!reference) {
+              if (references.size >= 100)
+                throw new StorypaneError(
+                  'invalid',
+                  'Publish some linked stories separately before reviewing more than 100 unpublished references.',
+                );
+              const linked = await this.readCheckpoint(
+                client,
+                target.id,
+                choice?.checkpointId ?? target.checkpoint_id,
+              );
+              let canPublish = true;
+              try {
+                this.assertCompleteAccess(
+                  access,
+                  {
+                    ...linked.snapshot,
+                    story: { ...linked.snapshot.story, folderId: target.folder_id },
+                  },
+                  'content:publish',
+                );
+              } catch (error) {
+                if (!(error instanceof StorypaneError) || error.code !== 'forbidden') throw error;
+                canPublish = false;
+              }
+              reference = {
+                storyId,
+                storyName: target.story_name,
+                localeId: target.id,
+                localeName: target.name,
+                checkpointId: linked.id,
+                revision: linked.revision,
+                canPublish,
+                usages: [],
+              };
+              references.set(target.id, reference);
+              if ((!choices && canPublish) || choice?.action === 'publish') {
+                if (!canPublish)
+                  throw new StorypaneError(
+                    'forbidden',
+                    `You cannot publish ${target.story_name}. Omit it or ask a publisher to publish it first.`,
+                  );
+                if (target.published_version_id) {
+                  if (target.published_checkpoint_id !== linked.id)
+                    throw new StorypaneError(
+                      'stale_revision',
+                      `${target.story_name} was published since this review. Review again.`,
+                    );
+                  existing.set(target.id, target.published_content);
+                }
+                checkpoints.set(target.id, structuredClone(linked));
+              }
+            }
+            const current = block.fields[field.name];
+            const omitted = Array.isArray(current) ? current.filter((id) => id !== storyId) : null;
+            const canOmit = !validateFields(
+              definition,
+              { ...block.fields, [field.name]: omitted },
+              true,
+            ).some((issue) => issue.path === field.name);
+            reference.usages.push({
+              localeId: snapshot.locale.id,
+              storyName: snapshot.story.name,
+              field: field.label,
+              canOmit,
+            });
+            if (choice?.action === 'omit') block.fields[field.name] = omitted;
+          }
+        }
+      }
+      checkpoint.content = assembleContent(snapshot);
+    }
+    if (choices) {
+      if (choices.some((choice) => !used.has(choice.localeId)))
+        throw new StorypaneError(
+          'stale_revision',
+          'The linked stories changed. Review the publication again.',
+        );
+      const deployed = await this.deployedMigration(client, actor.spaceId);
+      for (const checkpoint of checkpoints.values()) {
+        if ((checkpoint.snapshot.migrationVersion ?? 0) !== deployed.version)
+          throw new StorypaneError(
+            'invalid',
+            `Restore ${checkpoint.snapshot.story.name} under the current schema before publishing it.`,
+          );
+        await this.validateSnapshot(client, actor, checkpoint.snapshot, true);
+        if (
+          existing.has(checkpoint.snapshot.locale.id) &&
+          canonical(checkpoint.content) !== canonical(existing.get(checkpoint.snapshot.locale.id))
+        )
+          throw new StorypaneError(
+            'stale_revision',
+            `${checkpoint.snapshot.story.name} has a different publication. Review again.`,
+          );
+      }
+    }
+    return {
+      checkpoints: [...checkpoints.values()].filter(
+        (checkpoint) => !existing.has(checkpoint.snapshot.locale.id),
+      ),
+      references: [...references.values()],
+    };
+  }
+
   private async publishCheckpointTx(
     client: PoolClient,
     actor: Actor,
     storyId: string,
     localeId: string,
     checkpointId: string,
+    referenceChoices: PublicationReferenceChoice[] = [],
   ): Promise<string> {
-    const historical = await this.readCheckpoint(client, localeId, checkpointId);
+    const root = await this.readCheckpoint(client, localeId, checkpointId);
+    const { checkpoints } = await this.publicationPlan(client, actor, root, referenceChoices);
+    let rootPublicationId = '';
+    for (const checkpoint of checkpoints) {
+      const target = checkpoint.snapshot;
+      await this.lockLocale(client, actor, target.story.id, target.locale.id);
+      const publicationId = await this.publishSnapshotTx(client, actor, checkpoint);
+      if (target.locale.id === localeId) rootPublicationId = publicationId;
+      else {
+        await this.cancelPendingSchedules(client, target.locale.id);
+        await this.checkpoint(
+          client,
+          actor,
+          target.story.id,
+          target.locale.id,
+          'Published with linked story',
+        );
+      }
+    }
+    return rootPublicationId;
+  }
+
+  private async publishSnapshotTx(
+    client: PoolClient,
+    actor: Actor,
+    historical: CheckpointDetail,
+  ): Promise<string> {
+    const storyId = historical.snapshot.story.id,
+      localeId = historical.snapshot.locale.id,
+      checkpointId = historical.id;
     await this.requirePublicationAccess(client, actor, historical.snapshot);
     const deployed = await this.deployedMigration(client, actor.spaceId);
     if ((historical.snapshot.migrationVersion ?? 0) !== deployed.version)
@@ -4573,6 +4799,7 @@ export class StorypaneStore {
                     storyId,
                     locale.id,
                     target.checkpointId,
+                    target.referenceChoices,
                   );
                   await this.cancelPendingSchedules(client, locale.id);
                 } else
@@ -4706,11 +4933,11 @@ export class StorypaneStore {
                 'invalid',
                 'Review a checkpoint under the deployed schema before scheduling.',
               );
-            await this.validateSnapshot(client, actor, checkpoint.snapshot, true);
+            await this.publicationPlan(client, actor, checkpoint, input.referenceChoices ?? []);
             await this.cancelPendingSchedules(client, localeId);
             const row = (
               await client.query(
-                'INSERT INTO publication_schedules(space_id,story_id,locale_id,checkpoint_id,schema_version,creator_id,due_at,timezone,next_attempt_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$7) RETURNING *',
+                'INSERT INTO publication_schedules(space_id,story_id,locale_id,checkpoint_id,schema_version,creator_id,due_at,timezone,next_attempt_at,reference_choices) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$7,$9) RETURNING *',
                 [
                   actor.spaceId,
                   storyId,
@@ -4720,6 +4947,7 @@ export class StorypaneStore {
                   actor.userId,
                   input.dueAt,
                   input.timezone,
+                  JSON.stringify(input.referenceChoices ?? []),
                 ],
               )
             ).rows[0];
@@ -4841,6 +5069,7 @@ export class StorypaneStore {
             row.story_id,
             row.locale_id,
             row.checkpoint_id,
+            row.reference_choices,
           );
           await this.checkpoint(
             client,
@@ -4949,6 +5178,7 @@ export class StorypaneStore {
       z
         .object({
           source: optionSourceSchema,
+          locale: z.string().max(100).optional(),
           query: z.string().trim().max(200).optional(),
           values: z.array(z.string().max(500)).max(200).optional(),
           cursor: z
@@ -4996,8 +5226,29 @@ export class StorypaneStore {
               : [...new Set(access.locales.map((locale) => locale.storyId))],
           ],
         );
+        const items = result.rows.slice(0, limit);
+        const publications = await client.query(
+          `SELECT DISTINCT ON (l.story_id) l.story_id,
+            CASE WHEN l.id=ANY($3::uuid[]) THEN jsonb_build_object(
+              'status',CASE WHEN p.id IS NULL THEN 'draft' WHEN ${pendingLocaleSql} THEN 'changed' ELSE 'published' END,
+              'localeName',l.name,'localeSlug',l.slug) END AS publication
+           FROM story_locales l LEFT JOIN checkpoints c ON c.id=l.checkpoint_id
+           LEFT JOIN publications p ON p.id=l.published_version_id
+           WHERE l.story_id=ANY($1::uuid[]) AND l.slug IN ($2,'')
+           ORDER BY l.story_id,(p.id IS NOT NULL) DESC,(l.slug=$2) DESC`,
+          [
+            items.map((item) => item.value),
+            input.locale ?? '',
+            access.locales.map((locale) => locale.id),
+          ],
+        );
         return {
-          items: result.rows.slice(0, limit),
+          items: items.map((item) => {
+            const publication = publications.rows.find(
+              (row) => row.story_id === item.value,
+            )?.publication;
+            return publication ? { ...item, publication } : item;
+          }),
           ...(result.rows.length > limit ? { nextCursor: String(start + limit) } : {}),
         };
       }

@@ -6,10 +6,13 @@ import {
   serializeBlockClipboard,
 } from '@storypane/core';
 import { setStoryLocation, spaceUrl } from '../../lib/space-url';
+import { PublicationReferences, publicationSelection } from './publication-references';
 
 import { useCallback, useEffect, useRef, useState, type DragEvent } from 'react';
 import {
+  CalendarClock,
   Check,
+  ChevronDown,
   ChevronRight,
   Clock3,
   ClipboardPaste,
@@ -21,6 +24,7 @@ import {
   Layers,
   LockKeyhole,
   Monitor,
+  MoreHorizontal,
   Plus,
   RotateCcw,
   Search,
@@ -34,7 +38,8 @@ import type {
   DeliverySettings,
   Datasource,
   Checkpoint,
-  CheckpointDetail,
+  PublicationReview,
+  PublicationReferenceChoice,
   FieldDefinition,
   FieldIssue,
   LocaleSnapshot,
@@ -48,6 +53,7 @@ import { PublicationStatus } from '../../components/publication-status';
 import { BlockEditorAvatar, EditorAvatars } from '../../components/editor-avatars';
 import { usePageEditors } from './use-page-editors';
 import { PageId } from '../../components/page-id';
+import { ActionDropdown } from '../../components/action-dropdown';
 import type { CMSSession } from '../../components/cms-app';
 import { api, ApiError, dateLabel, errorMessage, jsonRequest } from './api';
 import { FieldInput } from './field-input';
@@ -198,7 +204,7 @@ export function StoryWorkspace({
   }
   async function manageLocales() {
     if (!switching.current && (!guard.current || (await guard.current())))
-      window.location.assign(spaceUrl('/?view=settings'));
+      window.location.assign(spaceUrl('/?view=settings&section=locales'));
   }
   return (
     <>
@@ -330,7 +336,8 @@ function LocaleEditor({
   const actionStories = useRef([story]);
   const [scheduleRefresh, setScheduleRefresh] = useState(0);
   const [scheduleOpen, setScheduleOpen] = useState(false);
-  const [review, setReview] = useState<CheckpointDetail | null>(null);
+  const [review, setReview] = useState<PublicationReview | null>(null);
+  const [referenceChoices, setReferenceChoices] = useState<PublicationReferenceChoice[]>([]);
   const [reviewError, setReviewError] = useState<string | null>(null);
   const [issues, setIssues] = useState<FieldIssue[]>([]);
   const [published, setPublished] = useState<string | null>(null);
@@ -415,6 +422,13 @@ function LocaleEditor({
     : pending > 0
       ? 'changed'
       : (snapshot.publicationStatus ?? 'changed');
+  const referenceSelection = publicationSelection(review, referenceChoices);
+  const reviewPublishDisabled =
+    !referenceSelection.complete ||
+    !can(session.space, 'content:publish') ||
+    review?.snapshot.access?.publish === false ||
+    busy ||
+    editor.connection !== 'connected';
   const ownsLease = editor.canEdit;
   const disabled = !can(session.space, 'content:edit') || !ownsLease || busy;
   const defaultLocale = locales.find((locale) => locale.slug === '');
@@ -539,7 +553,8 @@ function LocaleEditor({
       }
       if (!checkpointId) throw new Error('There is no saved checkpoint to review yet.');
       setScheduleOpen(false);
-      setReview(await api<CheckpointDetail>(`${editor.base}/checkpoints/${checkpointId}`));
+      setReferenceChoices([]);
+      setReview(await api<PublicationReview>(`${editor.base}/publication-review/${checkpointId}`));
       setHistoryOpen(false);
     } catch (error) {
       editor.setError(errorMessage(error));
@@ -555,7 +570,7 @@ function LocaleEditor({
     try {
       await editor.runCommand({
         type: 'publishCheckpoint',
-        payload: { checkpointId: review.id },
+        payload: { checkpointId: review.id, referenceChoices: referenceSelection.choices },
       });
       setPublished(`Revision ${review.revision} published`);
       setScheduleRefresh((value) => value + 1);
@@ -830,85 +845,112 @@ function LocaleEditor({
         {reorderAnnouncement}
       </p>
       <div className="story-heading">
-        <div>
+        <div className="story-identity">
           <div className="story-title-status">
             <h1>{snapshot.story.name}</h1>
             <PublicationStatus status={publicationStatus} localeName={snapshot.locale.name} />
           </div>
-          <div className="entity-subtitle mono">
-            /{snapshot.locale.slug ? `${snapshot.locale.slug}/` : ''}
-            {snapshot.locale.urlSlug}
+          <div className="story-metadata">
+            <span className="story-path mono">
+              /{snapshot.locale.slug ? `${snapshot.locale.slug}/` : ''}
+              {snapshot.locale.urlSlug}
+            </span>
+            <PageId id={snapshot.story.id} name={snapshot.story.name} />
           </div>
-          <PageId id={snapshot.story.id} name={snapshot.story.name} />
         </div>
-        <div className="button-group">
-          <EditorAvatars editors={currentEditors} currentUserId={session.user.id} />
-          <span className="save-status" data-state={state} role="status" aria-live="polite">
-            <span className="status-dot" />
-            {label}
-          </span>
-          {can(session.space, 'content:edit') && (
+        <div className="story-toolbar">
+          <div className="story-actions">
             <Button
+              variant="ghost"
+              className="icon-button"
+              aria-label="History"
+              title="Story history"
+              onClick={() => void openHistory()}
               disabled={busy}
-              onClick={() =>
-                void editor
-                  .flush()
-                  .then((saved) => {
-                    if (saved) setStoryAction('delete');
-                  })
-                  .catch((error) => editor.setError(errorMessage(error)))
-              }
             >
-              Delete story
+              <Clock3 aria-hidden="true" />
             </Button>
-          )}
-          {snapshot.locale.publishedVersionId &&
-            can(session.space, 'content:publish') &&
-            snapshot.access?.publish !== false && (
+            {!snapshot.story.formOnly && (
               <Button
-                disabled={busy}
-                onClick={() =>
-                  void editor
-                    .flush()
-                    .then((saved) => {
-                      if (saved) setStoryAction('unpublish');
-                    })
-                    .catch((error) => editor.setError(errorMessage(error)))
+                aria-pressed={previewOpen}
+                onClick={onPreview}
+                disabled={snapshot.access?.preview === false}
+                title={
+                  snapshot.access?.preview === false
+                    ? 'Preview requires read access to every field.'
+                    : undefined
                 }
               >
-                Unpublish locale
+                <Monitor aria-hidden="true" />
+                {previewOpen ? 'Hide preview' : 'Preview'}
               </Button>
             )}
-          <Button onClick={() => void openHistory()} disabled={busy}>
-            <Clock3 /> History
-          </Button>
-          {!snapshot.story.formOnly && (
             <Button
-              aria-pressed={previewOpen}
-              onClick={onPreview}
-              disabled={snapshot.access?.preview === false}
-              title={
-                snapshot.access?.preview === false
-                  ? 'Preview requires read access to every field.'
-                  : undefined
+              variant="primary"
+              onClick={() => void openReview()}
+              disabled={
+                !can(session.space, 'content:publish') ||
+                snapshot.access?.publish === false ||
+                busy ||
+                editor.connection !== 'connected'
               }
             >
-              <Monitor />
-              {previewOpen ? 'Hide preview' : 'Preview'}
+              <Upload aria-hidden="true" /> Review & publish
             </Button>
-          )}
-          <Button
-            variant="primary"
-            onClick={() => void openReview()}
-            disabled={
-              !can(session.space, 'content:publish') ||
-              snapshot.access?.publish === false ||
-              busy ||
-              editor.connection !== 'connected'
-            }
-          >
-            <Upload /> Review & publish
-          </Button>
+            {(can(session.space, 'content:edit') ||
+              (snapshot.locale.publishedVersionId &&
+                can(session.space, 'content:publish') &&
+                snapshot.access?.publish !== false)) && (
+              <ActionDropdown
+                label="Story actions"
+                icon={<MoreHorizontal aria-hidden="true" />}
+                disabled={busy}
+              >
+                {snapshot.locale.publishedVersionId &&
+                  can(session.space, 'content:publish') &&
+                  snapshot.access?.publish !== false && (
+                    <Button
+                      variant="ghost"
+                      disabled={busy}
+                      onClick={() =>
+                        void editor
+                          .flush()
+                          .then((saved) => {
+                            if (saved) setStoryAction('unpublish');
+                          })
+                          .catch((error) => editor.setError(errorMessage(error)))
+                      }
+                    >
+                      <RotateCcw aria-hidden="true" /> Unpublish locale
+                    </Button>
+                  )}
+                {can(session.space, 'content:edit') && (
+                  <Button
+                    variant="ghost"
+                    className="action-dropdown-danger"
+                    disabled={busy}
+                    onClick={() =>
+                      void editor
+                        .flush()
+                        .then((saved) => {
+                          if (saved) setStoryAction('delete');
+                        })
+                        .catch((error) => editor.setError(errorMessage(error)))
+                    }
+                  >
+                    <Trash2 aria-hidden="true" /> Delete story
+                  </Button>
+                )}
+              </ActionDropdown>
+            )}
+          </div>
+          <div className="story-presence">
+            <EditorAvatars editors={currentEditors} currentUserId={session.user.id} />
+            <span className="save-status" data-state={state} role="status" aria-live="polite">
+              <span className="status-dot" />
+              {label}
+            </span>
+          </div>
         </div>
       </div>
       {storyAction && (
@@ -941,7 +983,7 @@ function LocaleEditor({
         onReview={(id) => void openReview(id)}
       />
       <div
-        className={`publication-note${publicationStatus === 'published' ? ' publication-note--live' : ''}`}
+        className={`publication-note story-publication-note${publicationStatus === 'published' ? ' publication-note--live' : ''}`}
         role="status"
       >
         {publicationStatus === 'draft' ? (
@@ -1223,7 +1265,7 @@ function LocaleEditor({
                         disabled={
                           snapshot.access?.blocks[block.id]?.fields[field.name]?.edit === false
                         }
-                        style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}
+                        style={{ border: 0, padding: 0, minWidth: 0 }}
                       >
                         <div className="field-label">
                           {field.label}
@@ -1355,6 +1397,7 @@ function LocaleEditor({
                     ) : (
                       <FieldInput
                         key={`${block.id}:${field.name}`}
+                        referenceRefreshKey={snapshot.locale.publishedVersionId ?? ''}
                         field={field}
                         value={fields[field.name]}
                         disabled={
@@ -1750,6 +1793,12 @@ function LocaleEditor({
                 </li>
               ))}
             </ul>
+            <PublicationReferences
+              review={review}
+              choices={referenceChoices}
+              onChange={setReferenceChoices}
+              disabled={busy || scheduleOpen}
+            />
             <details open>
               <summary className="small">Review saved content</summary>
               <pre className="read-only-json">{JSON.stringify(review.content, null, 2)}</pre>
@@ -1764,42 +1813,49 @@ function LocaleEditor({
                 ))}
               </ul>
             )}
-            {can(session.space, 'content:publish') && (
-              <>
-                <Button disabled={busy} onClick={() => setScheduleOpen((value) => !value)}>
-                  {scheduleOpen ? 'Hide scheduling' : 'Schedule this revision'}
+            {scheduleOpen ? (
+              <ScheduleForm
+                key={review.id}
+                base={editor.base}
+                checkpoint={review}
+                referenceChoices={referenceSelection.choices}
+                onCancel={() => setScheduleOpen(false)}
+                onScheduled={() => {
+                  setScheduleRefresh((value) => value + 1);
+                  setReview(null);
+                }}
+              />
+            ) : (
+              <div className="dialog-actions publish-review-actions">
+                <Button disabled={busy} onClick={() => setReview(null)}>
+                  Keep editing
                 </Button>
-                {scheduleOpen && (
-                  <ScheduleForm
-                    key={review.id}
-                    base={editor.base}
-                    checkpoint={review}
-                    onScheduled={() => {
-                      setScheduleRefresh((value) => value + 1);
-                      setReview(null);
-                    }}
-                  />
-                )}
-              </>
+                <div className="publish-split-button" role="group" aria-label="Publish revision">
+                  <Button
+                    variant="primary"
+                    disabled={reviewPublishDisabled}
+                    onClick={() => void publish()}
+                  >
+                    <Upload aria-hidden="true" />
+                    {busy ? 'Publishing…' : `Publish revision ${review.revision}`}
+                  </Button>
+                  <ActionDropdown
+                    label="More publishing options"
+                    icon={<ChevronDown aria-hidden="true" />}
+                    primary
+                    disabled={reviewPublishDisabled}
+                  >
+                    <Button
+                      variant="ghost"
+                      disabled={reviewPublishDisabled}
+                      onClick={() => setScheduleOpen(true)}
+                    >
+                      <CalendarClock aria-hidden="true" /> Schedule this revision
+                    </Button>
+                  </ActionDropdown>
+                </div>
+              </div>
             )}
-            <div className="dialog-actions">
-              <Button disabled={busy} onClick={() => setReview(null)}>
-                Keep editing
-              </Button>
-              <Button
-                variant="primary"
-                disabled={
-                  !can(session.space, 'content:publish') ||
-                  review.snapshot.access?.publish === false ||
-                  busy ||
-                  editor.connection !== 'connected'
-                }
-                onClick={() => void publish()}
-              >
-                <Upload />
-                {busy ? 'Publishing…' : `Publish revision ${review.revision}`}
-              </Button>
-            </div>
           </>
         )}
       </Modal>

@@ -305,7 +305,7 @@ if (existsSync(envPath)) {
   });
   writeFileSync(
     envPath,
-    `STORYPANE_URL=${url}\nSTORYPANE_SPACE_ID=${spaceId}\nSTORYPANE_DELIVERY_TOKEN=${published.token}\nSTORYPANE_PREVIEW_TOKEN=${schema.token}\nPUBLIC_STORYPANE_PREVIEW_PARAMETER=storypane_preview\nPUBLIC_STORYPANE_PREVIEW=false\n`,
+    `STORYPANE_URL=${url}\nSTORYPANE_SPACE_ID=${spaceId}\nSTORYPANE_DELIVERY_TOKEN=${published.token}\nSTORYPANE_PREVIEW_TOKEN=${schema.token}\n`,
     { mode: 0o600, flag: 'wx' },
   );
   console.log(

@@ -174,37 +174,39 @@ live previews. It does not inject CMS strings as HTML.
 
 ## Astro
 
-Wrap your React block renderer with `useStorypaneStory(initial, options)` in a
-`Content` component. Use it as an island with `@astrojs/react`, and hydrate it even
-on static pages:
+Render publications at build time with `@astrojs/react`, without a hydration
+directive. The example's app-owned `publishedPages` helper fetches every configured
+locale through `listAllStories`, validates routes, and supplies the selected story
+and its references:
 
 ```astro
 ---
-import { createStorypaneClient } from '@storypane/sdk';
-import { storypaneMigrationVersion } from '../types/storypane';
-import { Content } from '../components/Content';
-const storypane = createStorypaneClient({
-  url: import.meta.env.STORYPANE_URL,
-  spaceId: import.meta.env.STORYPANE_SPACE_ID,
-  token: import.meta.env.STORYPANE_DELIVERY_TOKEN,
-  migrationVersion: storypaneMigrationVersion,
-});
-const initial = await storypane.getStory({ slug: 'home', locale: '' });
+import { Content } from '../components/content';
+import { publishedPages } from '../lib/cms';
+export const getStaticPaths = publishedPages;
+const { story, references } = Astro.props;
 ---
 
-<Content
-  client:load
-  initial={initial}
-  cmsUrl={import.meta.env.STORYPANE_URL}
-  spaceId={import.meta.env.STORYPANE_SPACE_ID}
-/>
+<Content block={story.content} references={references} />
 ```
 
-Use `import.meta.env.PUBLIC_STORYPANE_PREVIEW` for an Astro browser env flag. Astro
-preview/draft state is app-specific; pass the boolean from your authenticated
-server flow into `mode.draft`. Static pages cannot read per-visitor cookies at
-build time, so use the browser detector for them.
-[Astro client hydration directives](https://docs.astro.build/en/reference/directives-reference/#client-directives).
+Keep the delivery token in server-only environment variables. Public pages have
+no draft subscription. Put the interactive preview on a separate `/preview` route:
+
+```astro
+---
+import PreviewShell from '../components/PreviewShell';
+import { cmsUrl, spaceId } from '../lib/cms';
+---
+
+<PreviewShell client:load cmsUrl={cmsUrl} spaceId={spaceId} />
+```
+
+The example's [`PreviewShell`](../../apps/example-astro/src/components/PreviewShell.tsx)
+uses `useStorypanePreview` with the URL's `slug` and `locale`, clears stale content
+on navigation, and renders the references supplied by the authenticated editor.
+It also previews stories that have never been published. Configure the CMS preview
+URL as `/preview?slug={slug}&locale={locale}`; no public environment flag is needed.
 
 Without React, use a bundled Astro `<script>` and render the subscribed content:
 

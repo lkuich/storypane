@@ -16,7 +16,7 @@ it('checks TypeScript, React hooks, Astro templates, CLI JavaScript and Next.js 
     ['tests/auth.ts', 'const unused = 1;', '@typescript-eslint/no-unused-vars'],
     ['packages/sdk/bin/storypane.mjs', 'missingFunction();', 'no-undef'],
     [
-      'apps/example-astro/src/components/blocks.tsx',
+      'apps/example-astro/src/components/blocks/hero.tsx',
       'const unused = 1;',
       '@typescript-eslint/no-unused-vars',
     ],

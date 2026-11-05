@@ -15,5 +15,8 @@ export function deliveryClient() {
     token: import.meta.env.STORYPANE_DELIVERY_TOKEN,
   });
 }
-export const publishedStories = () => fetchPublishedStories(deliveryClient());
-export const publishedPages = async () => pageEntries(await publishedStories());
+export const publishedStories = async () => (await fetchPublishedStories(deliveryClient())).stories;
+export const publishedPages = async () => {
+  const { stories, locales } = await fetchPublishedStories(deliveryClient());
+  return pageEntries(stories, locales);
+};

@@ -44,8 +44,10 @@ export function PublicMediaSettings({
     return () => onBusy(false);
   }, [busy, onBusy]);
   return (
-    <section aria-labelledby="public-media-heading">
-      <hr />
+    <section
+      className="settings-subsection public-media-settings"
+      aria-labelledby="public-media-heading"
+    >
       <h3 id="public-media-heading">Public media delivery</h3>
       <p className="field-hint">
         Allow websites to use media URLs without a token. Only assets referenced by published

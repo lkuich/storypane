@@ -247,9 +247,8 @@ export function DeliverySettings({
               onBusy={setMediaBusy}
             />
             {canManage && (
-              <>
-                <hr />
-                <h3>
+              <section className="settings-subsection" aria-labelledby="access-tokens-heading">
+                <h3 id="access-tokens-heading">
                   <KeyRound size={16} aria-hidden="true" /> Access tokens
                 </h3>
                 <p className="small">
@@ -347,7 +346,7 @@ export function DeliverySettings({
                     </li>
                   ))}
                 </ul>
-              </>
+              </section>
             )}
           </>
         )}

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { ArrowDownWideNarrow, Search, SlidersHorizontal, X } from 'lucide-react';
+import { ArrowDownWideNarrow, Search, SlidersHorizontal, Trash2, Undo2, X } from 'lucide-react';
 import type { OptionItem, StorySummary } from '@storypane/core';
 import { Button, Field } from '@storypane/ui';
 import { OptionInput } from '../editor/option-input';
@@ -25,12 +25,20 @@ export function ContentFilterBar({
   stories,
   count,
   loading,
+  deleted,
+  onToggleDeleted,
+  scheduleFilter,
+  onScheduleChange,
 }: {
   filters: ContentFilters;
   onChange: (next: ContentFilters) => void;
   stories: StorySummary[];
   count: number;
   loading: boolean;
+  deleted: boolean;
+  onToggleDeleted: () => void;
+  scheduleFilter: string;
+  onScheduleChange: (value: string) => void;
 }) {
   const [open, setOpen] = useState(false);
   const authors = Array.from(
@@ -73,6 +81,7 @@ export function ContentFilterBar({
     { key: 'contentType', label: 'Content type', placeholder: 'All content types', items: types },
   ];
   const active = groups.filter((group) => filters[group.key]);
+  const activeCount = active.length + Number(!!scheduleFilter);
   const hasSearch = !!filters.query.trim();
   const invalidRange =
     filters.modified === 'custom' && filters.from && filters.to && filters.from > filters.to;
@@ -99,7 +108,7 @@ export function ContentFilterBar({
           onClick={() => setOpen((value) => !value)}
         >
           <SlidersHorizontal aria-hidden="true" /> Filters
-          {active.length > 0 && <span className="filter-count">{active.length}</span>}
+          {activeCount > 0 && <span className="filter-count">{activeCount}</span>}
         </Button>
         <label className="content-sort">
           <ArrowDownWideNarrow aria-hidden="true" />
@@ -131,6 +140,21 @@ export function ContentFilterBar({
               />
             </Field>
           ))}
+          {!deleted && (
+            <Field label="Schedule" htmlFor="content-filter-schedule">
+              <select
+                id="content-filter-schedule"
+                aria-label="Filter schedules"
+                value={scheduleFilter}
+                disabled={loading}
+                onChange={(event) => onScheduleChange(event.target.value)}
+              >
+                <option value="">All schedules</option>
+                <option value="pending">Scheduled</option>
+                <option value="failed">Failed schedules</option>
+              </select>
+            </Field>
+          )}
           {filters.modified === 'custom' && (
             <div className="content-date-range">
               <Field label="From" htmlFor="content-filter-from">
@@ -166,9 +190,9 @@ export function ContentFilterBar({
         <span className="small muted" role="status">
           {loading
             ? 'Loading stories…'
-            : `${count} of ${stories.length} ${stories.length === 1 ? 'story' : 'stories'}`}
+            : `${count} of ${stories.length} ${deleted ? 'deleted ' : ''}${stories.length === 1 ? 'story' : 'stories'}`}
         </span>
-        {(active.length > 0 || hasSearch) && (
+        {(activeCount > 0 || hasSearch) && (
           <div className="content-filter-chips">
             {hasSearch && (
               <button
@@ -202,15 +226,38 @@ export function ContentFilterBar({
                 </button>
               );
             })}
+            {scheduleFilter && (
+              <button
+                type="button"
+                className="content-filter-chip"
+                aria-label="Remove schedule filter"
+                onClick={() => onScheduleChange('')}
+              >
+                <span>{scheduleFilter === 'pending' ? 'Scheduled' : 'Failed schedules'}</span>
+                <X aria-hidden="true" />
+              </button>
+            )}
             <Button
               variant="ghost"
               className="button--small"
-              onClick={() => onChange({ ...defaultFilters, sort: filters.sort })}
+              onClick={() => {
+                onChange({ ...defaultFilters, sort: filters.sort });
+                onScheduleChange('');
+              }}
             >
               Clear all
             </Button>
           </div>
         )}
+        <Button
+          variant="ghost"
+          className="button--small content-trash-toggle"
+          aria-pressed={deleted}
+          onClick={onToggleDeleted}
+        >
+          {deleted ? <Undo2 aria-hidden="true" /> : <Trash2 aria-hidden="true" />}
+          {deleted ? 'Show active stories' : 'Deleted stories'}
+        </Button>
       </div>
     </section>
   );
