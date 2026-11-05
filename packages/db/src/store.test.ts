@@ -210,6 +210,54 @@ describe('Postgres collaboration and immutable history', () => {
       enabled: false,
     });
   });
+  it('validates rich-text image ownership and includes images in draft and published asset usage', async () => {
+    const definition = await store.createDefinition(alice, {
+      name: 'article',
+      displayName: 'Article',
+      kind: 'content-type',
+      fields: [{ name: 'body', label: 'Body', type: 'text', format: 'richtext' }],
+    });
+    await deployActive();
+    const state = await store.createStory(alice, {
+      name: 'Article',
+      slug: 'article',
+      definitionId: definition.id,
+    });
+    const root = state.blocks.find((b) => !b.parentId)!;
+    const assetId = randomUUID();
+    const fields = {
+      body: {
+        type: 'doc',
+        content: [
+          { type: 'image', attrs: { assetId, src: 'https://cms.example.com/image', alt: 'Image' } },
+        ],
+      },
+    };
+    await expect(save(alice, state, root, fields)).rejects.toMatchObject({
+      message: 'Asset must belong to this space',
+    });
+    await pool.query(
+      "INSERT INTO assets(id,space_id,object_key,filename,mime_type,byte_size,title) VALUES($1::uuid,$2,$1::text,'image.png','image/png',10,'Image')",
+      [assetId, alice.spaceId],
+    );
+    const saved = await save(alice, state, root, fields);
+    expect((await store.listAssetUsage(alice, assetId)).items.map((item) => item.state)).toEqual([
+      'draft',
+    ]);
+    await run(alice, saved.snapshot, {
+      ...commandBase(),
+      type: 'publishCheckpoint',
+      payload: { checkpointId: saved.checkpointId },
+    });
+    expect((await store.listAssetUsage(alice, assetId)).items.map((item) => item.state)).toEqual([
+      'draft',
+      'published',
+    ]);
+    const token = await store.createDeliveryToken(alice, { name: 'Images', scope: 'published' });
+    await expect(
+      store.authorizePublishedAsset(token.token, alice.spaceId, assetId),
+    ).resolves.toBeUndefined();
+  });
   it('lists typed draft and current publication asset usage with stable IDs and bounded pagination', async () => {
     const assetId = randomUUID();
     await pool.query(
@@ -870,6 +918,194 @@ describe('Postgres collaboration and immutable history', () => {
     expect((await store.listSpaceLocales(alice)).map((locale) => locale.id)).not.toContain(
       unused.id,
     );
+  });
+  it('reviews and removes only the selected locale, including publications, schedules, and history', async () => {
+    await pool.query(
+      "INSERT INTO webhook_endpoints(space_id,name,url,events,encrypted_secret) VALUES($1,'Test','https://example.com/hook',ARRAY['story.unpublished'],'test')",
+      [alice.spaceId],
+    );
+    const configured = await store.createSpaceLocale(alice, { name: 'French', slug: 'fr' });
+    const french = await store.createLocale(alice, snapshot.story.id, {
+      spaceLocaleId: configured.id,
+    });
+    const before = await store.getSnapshot(alice, snapshot.story.id, snapshot.locale.id);
+    const published = await run(alice, french, {
+      ...commandBase(),
+      type: 'publishCheckpoint',
+      payload: { checkpointId: french.checkpointId! },
+    });
+    await store.schedulePublication(alice, french.story.id, french.locale.id, {
+      requestId: randomUUID(),
+      checkpointId: french.checkpointId!,
+      localTime: new Date(Date.now() + 3600000).toISOString().slice(0, 16),
+      timezone: 'UTC',
+      dueAt: new Date(Date.now() + 3600000).toISOString().slice(0, 16) + ':00.000Z',
+      expectedScheduleId: null,
+      expectedRevision: null,
+    });
+    const review = await store.reviewSpaceLocaleDeletion(alice, configured.id);
+    expect(review.stories).toEqual([
+      {
+        id: snapshot.story.id,
+        name: snapshot.story.name,
+        localeId: french.locale.id,
+        urlSlug: french.locale.urlSlug,
+        deleted: false,
+        published: true,
+        scheduled: true,
+      },
+    ]);
+    await expect(
+      store.deleteSpaceLocale(alice, configured.id, { reviewToken: review.token }),
+    ).rejects.toMatchObject({ code: 'invalid' });
+    await expect(
+      store.deleteSpaceLocale(alice, configured.id, { deleteContent: true }),
+    ).rejects.toMatchObject({ code: 'invalid' });
+    await store.deleteSpaceLocale(alice, configured.id, {
+      deleteContent: true,
+      reviewToken: review.token,
+    });
+    expect((await store.getSnapshot(alice, snapshot.story.id, snapshot.locale.id)).blocks).toEqual(
+      before.blocks,
+    );
+    expect(await store.listLocales(alice, snapshot.story.id)).toHaveLength(1);
+    expect((await store.listSpaceLocales(alice)).map((locale) => locale.id)).not.toContain(
+      configured.id,
+    );
+    for (const table of [
+      'story_locales',
+      'block_drafts',
+      'checkpoints',
+      'publications',
+      'mutation_receipts',
+      'publication_schedules',
+    ])
+      expect(
+        (
+          await pool.query(
+            `SELECT 1 FROM ${table} WHERE ${table === 'story_locales' ? 'id' : 'locale_id'}=$1`,
+            [french.locale.id],
+          )
+        ).rowCount,
+      ).toBe(0);
+    expect(
+      (
+        await pool.query(
+          "SELECT 1 FROM webhook_events WHERE space_id=$1 AND event_type='story.unpublished' AND payload::jsonb->'data'->>'publicationId'=$2",
+          [alice.spaceId, published.publicationId],
+        )
+      ).rowCount,
+    ).toBe(1);
+  });
+  it('rejects stale locale deletion reviews after content is added, edited, published, or scheduled', async () => {
+    const configured = await store.createSpaceLocale(alice, { name: 'French', slug: 'fr' });
+    let review = await store.reviewSpaceLocaleDeletion(alice, configured.id);
+    const remove = () =>
+      store.deleteSpaceLocale(alice, configured.id, {
+        deleteContent: true,
+        reviewToken: review.token,
+      });
+    let french = await store.createLocale(alice, snapshot.story.id, {
+      spaceLocaleId: configured.id,
+    });
+    await expect(remove()).rejects.toMatchObject({ code: 'stale_revision' });
+    review = await store.reviewSpaceLocaleDeletion(alice, configured.id);
+    const root = french.blocks[0];
+    french = (await save(alice, french, root, { ...root.fields, title: 'Bonjour' })).snapshot;
+    await expect(remove()).rejects.toMatchObject({ code: 'stale_revision' });
+    review = await store.reviewSpaceLocaleDeletion(alice, configured.id);
+    await run(alice, french, {
+      ...commandBase(),
+      type: 'publishCheckpoint',
+      payload: { checkpointId: french.checkpointId! },
+    });
+    await expect(remove()).rejects.toMatchObject({ code: 'stale_revision' });
+    review = await store.reviewSpaceLocaleDeletion(alice, configured.id);
+    await store.schedulePublication(alice, french.story.id, french.locale.id, {
+      requestId: randomUUID(),
+      checkpointId: french.checkpointId!,
+      localTime: new Date(Date.now() + 3600000).toISOString().slice(0, 16),
+      timezone: 'UTC',
+      dueAt: new Date(Date.now() + 3600000).toISOString().slice(0, 16) + ':00.000Z',
+      expectedScheduleId: null,
+      expectedRevision: null,
+    });
+    await expect(remove()).rejects.toMatchObject({ code: 'stale_revision' });
+    expect(await store.listLocales(alice, snapshot.story.id)).toHaveLength(2);
+  });
+  it('protects locale content permissions, other spaces, Default, and active editors during deletion', async () => {
+    const configured = await store.createSpaceLocale(alice, { name: 'French', slug: 'fr' });
+    const french = await store.createLocale(alice, snapshot.story.id, {
+      spaceLocaleId: configured.id,
+    });
+    const review = await store.reviewSpaceLocaleDeletion(alice, configured.id);
+    const input = { deleteContent: true, reviewToken: review.token };
+    await expect(store.reviewSpaceLocaleDeletion(bob, configured.id)).rejects.toMatchObject({
+      code: 'forbidden',
+    });
+    await store.saveSpaceRole(alice, { name: 'Settings only', permissions: ['settings:write'] });
+    const role = (await store.listSpaceRoles(alice)).find((role) => role.name === 'Settings only')!;
+    await store.updateSpaceMember(alice, 'bob', { role: role.id });
+    await expect(store.deleteSpaceLocale(bob, configured.id, input)).rejects.toMatchObject({
+      code: 'forbidden',
+    });
+    await store.saveSpaceRole(
+      alice,
+      { name: role.name, permissions: ['settings:write', 'content:edit'] },
+      role.id,
+    );
+    await run(alice, french, {
+      ...commandBase(),
+      type: 'publishCheckpoint',
+      payload: { checkpointId: french.checkpointId! },
+    });
+    const publishedReview = await store.reviewSpaceLocaleDeletion(alice, configured.id);
+    await expect(
+      store.deleteSpaceLocale(bob, configured.id, { ...input, reviewToken: publishedReview.token }),
+    ).rejects.toMatchObject({ code: 'forbidden' });
+    await lease(bob, french, french.blocks[0]);
+    await expect(
+      store.deleteSpaceLocale(alice, configured.id, {
+        ...input,
+        reviewToken: publishedReview.token,
+      }),
+    ).rejects.toMatchObject({ code: 'locked' });
+    const other = await store.createSpace(alice, { name: 'Other space' });
+    await expect(
+      store.reviewSpaceLocaleDeletion({ ...alice, spaceId: other.id }, configured.id),
+    ).rejects.toMatchObject({ code: 'not_found' });
+    await expect(
+      store.deleteSpaceLocale({ ...alice, spaceId: other.id }, configured.id, input),
+    ).rejects.toMatchObject({ code: 'not_found' });
+    await expect(
+      store.deleteSpaceLocale(alice, snapshot.locale.spaceLocaleId, input),
+    ).rejects.toMatchObject({ code: 'invalid' });
+    expect(await store.listLocales(alice, snapshot.story.id)).toHaveLength(2);
+  });
+  it('includes retained content from deleted stories in locale deletion reviews', async () => {
+    const configured = await store.createSpaceLocale(alice, { name: 'French', slug: 'fr' });
+    await store.createLocale(alice, snapshot.story.id, { spaceLocaleId: configured.id });
+    const storyReview = await store.reviewStoryAction(alice, snapshot.story.id);
+    await store.storyAction(alice, snapshot.story.id, {
+      action: 'delete',
+      requestId: randomUUID(),
+      locales: storyReview.locales.map(({ id, checkpointId, publicationId }) => ({
+        id,
+        checkpointId,
+        publicationId,
+      })),
+    });
+    const review = await store.reviewSpaceLocaleDeletion(alice, configured.id);
+    expect(review.stories).toHaveLength(1);
+    expect(review.stories[0].deleted).toBe(true);
+    await store.deleteSpaceLocale(alice, configured.id, {
+      deleteContent: true,
+      reviewToken: review.token,
+    });
+    expect(
+      (await pool.query('SELECT id FROM story_locales WHERE story_id=$1', [snapshot.story.id]))
+        .rowCount,
+    ).toBe(1);
   });
   it('exports only current schema metadata through a scoped preview key', async () => {
     const published = await store.createDeliveryToken(alice, {

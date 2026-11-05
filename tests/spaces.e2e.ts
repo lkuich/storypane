@@ -249,7 +249,15 @@ test('space locales appear on stories and rename without replacing their content
     await expect(edit).not.toBeVisible();
     await expect(
       section.getByRole('button', { name: 'Remove Français', exact: true }),
-    ).toBeDisabled();
+    ).toBeEnabled();
+    await section.getByRole('button', { name: 'Remove Français', exact: true }).click();
+    const removal = page.getByRole('dialog', { name: 'Remove Français?' });
+    await expect(removal.getByRole('link', { name: /Home/ })).toHaveAttribute(
+      'href',
+      `/?story=${story!.id}&locale=fr-CA&space=${spaceId}`,
+    );
+    await expect(removal.getByRole('button', { name: 'Delete locale and content' })).toBeDisabled();
+    await removal.getByRole('button', { name: 'Cancel', exact: true }).click();
     const after = (await (await page.request.get(base, { headers })).json()) as LocaleSnapshot;
     expect(after.blocks).toEqual(before.blocks);
     expect(after.locale).toEqual({ ...before.locale, name: 'Français', slug: 'fr-CA' });
@@ -272,9 +280,43 @@ test('space locales appear on stories and rename without replacing their content
     await add.getByLabel('Locale slug', { exact: true }).fill('unused');
     await add.getByRole('button', { name: 'Add locale', exact: true }).click();
     await expect(add).not.toBeVisible();
-    page.once('dialog', (dialog) => dialog.accept());
     await section.getByRole('button', { name: 'Remove Unused', exact: true }).click();
+    await page
+      .getByRole('dialog', { name: 'Remove Unused?' })
+      .getByRole('button', { name: 'Remove locale', exact: true })
+      .click();
     await expect(section.getByRole('row').filter({ hasText: 'Unused' })).toHaveCount(0);
+    await section.getByRole('button', { name: 'Remove Français', exact: true }).click();
+    await removal.getByRole('checkbox').check();
+    const renamed = await page.request.put(`/api/cms/locales/${configured.id}`, {
+      headers,
+      data: { name: 'French Canada', slug: 'fr-CA' },
+    });
+    expect(renamed.ok()).toBeTruthy();
+    await removal.getByRole('button', { name: 'Delete locale and content' }).click();
+    await expect(removal).toContainText(
+      'The locale content changed. Review it again before deleting.',
+    );
+    await expect(
+      removal.getByRole('button', { name: 'Remove locale', exact: true }),
+    ).toBeDisabled();
+    await removal.getByRole('button', { name: 'Try again', exact: true }).click();
+    await expect(removal.getByRole('checkbox')).not.toBeChecked();
+    await removal.getByRole('checkbox').check();
+    await removal.getByRole('button', { name: 'Delete locale and content' }).click();
+    await expect(removal).not.toBeVisible();
+    await expect(section.getByRole('row')).toHaveCount(2);
+    const remaining = (await (
+      await page.request.get(`/api/cms/stories/${story!.id}/locales`, { headers })
+    ).json()) as StoryLocale[];
+    expect(remaining.map((locale) => locale.slug)).toEqual(['']);
+    expect(
+      (
+        await page.request.get(`/api/cms/stories/${story!.id}/locales/${remaining[0].id}`, {
+          headers,
+        })
+      ).ok(),
+    ).toBeTruthy();
   } finally {
     await page.close();
     if (spaceId) {

@@ -1,9 +1,10 @@
 'use client';
 import { useEffect, useState } from 'react';
-import { Globe2, Pencil, Plus, Trash2 } from 'lucide-react';
-import type { SpaceLocale } from '@storypane/core';
+import { ExternalLink, Globe2, Pencil, Plus, Trash2 } from 'lucide-react';
+import type { SpaceLocale, SpaceLocaleDeletionReview } from '@storypane/core';
 import { Button, ErrorNotice, Loading, Modal } from '@storypane/ui';
-import { api, errorMessage, jsonRequest } from '../editor/api';
+import { ApiError, api, errorMessage, jsonRequest } from '../editor/api';
+import { spaceUrl } from '../../lib/space-url';
 
 export function LocaleSettings({
   canManage,
@@ -21,6 +22,10 @@ export function LocaleSettings({
     [name, setName] = useState(''),
     [slug, setSlug] = useState(''),
     [formError, setFormError] = useState('');
+  const [removing, setRemoving] = useState<SpaceLocale | null>(null),
+    [review, setReview] = useState<SpaceLocaleDeletionReview | null>(null),
+    [deleteContent, setDeleteContent] = useState(false),
+    [deleteError, setDeleteError] = useState('');
   const dirty =
     editing !== null &&
     (editing === 'new' ? !!(name || slug) : name !== editing.name || slug !== editing.slug);
@@ -51,6 +56,20 @@ export function LocaleSettings({
   }
   function close() {
     if (!busy && (!dirty || window.confirm('Discard unsaved locale settings?'))) setEditing(null);
+  }
+  async function reviewDeletion(locale: SpaceLocale) {
+    setRemoving(locale);
+    setReview(null);
+    setDeleteContent(false);
+    setDeleteError('');
+    setBusy(true);
+    try {
+      setReview(await api<SpaceLocaleDeletionReview>(`/locales/${locale.id}/deletion-review`));
+    } catch (cause) {
+      setDeleteError(errorMessage(cause));
+    } finally {
+      setBusy(false);
+    }
   }
   return (
     <section className="panel locale-settings" aria-label="Space locales">
@@ -122,26 +141,9 @@ export function LocaleSettings({
                               variant="ghost"
                               className="icon-button"
                               aria-label={`Remove ${locale.name}`}
-                              disabled={busy || locale.storyCount > 0}
-                              title={
-                                locale.storyCount
-                                  ? 'Locales with story content cannot be removed'
-                                  : `Remove ${locale.name}`
-                              }
-                              onClick={async () => {
-                                if (!window.confirm(`Remove “${locale.name}” from this space?`))
-                                  return;
-                                setBusy(true);
-                                setError('');
-                                try {
-                                  await api(`/locales/${locale.id}`, { method: 'DELETE' });
-                                  await load();
-                                } catch (cause) {
-                                  setError(errorMessage(cause));
-                                } finally {
-                                  setBusy(false);
-                                }
-                              }}
+                              disabled={busy}
+                              title={`Remove ${locale.name}`}
+                              onClick={() => void reviewDeletion(locale)}
                             >
                               <Trash2 />
                             </Button>
@@ -157,9 +159,121 @@ export function LocaleSettings({
         </div>
       )}
       <p className="locale-settings-note">
-        Default always uses an empty slug. Locales with story content can be renamed, but cannot be
-        removed.
+        Default always uses an empty slug and cannot be removed. Removing another locale lets you
+        review and delete its story content too.
       </p>
+      <Modal
+        open={removing !== null}
+        onClose={() => {
+          if (!busy) setRemoving(null);
+        }}
+        title={`Remove ${removing?.name ?? 'locale'}?`}
+        description="The stories and their other locales will remain. Deleting this locale's content is permanent."
+        className="locale-deletion"
+      >
+        <ErrorNotice
+          message={deleteError}
+          retry={!busy && removing ? () => reviewDeletion(removing) : undefined}
+        />
+        {!review && busy && <Loading label="Checking locale content…" />}
+        {review && (
+          <>
+            {review.stories.length ? (
+              <>
+                <p>
+                  {review.stories.length}{' '}
+                  {review.stories.length === 1 ? 'story has' : 'stories have'} content in this
+                  locale. Open a story to review it before deleting.
+                </p>
+                <ul className="locale-deletion-stories" aria-label="Affected stories">
+                  {review.stories.map((story) => (
+                    <li key={story.localeId}>
+                      <div>
+                        {story.deleted ? (
+                          <strong>{story.name}</strong>
+                        ) : (
+                          <a
+                            href={spaceUrl(
+                              `/?story=${story.id}&locale=${encodeURIComponent(review.locale.slug)}`,
+                            )}
+                            target="_blank"
+                            rel="noreferrer"
+                          >
+                            {story.name}
+                            <ExternalLink aria-label="Opens in a new tab" />
+                          </a>
+                        )}
+                        <code>
+                          /{review.locale.slug}/{story.urlSlug}
+                        </code>
+                      </div>
+                      <span className="muted">
+                        {story.deleted ? 'Deleted story' : story.published ? 'Published' : 'Draft'}
+                        {story.scheduled ? ' · Scheduled' : ''}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+                {review.stories.some((story) => story.published || story.scheduled) && (
+                  <p className="notice">
+                    Published content in this locale will be removed from delivery and its schedules
+                    cancelled. Links to these locale URLs may stop working. Rebuild your site after
+                    deleting.
+                  </p>
+                )}
+                <label className="checkbox-field">
+                  <input
+                    type="checkbox"
+                    checked={deleteContent}
+                    disabled={busy}
+                    onChange={(event) => setDeleteContent(event.target.checked)}
+                  />
+                  Delete this locale’s content and revision history from all {review.stories.length}{' '}
+                  {review.stories.length === 1 ? 'story' : 'stories'}
+                </label>
+              </>
+            ) : (
+              <p>This locale has no story content and can be removed.</p>
+            )}
+          </>
+        )}
+        <div className="dialog-actions">
+          <Button disabled={busy} onClick={() => setRemoving(null)}>
+            Cancel
+          </Button>
+          <Button
+            variant="danger"
+            disabled={busy || !review || (!!review.stories.length && !deleteContent)}
+            onClick={async () => {
+              if (!review) return;
+              setBusy(true);
+              setDeleteError('');
+              try {
+                await api(
+                  `/locales/${review.locale.id}`,
+                  jsonRequest('DELETE', { deleteContent, reviewToken: review.token }),
+                );
+                setRemoving(null);
+                await load();
+              } catch (cause) {
+                setDeleteError(errorMessage(cause));
+                if (cause instanceof ApiError && cause.code === 'stale_revision') {
+                  setReview(null);
+                  setDeleteContent(false);
+                }
+              } finally {
+                setBusy(false);
+              }
+            }}
+          >
+            {busy && review
+              ? 'Removing…'
+              : review?.stories.length
+                ? 'Delete locale and content'
+                : 'Remove locale'}
+          </Button>
+        </div>
+      </Modal>
       <Modal
         open={editing !== null}
         onClose={close}

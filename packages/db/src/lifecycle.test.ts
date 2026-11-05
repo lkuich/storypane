@@ -1018,8 +1018,156 @@ const publishWith = (
     type: 'publishCheckpoint',
     payload: { checkpointId: state.checkpointId!, referenceChoices },
   });
+async function changedLinkedStory() {
+  const original = await copiedStory();
+  const published = await publishWith(original);
+  const current = await store.getSnapshot(alice, original.story.id, original.locale.id);
+  const hero = blockNamed(current, 'hero');
+  const linked = (
+    await save(alice, current, hero, { ...hero.fields, title: 'Reviewed footer update' })
+  ).snapshot;
+  return { linked, published };
+}
+async function linkedChoices(state: LocaleSnapshot, action: 'publish' | 'omit' = 'publish') {
+  return (await referenceReview(state)).references.map(
+    ({ localeId, checkpointId, publicationId }) => ({
+      localeId,
+      checkpointId,
+      publicationId,
+      action,
+    }),
+  );
+}
+async function translatedParent(slug = 'fr') {
+  const configured = await store.createSpaceLocale(alice, { name: 'French', slug });
+  const translated = await store.createLocale(alice, snapshot.story.id, {
+    spaceLocaleId: configured.id,
+  });
+  const root = translated.blocks[0];
+  const own = await lease(alice, translated, root);
+  return (
+    await run(alice, translated, {
+      ...commandBase({ block: root, lease: own }),
+      type: 'importBlocks',
+      payload: {
+        sourceLocaleId: snapshot.locale.id,
+        blockIds: [blockNamed(snapshot, 'footer').id],
+        parentId: root.id,
+        parentField: 'body',
+      },
+    })
+  ).snapshot;
+}
 
 describe('Publication reference choices', () => {
+  it('requires a choice for linked unpublished changes and publishes the reviewed revision with the page', async () => {
+    const { linked, published } = await changedLinkedStory();
+    snapshot = await linkStory(snapshot, linked);
+    const review = await referenceReview(snapshot);
+    expect(review.references).toMatchObject([
+      {
+        localeId: linked.locale.id,
+        checkpointId: linked.checkpointId,
+        publicationId: published.publicationId,
+        canPublish: true,
+      },
+    ]);
+    await expect(publishWith(snapshot)).rejects.toMatchObject({ code: 'invalid' });
+    expect(await store.getPublication(alice, snapshot.story.id, snapshot.locale.id)).toBeNull();
+    const choices = await linkedChoices(snapshot);
+    const hero = blockNamed(linked, 'hero');
+    await save(alice, linked, hero, { ...hero.fields, title: 'Later unreviewed edit' });
+    await publishWith(snapshot, choices);
+    const live = await store.getPublication(alice, linked.story.id, linked.locale.id);
+    expect(live?.checkpointId).toBe(linked.checkpointId);
+    expect(JSON.stringify(live?.content)).toContain('Reviewed footer update');
+    expect(JSON.stringify(live?.content)).not.toContain('Later unreviewed edit');
+    expect(
+      (await store.getSnapshot(alice, linked.story.id, linked.locale.id)).publicationStatus,
+    ).toBe('changed');
+  });
+  it('allows omitting changed linked content without modifying its existing publication or either draft', async () => {
+    const { linked, published } = await changedLinkedStory();
+    snapshot = await linkStory(snapshot, linked);
+    await publishWith(snapshot, await linkedChoices(snapshot, 'omit'));
+    const live = (
+      await pool.query('SELECT snapshot FROM publications WHERE locale_id=$1', [snapshot.locale.id])
+    ).rows[0].snapshot as LocaleSnapshot;
+    expect(blockNamed(live, 'footer').fields.link).toBeNull();
+    expect(
+      blockNamed(await store.getSnapshot(alice, snapshot.story.id, snapshot.locale.id), 'footer')
+        .fields.link,
+    ).toEqual({ type: 'story', storyId: linked.story.id });
+    expect((await store.getPublication(alice, linked.story.id, linked.locale.id))?.id).toBe(
+      published.publicationId,
+    );
+    expect(
+      (await store.getSnapshot(alice, linked.story.id, linked.locale.id)).publicationStatus,
+    ).toBe('changed');
+  });
+  it('rejects a stale linked publication baseline instead of overwriting another publication', async () => {
+    const { linked } = await changedLinkedStory();
+    snapshot = await linkStory(snapshot, linked);
+    const choices = await linkedChoices(snapshot);
+    await expect(
+      publishWith(
+        snapshot,
+        choices.map(({ publicationId: _publicationId, ...choice }) => choice),
+      ),
+    ).rejects.toMatchObject({ code: 'stale_revision' });
+    const hero = blockNamed(linked, 'hero');
+    const other = (
+      await save(alice, linked, hero, { ...hero.fields, title: 'Published by another editor' })
+    ).snapshot;
+    const newer = await publishWith(other);
+    await expect(publishWith(snapshot, choices)).rejects.toMatchObject({ code: 'stale_revision' });
+    expect(await store.getPublication(alice, snapshot.story.id, snapshot.locale.id)).toBeNull();
+    expect((await store.getPublication(alice, linked.story.id, linked.locale.id))?.id).toBe(
+      newer.publicationId,
+    );
+  });
+  it('keeps unchanged linked publications out of review, but includes URL-only unpublished changes', async () => {
+    const linked = await copiedStory();
+    await publishWith(linked);
+    snapshot = await linkStory(snapshot, linked);
+    expect((await referenceReview(snapshot)).references).toEqual([]);
+    await store.storyAction(alice, linked.story.id, {
+      action: 'move',
+      requestId: randomUUID(),
+      location: { folderId: null, slug: 'new-footer-url', localeSlugs: {} },
+    });
+    const choices = await linkedChoices(snapshot);
+    expect(choices).toHaveLength(1);
+    await publishWith(snapshot, choices);
+    expect((await referenceReview(snapshot)).references).toEqual([]);
+  });
+  it('requires publishing permission for changed linked content and still allows omission', async () => {
+    const { linked, published } = await changedLinkedStory();
+    snapshot = await linkStory(snapshot, linked);
+    await scopedEditor({
+      publish: { locations: { folderIds: [], storyIds: [snapshot.story.id] } },
+    });
+    const review = await referenceReview(snapshot, bob);
+    expect(review.references[0]).toMatchObject({
+      publicationId: published.publicationId,
+      canPublish: false,
+    });
+    const choices = review.references.map(({ localeId, checkpointId, publicationId }) => ({
+      localeId,
+      checkpointId,
+      publicationId,
+      action: 'publish' as const,
+    }));
+    await expect(publishWith(snapshot, choices, bob)).rejects.toMatchObject({ code: 'forbidden' });
+    await publishWith(
+      snapshot,
+      choices.map((choice) => ({ ...choice, action: 'omit' })),
+      bob,
+    );
+    expect((await store.getPublication(alice, linked.story.id, linked.locale.id))?.id).toBe(
+      published.publicationId,
+    );
+  });
   it('rolls back the page publication when a linked publication fails after writes begin', async () => {
     const original = await copiedStory();
     await publishWith(original);
@@ -1208,22 +1356,63 @@ describe('Publication reference choices', () => {
     expect(await store.getPublication(alice, linked.story.id, linked.locale.id)).toBeNull();
     expect(await store.getPublication(alice, nested.story.id, nested.locale.id)).toBeNull();
   });
-  it('keeps using the published Default fallback without publishing newer drafts', async () => {
-    const linked = await copiedStory();
-    const published = await publishWith(linked);
-    const hero = blockNamed(linked, 'hero');
-    await save(alice, linked, hero, { ...hero.fields, title: 'Still a draft' });
+  it('reviews unpublished changes in the Default fallback and prefers a draft in the preview locale', async () => {
+    const { linked, published } = await changedLinkedStory();
     snapshot = await linkStory(snapshot, linked);
-    const french = await store.createSpaceLocale(alice, { name: 'French', slug: 'fr' });
-    const translation = await store.createLocale(alice, snapshot.story.id, {
-      spaceLocaleId: french.id,
+    const translated = await translatedParent();
+    expect((await referenceReview(translated)).references).toMatchObject([
+      { localeId: linked.locale.id, publicationId: published.publicationId },
+    ]);
+    await expect(publishWith(translated)).rejects.toMatchObject({ code: 'invalid' });
+    const translatedFooter = await store.createLocale(alice, linked.story.id, {
+      spaceLocaleId: translated.locale.spaceLocaleId,
     });
-    const translated = await store.getSnapshot(alice, snapshot.story.id, translation.locale.id);
-    expect((await referenceReview(translated)).references).toEqual([]);
-    await publishWith(translated);
+    expect((await referenceReview(translated)).references).toMatchObject([
+      { localeId: translatedFooter.locale.id, publicationId: null },
+    ]);
+    await publishWith(translated, await linkedChoices(translated));
+    expect(
+      await store.getPublication(alice, linked.story.id, translatedFooter.locale.id),
+    ).not.toBeNull();
     expect(
       (await store.getSnapshot(alice, linked.story.id, linked.locale.id)).locale.publishedVersionId,
     ).toBe(published.publicationId);
+  });
+  it('schedules changed linked content at its reviewed revision and protects against a newer publication', async () => {
+    const { linked } = await changedLinkedStory();
+    snapshot = await linkStory(snapshot, linked);
+    await expect(schedule()).rejects.toMatchObject({ code: 'invalid' });
+    const job = await schedule(snapshot.checkpointId!, await linkedChoices(snapshot));
+    const hero = blockNamed(linked, 'hero');
+    await save(alice, linked, hero, { ...hero.fields, title: 'After scheduling' });
+    await due(job.id);
+    await store.runScheduledPublications();
+    expect(
+      (await store.listSchedules(alice, snapshot.story.id, snapshot.locale.id))[0].status,
+    ).toBe('published');
+    expect(
+      (await store.getPublication(alice, linked.story.id, linked.locale.id))?.checkpointId,
+    ).toBe(linked.checkpointId);
+    const nextJob = await schedule(snapshot.checkpointId!, await linkedChoices(snapshot));
+    const current = await store.getSnapshot(alice, linked.story.id, linked.locale.id);
+    const currentHero = blockNamed(current, 'hero');
+    const otherDraft = (
+      await save(alice, current, currentHero, {
+        ...currentHero.fields,
+        title: 'Different publication after review',
+      })
+    ).snapshot;
+    const other = await publishWith(otherDraft);
+    await due(nextJob.id);
+    await store.runScheduledPublications();
+    expect((await store.getPublication(alice, linked.story.id, linked.locale.id))?.id).toBe(
+      other.publicationId,
+    );
+    expect(
+      (await store.listSchedules(alice, snapshot.story.id, snapshot.locale.id)).find(
+        (item) => item.id === nextJob.id,
+      )?.status,
+    ).toBe('failed');
   });
   it('persists scheduled choices and uses the pinned linked checkpoint when due', async () => {
     const linked = await copiedStory();
@@ -1262,52 +1451,60 @@ describe('Publication reference choices', () => {
     expect(await store.getPublication(alice, snapshot.story.id, snapshot.locale.id)).toBeNull();
     expect(await store.getPublication(alice, linked.story.id, linked.locale.id)).toBeNull();
   });
-  it('supports bulk publishing shared dependencies without overwriting an unrelated publication', async () => {
-    const linked = await copiedStory(),
-      second = await copiedStory('Second page');
-    const parents = [await linkStory(snapshot, linked), await linkStory(second, linked)];
-    const items = await Promise.all(
-      parents.map(async (parent) => {
-        const review = await store.reviewStoryAction(alice, parent.story.id);
-        return {
-          storyId: parent.story.id,
-          input: {
-            requestId: randomUUID(),
-            action: 'publish',
-            locales: review.locales.map((locale) => ({
-              id: locale.id,
-              checkpointId: locale.checkpointId,
-              publicationId: locale.publicationId,
-              referenceChoices: [
-                {
-                  localeId: linked.locale.id,
-                  checkpointId: linked.checkpointId!,
-                  action: 'publish',
-                },
-              ],
-            })),
-          },
-        };
-      }),
-    );
-    const result = await store.bulkStoryAction(alice, { items });
-    expect(result.every((item) => item.result)).toBe(true);
-    expect(
-      (
-        await pool.query('SELECT count(*)::int AS count FROM publications WHERE locale_id=$1', [
-          linked.locale.id,
-        ])
-      ).rows[0].count,
-    ).toBe(1);
-    const hero = blockNamed(linked, 'hero');
-    const changed = (
-      await save(alice, linked, hero, { ...hero.fields, title: 'Published independently' })
-    ).snapshot;
-    await publishWith(changed);
-    await expect(
-      publishWith(parents[0], [
-        { localeId: linked.locale.id, checkpointId: linked.checkpointId!, action: 'publish' },
-      ]),
-    ).rejects.toMatchObject({ code: 'stale_revision' });
-  });
+  it.each([false, true])(
+    'supports bulk publishing shared dependencies (previously published: %s) without overwriting another publication',
+    async (previouslyPublished) => {
+      const linked = previouslyPublished
+          ? (await changedLinkedStory()).linked
+          : await copiedStory(),
+        second = await copiedStory('Second page');
+      const publicationId =
+        (await store.getPublication(alice, linked.story.id, linked.locale.id))?.id ?? null;
+      const parents = [await linkStory(snapshot, linked), await linkStory(second, linked)];
+      const items = await Promise.all(
+        parents.map(async (parent) => {
+          const review = await store.reviewStoryAction(alice, parent.story.id);
+          return {
+            storyId: parent.story.id,
+            input: {
+              requestId: randomUUID(),
+              action: 'publish',
+              locales: review.locales.map((locale) => ({
+                id: locale.id,
+                checkpointId: locale.checkpointId,
+                publicationId: locale.publicationId,
+                referenceChoices: [
+                  {
+                    localeId: linked.locale.id,
+                    checkpointId: linked.checkpointId!,
+                    publicationId,
+                    action: 'publish',
+                  },
+                ],
+              })),
+            },
+          };
+        }),
+      );
+      const result = await store.bulkStoryAction(alice, { items });
+      expect(result.every((item) => item.result)).toBe(true);
+      expect(
+        (
+          await pool.query('SELECT count(*)::int AS count FROM publications WHERE locale_id=$1', [
+            linked.locale.id,
+          ])
+        ).rows[0].count,
+      ).toBe(previouslyPublished ? 2 : 1);
+      const hero = blockNamed(linked, 'hero');
+      const changed = (
+        await save(alice, linked, hero, { ...hero.fields, title: 'Published independently' })
+      ).snapshot;
+      await publishWith(changed);
+      await expect(
+        publishWith(parents[0], [
+          { localeId: linked.locale.id, checkpointId: linked.checkpointId!, action: 'publish' },
+        ]),
+      ).rejects.toMatchObject({ code: 'stale_revision' });
+    },
+  );
 });

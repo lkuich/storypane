@@ -1,3 +1,4 @@
+import { richTextAssetIds } from '@storypane/core';
 import { recordWebhookEvent } from './webhooks.js';
 import {
   storyActionSchema,
@@ -96,9 +97,11 @@ import {
   type SpaceInvitation,
   spaceInputSchema,
   spaceLocaleInputSchema,
+  deleteSpaceLocaleSchema,
   type Space,
   type SpaceDetails,
   type SpaceLocale,
+  type SpaceLocaleDeletionReview,
 } from '@storypane/core';
 import {
   deliverySettingsSchema,
@@ -909,28 +912,106 @@ export class StorypaneStore {
       'settings:write',
     );
   }
-  async deleteSpaceLocale(actor: Actor, id: string): Promise<void> {
+  private async localeDeletionReview(
+    client: PoolClient,
+    actor: Actor,
+    id: string,
+  ): Promise<SpaceLocaleDeletionReview> {
+    const locale = (
+      await client.query('SELECT id,name,slug FROM space_locales WHERE id=$1 AND space_id=$2', [
+        id,
+        actor.spaceId,
+      ])
+    ).rows[0];
+    if (!locale) throw new StorypaneError('not_found', 'Locale not found');
+    if (locale.slug === '') throw new StorypaneError('invalid', 'Default cannot be removed');
+    // Include deleted stories: their retained translations must not outlive the configured locale.
+    const rows = (
+      await client.query(
+        `SELECT s.id,s.name,s.folder_id,s.deleted_at,l.id AS locale_id,l.url_slug,l.revision,l.checkpoint_id,l.published_version_id,
+        (SELECT coalesce(jsonb_agg(jsonb_build_array(p.id,p.revision) ORDER BY p.id),'[]'::jsonb)
+          FROM publication_schedules p WHERE p.locale_id=l.id AND p.status='pending') AS schedules
+        FROM story_locales l JOIN stories s ON s.id=l.story_id
+        WHERE l.space_locale_id=$1 AND s.space_id=$2 ORDER BY s.name,s.id`,
+        [id, actor.spaceId],
+      )
+    ).rows;
+    return {
+      locale: { ...locale, storyCount: rows.length },
+      token: digest({ locale, rows }),
+      stories: rows.map((row) => ({
+        id: row.id,
+        name: row.name,
+        localeId: row.locale_id,
+        urlSlug: row.url_slug,
+        deleted: !!row.deleted_at,
+        published: !!row.published_version_id,
+        scheduled: !!row.schedules.length,
+      })),
+    };
+  }
+  async reviewSpaceLocaleDeletion(actor: Actor, id: string): Promise<SpaceLocaleDeletionReview> {
     parseInput(z.uuid(), id);
+    return this.tx(
+      actor,
+      (client) => this.localeDeletionReview(client, actor, id),
+      'settings:write',
+    );
+  }
+  async deleteSpaceLocale(actor: Actor, id: string, raw: unknown = {}): Promise<void> {
+    parseInput(z.uuid(), id);
+    const input = parseInput(deleteSpaceLocaleSchema, raw);
     await this.tx(
       actor,
       async (client) => {
-        const { rows } = await client.query(
-          'SELECT * FROM space_locales WHERE id=$1 AND space_id=$2 FOR UPDATE',
-          [id, actor.spaceId],
-        );
-        if (!rows[0]) throw new StorypaneError('not_found', 'Locale not found');
-        if (rows[0].slug === '') throw new StorypaneError('invalid', 'Default cannot be removed');
-        if (
-          (
-            await client.query('SELECT id FROM story_locales WHERE space_locale_id=$1 LIMIT 1', [
-              id,
-            ])
-          ).rowCount
-        )
+        const review = await this.localeDeletionReview(client, actor, id);
+        if (review.stories.length && (!input.deleteContent || !input.reviewToken))
           throw new StorypaneError(
             'invalid',
-            'This locale has story content and cannot be removed',
+            'Review the affected stories and confirm deletion of their locale content first.',
           );
+        if (input.reviewToken && input.reviewToken !== review.token)
+          throw new StorypaneError(
+            'stale_revision',
+            'The locale content changed. Review it again before deleting.',
+          );
+        const access = await loadContentAccess(client, actor, true);
+        for (const story of review.stories) {
+          const locale = (
+            await client.query(
+              'SELECT checkpoint_id,published_version_id FROM story_locales WHERE id=$1',
+              [story.localeId],
+            )
+          ).rows[0];
+          const checkpoint = await this.readCheckpoint(
+            client,
+            story.localeId,
+            locale.checkpoint_id,
+          );
+          const current = access.locales.find((item) => item.id === story.localeId)!;
+          const snapshot = {
+            ...checkpoint.snapshot,
+            story: { ...checkpoint.snapshot.story, folderId: current.folderId },
+          };
+          this.assertCompleteAccess(access, snapshot, 'content:edit');
+          if (story.published || story.scheduled)
+            this.assertCompleteAccess(access, snapshot, 'content:publish');
+          await this.noCompetingLeases(
+            client,
+            actor,
+            story.localeId,
+            snapshot.blocks.map((block) => block.id),
+          );
+          await this.unpublishLocaleTx(
+            client,
+            actor,
+            story.id,
+            story.localeId,
+            locale.published_version_id,
+            true,
+          );
+        }
+        await client.query('DELETE FROM story_locales WHERE space_locale_id=$1', [id]);
         await client.query(
           'UPDATE content_folders SET locale_slugs=locale_slugs-$2 WHERE space_id=$1',
           [actor.spaceId, id],
@@ -938,6 +1019,7 @@ export class StorypaneStore {
         await client.query('DELETE FROM space_locales WHERE id=$1', [id]);
       },
       'settings:write',
+      true,
     );
   }
   async deliveryLocales(
@@ -1150,8 +1232,8 @@ export class StorypaneStore {
           JOIN definition_versions v ON v.id=b.schema_version_id
           CROSS JOIN LATERAL jsonb_array_elements(v.schema->'fields') f
         WHERE s.space_id=$1 AND s.deleted_at IS NULL
-          AND (f->>'type'='asset' OR (f->>'type'='link' AND b.fields->(f->>'name')->>'type'='asset'))
-          AND b.fields->(f->>'name')->>'assetId'=$2
+          AND ((f->>'type' IN ('asset','link') AND b.fields->(f->>'name')->>'assetId'=$2) OR
+            (f->>'type'='text' AND f->>'format'='richtext' AND jsonb_path_exists(b.fields->(f->>'name'),'$.**.assetId ? (@ == $assetId)',jsonb_build_object('assetId',$2::text))))
         UNION ALL
         SELECT s.id,coalesce(p.snapshot->'story'->>'name',s.name),s.folder_id,
           l.id,l.slug,l.name,l.space_locale_id,(b->>'id')::uuid,(d->>'id')::uuid,d->>'displayName',
@@ -1161,8 +1243,8 @@ export class StorypaneStore {
           CROSS JOIN LATERAL jsonb_array_elements(p.snapshot->'definitions') d
           CROSS JOIN LATERAL jsonb_array_elements(d->'fields') f
         WHERE s.space_id=$1 AND s.deleted_at IS NULL AND d->>'versionId'=b->>'schemaVersionId'
-          AND (f->>'type'='asset' OR (f->>'type'='link' AND b->'fields'->(f->>'name')->>'type'='asset'))
-          AND b->'fields'->(f->>'name')->>'assetId'=$2
+          AND ((f->>'type' IN ('asset','link') AND b->'fields'->(f->>'name')->>'assetId'=$2) OR
+            (f->>'type'='text' AND f->>'format'='richtext' AND jsonb_path_exists(b->'fields'->(f->>'name'),'$.**.assetId ? (@ == $assetId)',jsonb_build_object('assetId',$2::text))))
       ) SELECT * FROM usage WHERE "localeId"=ANY($4::uuid[]) AND ($5::uuid[] IS NULL OR "definitionId"=ANY($5)) AND ($6::text[] IS NULL OR "fieldId"=ANY($6)) ORDER BY "storyId","localeId","blockId","fieldName",state LIMIT 41 OFFSET $3`,
         [
           actor.spaceId,
@@ -3268,7 +3350,13 @@ export class StorypaneStore {
           : field.type === 'link' && (value as { type: string }).type === 'asset'
             ? (value as { assetId: string }).assetId
             : undefined;
-      if (assetId) {
+      const assetIds =
+        field.type === 'text' && field.format === 'richtext'
+          ? richTextAssetIds(value)
+          : assetId
+            ? [assetId]
+            : [];
+      for (const assetId of new Set(assetIds)) {
         const asset = (
           await client.query('SELECT mime_type FROM assets WHERE id=$1 AND space_id=$2', [
             assetId,
@@ -3276,6 +3364,8 @@ export class StorypaneStore {
           ])
         ).rows[0];
         if (!asset) throw new StorypaneError('invalid', 'Asset must belong to this space');
+        if (field.type === 'text' && !String(asset.mime_type).startsWith('image/'))
+          throw new StorypaneError('invalid', 'Rich text images must use image assets');
         if (
           field.type === 'asset' &&
           field.mimeTypes?.length &&
@@ -4153,7 +4243,7 @@ export class StorypaneStore {
           for (const storyId of new Set(ids)) {
             const locales = (
               await client.query(
-                `SELECT l.*,s.name AS story_name,s.folder_id,c.id AS checkpoint_id,p.checkpoint_id AS published_checkpoint_id,p.content AS published_content
+                `SELECT l.*,s.name AS story_name,s.folder_id,c.id AS checkpoint_id,p.checkpoint_id AS published_checkpoint_id,p.content AS published_content,(${pendingLocaleSql}) AS pending
                FROM story_locales l JOIN stories s ON s.id=l.story_id
                JOIN checkpoints c ON c.id=l.checkpoint_id
                LEFT JOIN publications p ON p.id=l.published_version_id
@@ -4162,7 +4252,7 @@ export class StorypaneStore {
                 [storyId, actor.spaceId, snapshot.locale.slug],
               )
             ).rows;
-            const target = locales.find((locale) => locale.published_version_id) ?? locales[0];
+            const target = locales[0];
             if (!target)
               throw new StorypaneError(
                 'invalid',
@@ -4170,7 +4260,7 @@ export class StorypaneStore {
               );
             if (target.id === root.snapshot.locale.id) continue;
             const choice = selected.get(target.id);
-            if (target.published_version_id && !choice) continue;
+            if (!target.pending && !choice) continue;
             if (!access.locales.some((locale) => locale.id === target.id))
               throw new StorypaneError('forbidden', 'A linked locale is outside your read access.');
             used.add(target.id);
@@ -4211,6 +4301,7 @@ export class StorypaneStore {
                 localeId: target.id,
                 localeName: target.name,
                 checkpointId: linked.id,
+                publicationId: target.published_version_id,
                 revision: linked.revision,
                 canPublish,
                 usages: [],
@@ -4222,14 +4313,16 @@ export class StorypaneStore {
                     'forbidden',
                     `You cannot publish ${target.story_name}. Omit it or ask a publisher to publish it first.`,
                   );
-                if (target.published_version_id) {
-                  if (target.published_checkpoint_id !== linked.id)
-                    throw new StorypaneError(
-                      'stale_revision',
-                      `${target.story_name} was published since this review. Review again.`,
-                    );
+                if (target.published_checkpoint_id === linked.id) {
                   existing.set(target.id, target.published_content);
-                }
+                } else if (
+                  choices &&
+                  (choice?.publicationId ?? null) !== target.published_version_id
+                )
+                  throw new StorypaneError(
+                    'stale_revision',
+                    `${target.story_name} has a different publication. Review again.`,
+                  );
                 checkpoints.set(target.id, structuredClone(linked));
               }
             }

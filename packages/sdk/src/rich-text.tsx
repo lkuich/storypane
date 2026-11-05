@@ -46,6 +46,10 @@ export function RichText({
         case 'code':
           text = <code>{text}</code>;
           break;
+        case 'textStyle':
+          if (typeof mark.attrs?.color === 'string' && mark.attrs.color.length <= 80)
+            text = <span style={{ color: mark.attrs.color }}>{text}</span>;
+          break;
         case 'link': {
           const href = safeHref(mark.attrs?.href);
           if (href) text = <a href={href}>{text}</a>;
@@ -59,6 +63,12 @@ export function RichText({
     <RichText key={index} value={child} depth={depth + 1} />
   ));
   switch (value.type) {
+    case 'image': {
+      const src = safeHref(value.attrs?.src);
+      return src && /^https?:/.test(src) ? (
+        <img src={src} alt={typeof value.attrs?.alt === 'string' ? value.attrs.alt : ''} />
+      ) : null;
+    }
     case 'paragraph':
       return <p>{children}</p>;
     case 'heading': {

@@ -54,4 +54,13 @@ describe('publication selections', () => {
       publicationSelection(review, [{ ...choice('footer', 'omit'), checkpointId: 'old' }]).complete,
     ).toBe(false);
   });
+  it('requires the reviewed live publication for a linked story with unpublished changes', () => {
+    const changed = structuredClone(review);
+    changed.references[0].publicationId = 'previous-publication';
+    expect(publicationSelection(changed, [choice('footer', 'omit')]).complete).toBe(false);
+    const selected = { ...choice('footer', 'omit'), publicationId: 'previous-publication' };
+    expect(publicationSelection(changed, [selected]).complete).toBe(true);
+    changed.references[0].publicationId = 'new-publication';
+    expect(publicationSelection(changed, [selected]).complete).toBe(false);
+  });
 });

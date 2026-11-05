@@ -37,7 +37,11 @@ test('bulk review keeps a stale item selected while the successful item can be r
   expect(moved.ok()).toBeTruthy();
   await dialog.getByRole('button', { name: 'Confirm delete', exact: true }).click();
   await expect(dialog.getByText(/The story changed/)).toBeVisible();
-  await expect(dialog.getByText(`${second.story.name}: Completed`)).toBeVisible();
+  await dialog.locator('.story-action-completed > summary').click();
+  const completed = dialog
+    .locator('.story-action-completed li')
+    .filter({ hasText: second.story.name });
+  await expect(completed).toContainText('Deleted');
   await dialog.getByRole('button', { name: 'Close', exact: true }).click();
   await expect(
     page.getByRole('checkbox', { name: `Select ${first.story.name}`, exact: true }),

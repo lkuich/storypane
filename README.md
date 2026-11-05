@@ -23,6 +23,8 @@ Configure the selected Clerk application from `apps/web` with `pnpm dlx clerk@la
 
 Authentication uses Clerk's React SDK with server verification at the Worker boundary (vinext is detected as React). HTTP requests validate both the JWT and active Clerk session. WebSocket authorization grants expire within 60 seconds and refresh while the editor is open; revocation therefore reaches existing sockets within 60 seconds. Old Better Auth cookies and demo passwords are no longer accepted. Legacy auth tables remain for rollback; rollback requires restoring the previous release and its configuration, and signing in again.
 
+Concurrent requests for the same Clerk session share their in-flight identity lookup; results are not cached across completed requests. Transient sign-in throttling returns a retryable service error. The block library retries its full read (including datasources) on focus and its five-second refresh, clearing recovered read errors while retaining failed action errors.
+
 Clerk external IDs preserve imported local user IDs, memberships, and history. Linking is an explicit operator action; the server never links accounts by matching email. Unverified emails cannot access the CMS. The local demo editor remains disabled until explicitly migrated.
 
 The monorepo includes a working Astro website. With the CMS running, use
@@ -65,7 +67,9 @@ Docker volumes, databases, buckets, or Durable Object namespaces.
   Content; pinning never changes content, publication status, or another user's list.
 - Content folders support nesting, translated slug prefixes (using configured locale
   IDs), allowed/default content types, and form-only editing. Blank folder translations
-  fall back to the default segment. Use a page's location button to move it or edit
+  fall back to the default segment. The story list and search stay in the current
+  folder; Back/Forward retrace folder visits, and changing folders clears selection.
+  Use a page's location button to move it or edit
   its per-locale slug. Folder moves and URL changes create draft checkpoints; existing
   published URLs remain live until each affected locale is republished. Static sites
   still need a rebuild after publication. No automatic redirects are created.
@@ -100,11 +104,16 @@ Docker volumes, databases, buckets, or Durable Object namespaces.
   the destination and keep application preview open.
 - Content selection supports reviewed bulk publish/unpublish/move/delete, draft-only
   duplication, and soft-delete recovery. History is preserved; live references and
-  editing leases are checked before destructive actions.
-- Publish review asks whether to publish each unpublished linked story too or omit
+  editing leases are checked before destructive actions. Bulk review groups locales
+  under expandable stories, keeps actions visible while scrolling, and separates
+  completed stories from failures with editor links. Re-review targets only failed
+  stories; interrupted requests retain their original request IDs for safe retries.
+- Publish review asks whether to publish each linked draft or story with unpublished changes too or omit
   its reference from the live copy. Omission preserves drafts and cannot bypass required
   fields. Selected revisions publish together atomically, including scheduled and bulk
-  publication; existing live references continue using their published versions.
+  publication. Unchanged live references keep their published versions. Changed links
+  require a choice, use the preview locale (with Default fallback), and check the
+  reviewed publication before replacing it so another editor's publication is not overwritten.
 - Schedule a reviewed locale checkpoint with an explicit timezone. Later edits remain
   drafts; a minute cron checks current permissions, schema, and URL conflicts before
   publication. Pending/failed schedules appear in the list and editor.
@@ -139,8 +148,11 @@ Docker volumes, databases, buckets, or Durable Object namespaces.
   from Default makes one-time subtree copies with fresh IDs.
 - **Space settings → Locales** manages shared locale names and URL prefixes.
   Configured locales appear on every story; opening a new locale creates its
-  independent page. Admins can add/rename locales and remove unused ones.
-  Renaming retains content/history; Default and locales with content cannot be removed.
+  independent page. Removing a locale lists affected stories with links to their locale
+  editors and requires explicit confirmation to delete its content and history.
+  Deletion checks content permissions and active editors, rejects stale reviews,
+  removes publications, and cancels schedules. Other locales remain intact.
+  Renaming retains content/history; Default cannot be removed.
 - Block leases, autosave, live updates, conflict detection, and preserved unsent
   input when disconnected. Continued editing requires a connection.
 - Page/block restoration into new history and publication of a fixed reviewed
@@ -335,3 +347,12 @@ contracts, and acceptance criteria.
 
 See [the internal issue tracker](docs/issues/README.md) for researched feature TODOs,
 proposed behavior, implementation scope, and acceptance tests.
+
+Rich text preserves text colors and inline images imported from other CMSs. Inline
+images carry a space-scoped asset ID and an HTTP(S) source; publication validates
+asset ownership and includes them in media usage. External links also accept
+`tel:` URLs for telephone CTAs.
+
+External option feeds accept both `{items: [{value, label}]}` and existing
+`[{value, name}]` arrays. Both formats retain the same host allowlist, DNS, size,
+and uniqueness checks.

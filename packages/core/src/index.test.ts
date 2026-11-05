@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   defaultFields,
+  richTextAssetIds,
   definitionInputSchema,
   deliverySettingsSchema,
   isBlockAllowed,
@@ -145,6 +146,56 @@ describe('schema and content validation', () => {
     expect(
       validateFields(schema, { link: { type: 'external', url: 'file:///private/file' } }),
     ).toHaveLength(1);
+  });
+  it('preserves safe rich-text colors and rejects CSS injection', () => {
+    for (const color of [
+      '#171F5D',
+      'oklch(0.373 0.034 259.733)',
+      'lab(26.9569 -1.47016 -15.6993)',
+      'rgb(20, 30, 40)',
+    ]) {
+      expect(
+        validateFields(schema, {
+          rich: {
+            type: 'doc',
+            content: [
+              { type: 'text', text: 'Color', marks: [{ type: 'textStyle', attrs: { color } }] },
+            ],
+          },
+        }),
+      ).toEqual([]);
+    }
+    for (const color of ['red;display:none', 'url(https://example.com)', '#12345', '', null]) {
+      expect(
+        validateFields(schema, {
+          rich: {
+            type: 'doc',
+            content: [
+              { type: 'text', text: 'Color', marks: [{ type: 'textStyle', attrs: { color } }] },
+            ],
+          },
+        }),
+      ).toHaveLength(1);
+    }
+  });
+  it('validates imported image references and telephone links without throwing on malformed URLs', () => {
+    const assetId = '11111111-1111-4111-8111-111111111111';
+    const image = {
+      type: 'image',
+      attrs: { assetId, src: 'https://cms.example.com/media/image', alt: 'Logo' },
+    };
+    const rich = { type: 'doc', content: [image] };
+    expect(
+      validateFields(schema, { rich, link: { type: 'external', url: 'tel:18773926869' } }),
+    ).toEqual([]);
+    expect(richTextAssetIds(rich)).toEqual([assetId]);
+    for (const src of ['javascript:alert(1)', '/relative', 'https://'])
+      expect(
+        validateFields(schema, {
+          rich: { type: 'doc', content: [{ ...image, attrs: { ...image.attrs, src } }] },
+        }),
+      ).toHaveLength(1);
+    expect(validateFields(schema, { link: { type: 'external', url: '#anchor' } })).toHaveLength(1);
   });
   it('rejects duplicate/reserved field names and inconsistent limits', () => {
     expect(

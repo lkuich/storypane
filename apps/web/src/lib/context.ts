@@ -5,6 +5,8 @@ import { StorypaneStore } from '@storypane/db';
 import { createClerkClient } from '@clerk/backend';
 import { clerkSession } from './clerk-auth';
 
+let auth: ReturnType<typeof createClerkClient> | undefined;
+
 export function createServices() {
   const db = new Pool({ connectionString: env.HYPERDRIVE.connectionString, max: 3 });
   db.on('error', (error) => {
@@ -24,10 +26,10 @@ export function createServices() {
         .filter(Boolean),
       webhookEncryptionKey: env.WEBHOOK_ENCRYPTION_KEY,
     }),
-    auth: createClerkClient({
+    auth: (auth ??= createClerkClient({
       secretKey: env.CLERK_SECRET_KEY,
       publishableKey: env.VITE_CLERK_PUBLISHABLE_KEY,
-    }),
+    })),
   };
 }
 

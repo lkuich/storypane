@@ -54,6 +54,7 @@ export function MigrationPanel({
     [review, setReview] = useState<MigrationReview | null>(null),
     [past, setPast] = useState<SchemaMigration | null>(null);
   const [people, setPeople] = useState<Record<string, string>>({});
+  const [loadError, setLoadError] = useState('');
   const [error, setError] = useState(''),
     [busy, setBusy] = useState(false);
   const [tokensOpen, setTokensOpen] = useState(false),
@@ -66,6 +67,7 @@ export function MigrationPanel({
     deployed = migrations?.filter((item) => item.status === 'deployed').at(-1);
   const load = useCallback(async () => {
     setMigrations(await api<SchemaMigration[]>('/migrations?workspace=true'));
+    setLoadError('');
     setHistoryAttempt((value) => value + 1);
   }, []);
   const action = useCallback(async (work: () => Promise<void>) => {
@@ -93,16 +95,24 @@ export function MigrationPanel({
     [action],
   );
   useEffect(() => {
-    let stopped = false;
+    let stopped = false,
+      refreshing = false;
     const refresh = () => {
-      if (!document.hidden)
-        void api<SchemaMigration[]>('/migrations?workspace=true')
-          .then((value) => {
-            if (!stopped) setMigrations(value);
-          })
-          .catch((cause) => {
-            if (!stopped) setError(errorMessage(cause));
-          });
+      if (document.hidden || refreshing) return;
+      refreshing = true;
+      void api<SchemaMigration[]>('/migrations?workspace=true')
+        .then((value) => {
+          if (!stopped) {
+            setMigrations(value);
+            setLoadError('');
+          }
+        })
+        .catch((cause) => {
+          if (!stopped) setLoadError(errorMessage(cause));
+        })
+        .finally(() => {
+          refreshing = false;
+        });
     };
     refresh();
     const timer = setInterval(refresh, 5000);
@@ -202,9 +212,15 @@ export function MigrationPanel({
           </Button>
         )}
       </header>
-      {error && (
+      {(error || loadError) && (
         <div className="migration-panel-error">
-          <ErrorNotice message={error} retry={() => void action(load)} />
+          <ErrorNotice
+            message={error || loadError}
+            retry={() => {
+              setError('');
+              void load().catch((cause) => setLoadError(errorMessage(cause)));
+            }}
+          />
         </div>
       )}
       {!migrations ? (

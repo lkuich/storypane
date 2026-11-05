@@ -10,6 +10,13 @@ import {
   FolderInput,
   ChevronRight,
   Settings2,
+  Upload,
+  RotateCcw,
+  Copy,
+  Trash2,
+  X,
+  ArrowLeft,
+  ArrowRight,
 } from 'lucide-react';
 import { PublicationStatus } from '../../components/publication-status';
 import { EditorAvatars } from '../../components/editor-avatars';
@@ -63,11 +70,15 @@ export function ContentList({
   const [definitions, setDefinitions] = useState<BlockDefinition[]>([]);
   const [folders, setFolders] = useState<ContentFolder[]>([]);
   const [locales, setLocales] = useState<SpaceLocale[]>([]);
-  const [folderId, setFolderId] = useState<string | null>(() =>
-    typeof window === 'undefined'
-      ? null
-      : new URLSearchParams(window.location.search).get('folder'),
-  );
+  const [folderHistory, setFolderHistory] = useState(() => ({
+    entries: [
+      typeof window === 'undefined'
+        ? null
+        : new URLSearchParams(window.location.search).get('folder'),
+    ],
+    index: 0,
+  }));
+  const folderId = folderHistory.entries[folderHistory.index];
   const [editingFolder, setEditingFolder] = useState<ContentFolder | null | undefined>(undefined);
   const [locationStory, setLocationStory] = useState<StorySummary | null>(null);
   const [createFolderId, setCreateFolderId] = useState<string | null>(null);
@@ -102,7 +113,8 @@ export function ContentList({
         setLocales(availableLocales);
         const currentFolder = new URLSearchParams(window.location.search).get('folder');
         if (currentFolder && !availableFolders.some((item) => item.id === currentFolder)) {
-          setFolderId(null);
+          setFolderHistory({ entries: [null], index: 0 });
+          setSelectedIds([]);
           const url = new URL(window.location.href);
           url.searchParams.delete('folder');
           window.history.replaceState(window.history.state, '', url);
@@ -126,16 +138,9 @@ export function ContentList({
       (!destination?.allowedDefinitionIds.length ||
         destination.allowedDefinitionIds.includes(definition.id)),
   );
-  const scopedFolders = currentFolder
-    ? folders.filter(
-        (item) =>
-          item.id === folderId ||
-          folderPath(folders, item.id).startsWith(folderPath(folders, folderId) + '/'),
-      )
-    : folders;
-  const scopedStories = currentFolder
-    ? stories.filter((story) => scopedFolders.some((item) => item.id === story.folderId))
-    : stories;
+  const scopedStories = stories.filter(
+    (story) => (story.folderId ?? null) === (currentFolder?.id ?? null),
+  );
   const filtered = filterStories(scopedStories, filters).filter(
     (story) =>
       !scheduleFilter || story.schedules?.some((schedule) => schedule.status === scheduleFilter),
@@ -168,8 +173,17 @@ export function ContentList({
     writeContentFilters(url.searchParams, next);
     window.history.replaceState(window.history.state, '', url);
   }
-  function openFolder(id: string | null) {
-    setFolderId(id);
+  function openFolder(id: string | null, index?: number) {
+    if (id === folderId) return;
+    setSelectedIds([]);
+    setFolderHistory((current) =>
+      index === undefined
+        ? {
+            entries: [...current.entries.slice(0, current.index + 1), id],
+            index: current.index + 1,
+          }
+        : { ...current, index },
+    );
     const url = new URL(window.location.href);
     if (id) url.searchParams.set('folder', id);
     else url.searchParams.delete('folder');
@@ -251,8 +265,28 @@ export function ContentList({
       </div>
       <ErrorNotice message={error} retry={() => void load()} />
       <nav className="content-folder-breadcrumbs" aria-label="Content folders">
+        <div className="content-folder-history" role="group" aria-label="Folder navigation">
+          <Button
+            className="button--small"
+            disabled={loading || folderHistory.index === 0}
+            onClick={() =>
+              openFolder(folderHistory.entries[folderHistory.index - 1], folderHistory.index - 1)
+            }
+          >
+            <ArrowLeft aria-hidden="true" /> Back
+          </Button>
+          <Button
+            className="button--small"
+            disabled={loading || folderHistory.index === folderHistory.entries.length - 1}
+            onClick={() =>
+              openFolder(folderHistory.entries[folderHistory.index + 1], folderHistory.index + 1)
+            }
+          >
+            Forward <ArrowRight aria-hidden="true" />
+          </Button>
+        </div>
         <button onClick={() => openFolder(null)} aria-current={!currentFolder ? 'page' : undefined}>
-          All content
+          Root
         </button>
         {trail.map((item) => (
           <span key={item.id}>
@@ -296,27 +330,41 @@ export function ContentList({
             {selectedIds.length} selected
           </span>
           {deleted ? (
-            canCreate && <Button onClick={() => openAction('restore')}>Restore</Button>
+            canCreate && (
+              <Button onClick={() => openAction('restore')}>
+                <RotateCcw aria-hidden="true" /> Restore
+              </Button>
+            )
           ) : (
             <>
               {canPublish && (
                 <>
-                  <Button onClick={() => openAction('publish')}>Publish</Button>
-                  <Button onClick={() => openAction('unpublish')}>Unpublish</Button>
+                  <Button onClick={() => openAction('publish')}>
+                    <Upload aria-hidden="true" /> Publish
+                  </Button>
+                  <Button onClick={() => openAction('unpublish')}>
+                    <RotateCcw aria-hidden="true" /> Unpublish
+                  </Button>
                 </>
               )}
               {canCreate && (
                 <>
-                  <Button onClick={() => openAction('duplicate')}>Duplicate</Button>
-                  <Button onClick={() => openAction('move')}>Move</Button>
+                  <Button onClick={() => openAction('duplicate')}>
+                    <Copy aria-hidden="true" /> Duplicate
+                  </Button>
+                  <Button onClick={() => openAction('move')}>
+                    <FolderInput aria-hidden="true" /> Move
+                  </Button>
                   <Button variant="danger" onClick={() => openAction('delete')}>
-                    Delete
+                    <Trash2 aria-hidden="true" /> Delete
                   </Button>
                 </>
               )}
             </>
           )}
-          <Button onClick={() => setSelectedIds([])}>Clear selection</Button>
+          <Button onClick={() => setSelectedIds([])}>
+            <X aria-hidden="true" /> Clear selection
+          </Button>
         </div>
       )}
       {!!children.length && (
@@ -519,22 +567,12 @@ export function ContentList({
             </div>
             <div className="table-count">
               {filtered.length} {filtered.length === 1 ? 'story' : 'stories'}
-              {hasFilters
-                ? ' matching your filters'
-                : currentFolder
-                  ? ' in this folder and its subfolders'
-                  : ' in this space'}
+              {hasFilters ? ' matching your filters' : ' in this folder'}
             </div>
           </>
         ) : (
           <EmptyState
-            title={
-              hasFilters
-                ? 'No matching stories'
-                : currentFolder
-                  ? 'This folder has no pages yet'
-                  : 'Start with a story'
-            }
+            title={hasFilters ? 'No matching stories' : 'This folder has no stories yet'}
             action={
               hasFilters ? (
                 <Button
@@ -547,7 +585,7 @@ export function ContentList({
                 </Button>
               ) : (
                 <Button onClick={openCreate} disabled={!canCreate}>
-                  <Plus /> Create your first story
+                  <Plus /> Create story
                 </Button>
               )
             }

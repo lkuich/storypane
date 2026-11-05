@@ -9,7 +9,11 @@ export function PublicationStatus({ status, localeName }: { status: Status; loca
     >
       <Icon aria-hidden="true" />
       {localeName && `${localeName} · `}
-      {status === 'published' ? 'Published' : status === 'changed' ? 'Awaiting publish' : 'Draft'}
+      {status === 'published'
+        ? 'Published'
+        : status === 'changed'
+          ? 'Unpublished changes'
+          : 'Draft'}
     </span>
   );
 }

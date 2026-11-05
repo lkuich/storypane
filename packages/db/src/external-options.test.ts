@@ -83,6 +83,25 @@ describe('external option sources', () => {
       fetchExternalOptions('https://example.com/options', ['example.com']),
     ).rejects.toMatchObject({ code: 'invalid' });
   });
+  it('accepts existing name/value feeds while retaining item and uniqueness validation', async () => {
+    const fetchMock = setup(Response.json([{ value: 11, name: 'Course' }]));
+    await expect(
+      fetchExternalOptions('https://example.com/options', ['example.com']),
+    ).resolves.toEqual([{ value: '11', label: 'Course' }]);
+    for (const items of [
+      [
+        { value: 11, name: 'A' },
+        { value: '11', name: 'B' },
+      ],
+      [{ value: { id: 11 }, name: 'Bad' }],
+      [{ value: 11, name: 'x'.repeat(501) }],
+    ]) {
+      fetchMock.mockResolvedValue(Response.json(items));
+      await expect(
+        fetchExternalOptions('https://example.com/options', ['example.com']),
+      ).rejects.toMatchObject({ code: 'invalid' });
+    }
+  });
   it('bounds the streamed response even without a content-length header', async () => {
     setup(
       new Response(JSON.stringify({ items: [{ value: 'x', label: 'x'.repeat(513_000) }] }), {

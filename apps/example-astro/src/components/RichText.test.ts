@@ -71,3 +71,28 @@ it('renders formatted rich text safely and accepts legacy text and empty drafts'
     ),
   ).toBe('Draft');
 });
+
+it('preserves imported text color', () => {
+  expect(
+    renderToStaticMarkup(
+      createElement(RichText, {
+        value: {
+          type: 'text',
+          text: 'Color',
+          marks: [{ type: 'textStyle', attrs: { color: '#171F5D' } }],
+        },
+      }),
+    ),
+  ).toBe('<span style="color:#171F5D">Color</span>');
+});
+
+it('renders safe rich-text images and rejects executable sources', () => {
+  const render = (src: string) =>
+    renderToStaticMarkup(
+      createElement(RichText, { value: { type: 'image', attrs: { src, alt: 'A photo' } } }),
+    );
+  expect(render('https://example.com/photo.jpg')).toContain(
+    '<img src="https://example.com/photo.jpg" alt="A photo"',
+  );
+  expect(render('javascript:alert(1)')).toBe('');
+});

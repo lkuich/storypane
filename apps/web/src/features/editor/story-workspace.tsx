@@ -998,7 +998,7 @@ function LocaleEditor({
           <>
             <Clock3 aria-hidden="true" />
             <span>
-              <strong>Changes awaiting publish.</strong> The previously published version of{' '}
+              <strong>Unpublished changes.</strong> The previously published version of{' '}
               {snapshot.locale.name} is still live.
             </span>
           </>

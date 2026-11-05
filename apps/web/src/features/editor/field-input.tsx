@@ -1,12 +1,73 @@
 'use client';
 
 import { useEffect, useId, useRef, useState } from 'react';
-import { EditorContent, useEditor, type JSONContent } from '@tiptap/react';
+import { EditorContent, Mark, Node, useEditor, type JSONContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import type { AssetReference, FieldDefinition, Json, LinkValue } from '@storypane/core';
+import { isRichTextColor } from '@storypane/core';
 import { AssetPicker } from '../assets/asset-picker';
 import { OptionInput } from './option-input';
 import { localDatetime, utcDatetime } from './draft-buffer';
+
+const TextStyle = Mark.create({
+  name: 'textStyle',
+  addAttributes() {
+    return { color: { default: null } };
+  },
+  parseHTML() {
+    return [
+      {
+        tag: 'span[style]',
+        getAttrs: (element) => {
+          const color = (element as HTMLElement).style.color;
+          return isRichTextColor(color) ? { color } : false;
+        },
+      },
+    ];
+  },
+  renderHTML({ HTMLAttributes }) {
+    return [
+      'span',
+      isRichTextColor(HTMLAttributes.color) ? { style: `color: ${HTMLAttributes.color}` } : {},
+      0,
+    ];
+  },
+});
+
+const RichTextImage = Node.create({
+  name: 'image',
+  group: 'block',
+  atom: true,
+  draggable: true,
+  addAttributes() {
+    return {
+      assetId: { default: null },
+      src: { default: null },
+      alt: { default: '' },
+      title: { default: null },
+    };
+  },
+  parseHTML() {
+    return [
+      {
+        tag: 'img[data-asset-id]',
+        getAttrs: (element) => ({ assetId: element.getAttribute('data-asset-id') }),
+      },
+    ];
+  },
+  renderHTML({ HTMLAttributes }) {
+    const { assetId, src, alt, title } = HTMLAttributes;
+    return [
+      'img',
+      {
+        'data-asset-id': assetId,
+        src: typeof src === 'string' && /^https?:/.test(src) ? src : undefined,
+        alt,
+        title,
+      },
+    ];
+  },
+});
 
 function RichTextInput({
   value,
@@ -22,7 +83,7 @@ function RichTextInput({
   const changeRef = useRef(onChange);
   changeRef.current = onChange;
   const editor = useEditor({
-    extensions: [StarterKit],
+    extensions: [StarterKit.configure({ trailingNode: false }), TextStyle, RichTextImage],
     content:
       value && typeof value === 'object'
         ? (value as JSONContent)

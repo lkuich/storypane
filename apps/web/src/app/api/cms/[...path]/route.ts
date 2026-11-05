@@ -155,13 +155,15 @@ async function handle(request: Request, route: { params: Promise<{ path: string[
       }
     }
     if (resource === 'locales') {
+      if (method === 'GET' && id && child === 'deletion-review' && !localeId)
+        return jsonResponse(await store.reviewSpaceLocaleDeletion(actor, id));
       if (method === 'GET' && !id) return jsonResponse(await store.listSpaceLocales(actor));
       if (method === 'POST' && !id)
         return jsonResponse(await store.createSpaceLocale(actor, await readJson(request)), 201);
       if (method === 'PUT' && id)
         return jsonResponse(await store.updateSpaceLocale(actor, id, await readJson(request)));
-      if (method === 'DELETE' && id) {
-        await store.deleteSpaceLocale(actor, id);
+      if (method === 'DELETE' && id && !child) {
+        await store.deleteSpaceLocale(actor, id, request.body ? await readJson(request) : {});
         return jsonResponse({ ok: true });
       }
     }

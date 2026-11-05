@@ -106,6 +106,28 @@ export function can(
   return space.permissions.includes(permission);
 }
 export type SpaceLocale = { id: string; name: string; slug: string; storyCount: number };
+export type SpaceLocaleDeletionReview = {
+  locale: SpaceLocale;
+  token: string;
+  stories: {
+    id: string;
+    name: string;
+    localeId: string;
+    urlSlug: string;
+    deleted: boolean;
+    published: boolean;
+    scheduled: boolean;
+  }[];
+};
+export const deleteSpaceLocaleSchema = z
+  .object({
+    deleteContent: z.boolean().default(false),
+    reviewToken: z
+      .string()
+      .regex(/^[a-f0-9]{64}$/)
+      .optional(),
+  })
+  .strict();
 export const spaceLocaleInputSchema = z
   .object({
     name: z.string().trim().min(1).max(80),
@@ -436,10 +458,7 @@ export const linkValueSchema = z.discriminatedUnion('type', [
       type: z.literal('external'),
       url: z
         .url()
-        .refine(
-          (v) => ['https:', 'http:'].includes(new URL(v).protocol),
-          'Use an HTTP or HTTPS URL',
-        ),
+        .refine((v) => /^(https?:|tel:)/i.test(v), 'Use an HTTP, HTTPS, or telephone URL'),
     })
     .strict(),
   z.object({ type: z.literal('email'), email: z.email() }).strict(),
@@ -529,6 +548,7 @@ export const publicationReferenceChoiceSchema = z
   .object({
     localeId: z.uuid(),
     checkpointId: z.uuid(),
+    publicationId: z.uuid().nullable().optional(),
     action: z.enum(['publish', 'omit']),
   })
   .strict();
@@ -540,6 +560,7 @@ export type PublicationReference = {
   localeId: string;
   localeName: string;
   checkpointId: string;
+  publicationId: string | null;
   revision: number;
   canPublish: boolean;
   usages: { localeId: string; storyName: string; field: string; canOmit: boolean }[];
@@ -819,6 +840,7 @@ export function defaultFields(schema: DefinitionInput): Record<string, Json> {
 }
 
 const richNodes = new Set([
+  'image',
   'doc',
   'paragraph',
   'text',
@@ -831,10 +853,32 @@ const richNodes = new Set([
   'hardBreak',
   'horizontalRule',
 ]);
-const richMarks = new Set(['bold', 'italic', 'strike', 'code', 'underline', 'link']);
+const richMarks = new Set(['bold', 'italic', 'strike', 'code', 'underline', 'link', 'textStyle']);
+export function isRichTextColor(value: unknown): value is string {
+  return (
+    typeof value === 'string' &&
+    value.length <= 80 &&
+    /^(#(?:[0-9a-f]{3}|[0-9a-f]{4}|[0-9a-f]{6}|[0-9a-f]{8})|(?:rgb|hsl|lab|lch|oklab|oklch)a?\([\d.,% /+-]+\))$/i.test(
+      value,
+    )
+  );
+}
 function validRichText(value: Json, depth = 0): boolean {
   if (depth > 30 || !value || typeof value !== 'object' || Array.isArray(value)) return false;
   if (typeof value.type !== 'string' || !richNodes.has(value.type)) return false;
+  if (value.type === 'image') {
+    const attrs = value.attrs;
+    if (
+      !attrs ||
+      typeof attrs !== 'object' ||
+      Array.isArray(attrs) ||
+      !z.uuid().safeParse(attrs.assetId).success ||
+      typeof attrs.src !== 'string' ||
+      !z.url().safeParse(attrs.src).success ||
+      !/^https?:/i.test(attrs.src)
+    )
+      return false;
+  }
   if (value.text !== undefined && typeof value.text !== 'string') return false;
   if (
     value.marks !== undefined &&
@@ -848,6 +892,16 @@ function validRichText(value: Json, depth = 0): boolean {
           !richMarks.has(mark.type)
         )
           return false;
+        if (mark.type === 'textStyle') {
+          const attrs = mark.attrs;
+          if (
+            !attrs ||
+            typeof attrs !== 'object' ||
+            Array.isArray(attrs) ||
+            !isRichTextColor(attrs.color)
+          )
+            return false;
+        }
         if (mark.type === 'link') {
           const attrs = mark.attrs;
           if (
@@ -855,7 +909,7 @@ function validRichText(value: Json, depth = 0): boolean {
             typeof attrs !== 'object' ||
             Array.isArray(attrs) ||
             typeof attrs.href !== 'string' ||
-            !/^(https?:|mailto:)/i.test(attrs.href)
+            !/^(https?:|mailto:|tel:)/i.test(attrs.href)
           )
             return false;
         }
@@ -869,6 +923,19 @@ function validRichText(value: Json, depth = 0): boolean {
       value.content.length <= 10000 &&
       value.content.every((child) => validRichText(child, depth + 1)))
   );
+}
+export function richTextAssetIds(value: Json): string[] {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return [];
+  const attrs = value.attrs;
+  const own =
+    value.type === 'image' &&
+    attrs &&
+    typeof attrs === 'object' &&
+    !Array.isArray(attrs) &&
+    typeof attrs.assetId === 'string'
+      ? [attrs.assetId]
+      : [];
+  return [...own, ...(Array.isArray(value.content) ? value.content.flatMap(richTextAssetIds) : [])];
 }
 export function validateFields(
   schema: DefinitionInput,

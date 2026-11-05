@@ -107,3 +107,42 @@ it('rejects linking to an identity already owned by another Clerk account', asyn
   );
   await expect(run()).rejects.toMatchObject({ code: 'forbidden' });
 });
+
+it('shares concurrent identity lookups but checks revocation again for the next request', async () => {
+  let finish!: (session: { status: string; userId: string }) => void;
+  clerk.sessions.getSession.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+  );
+  const first = run(),
+    second = run();
+  await vi.waitFor(() => expect(clerk.sessions.getSession).toHaveBeenCalledTimes(1));
+  finish({ status: 'active', userId: auth.userId });
+  await Promise.all([first, second]);
+  expect(clerk.authenticateRequest).toHaveBeenCalledTimes(2);
+  expect(clerk.users.getUser).toHaveBeenCalledTimes(1);
+  clerk.sessions.getSession.mockResolvedValue({ status: 'revoked', userId: auth.userId });
+  await expect(run()).rejects.toMatchObject({ code: 'unauthenticated' });
+  expect(clerk.sessions.getSession).toHaveBeenCalledTimes(2);
+});
+
+it('does not reuse failed identity checks', async () => {
+  clerk.sessions.getSession.mockRejectedValueOnce(new Error('Rate limited'));
+  const results = await Promise.allSettled([run(), run()]);
+  expect(results.map((result) => result.status)).toEqual(['rejected', 'rejected']);
+  expect((await run()).user.id).toBe(auth.userId);
+  expect(clerk.sessions.getSession).toHaveBeenCalledTimes(2);
+});
+
+it('does not share identity lookups between sessions', async () => {
+  clerk.authenticateRequest.mockResolvedValueOnce({
+    isAuthenticated: true,
+    toAuth: () => ({ ...auth, sessionId: 'other-session' }),
+  });
+  await Promise.all([run(), run()]);
+  expect(clerk.sessions.getSession).toHaveBeenCalledTimes(2);
+  expect(clerk.sessions.getSession).toHaveBeenCalledWith('other-session');
+  expect(clerk.sessions.getSession).toHaveBeenCalledWith(auth.sessionId);
+});

@@ -57,6 +57,33 @@ export function errorResponse(error: unknown): Response {
       { status: statuses[error.code], headers: { 'Cache-Control': 'no-store' } },
     );
   }
+  if (
+    error &&
+    typeof error === 'object' &&
+    'clerkError' in error &&
+    error.clerkError === true &&
+    'status' in error &&
+    error.status === 429
+  ) {
+    const retryAfter =
+      'retryAfter' in error &&
+      typeof error.retryAfter === 'number' &&
+      Number.isFinite(error.retryAfter)
+        ? Math.max(1, Math.ceil(error.retryAfter))
+        : 5;
+    return Response.json(
+      {
+        error: {
+          code: 'unavailable',
+          message: 'The sign-in service is busy. Please try again shortly.',
+        },
+      },
+      {
+        status: 503,
+        headers: { 'Cache-Control': 'no-store', 'Retry-After': String(retryAfter) },
+      },
+    );
+  }
   console.error('CMS request failed', error);
   return Response.json(
     {

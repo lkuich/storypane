@@ -98,10 +98,27 @@ export async function fetchExternalOptions(
       data.set(chunk, offset);
       offset += chunk.length;
     }
+    const raw = JSON.parse(new TextDecoder().decode(data));
+    const legacy = Array.isArray(raw)
+      ? z
+          .array(
+            z
+              .object({
+                value: z.union([z.string(), z.number().finite()]),
+                name: z.string(),
+              })
+              .strict(),
+          )
+          .max(1000)
+          .safeParse(raw)
+      : undefined;
+    const normalized = legacy?.success
+      ? { items: legacy.data.map((item) => ({ value: String(item.value), label: item.name })) }
+      : raw;
     const parsed = z
       .object({ items: z.array(optionItemSchema).max(1000) })
       .strict()
-      .safeParse(JSON.parse(new TextDecoder().decode(data)));
+      .safeParse(normalized);
     if (
       !parsed.success ||
       new Set(parsed.data.items.map((i) => i.value)).size !== parsed.data.items.length

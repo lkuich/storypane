@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Box, Layers, Plus, Search } from 'lucide-react';
 import type { BlockDefinition, Datasource } from '@storypane/core';
 import { Button, EmptyState, ErrorNotice, Loading } from '@storypane/ui';
@@ -10,6 +10,7 @@ import { MigrationPanel } from './migration-panel';
 import { SchemaDrawer } from './schema-drawer';
 
 const kindLabels = { nestable: 'Nestable', 'content-type': 'Content type', universal: 'Universal' };
+const kindColors = { nestable: 'blue', 'content-type': 'green', universal: 'violet' };
 
 export function SchemaLibrary({
   canManage,
@@ -27,51 +28,45 @@ export function SchemaLibrary({
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [editing, setEditing] = useState<BlockDefinition | 'new' | null>(null);
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError(null);
+  const requests = useRef({ id: 0, pending: 0 });
+  const load = useCallback(async (foreground = true) => {
+    const state = requests.current;
+    if (!foreground && state.pending) return;
+    const current = ++state.id;
+    state.pending++;
+    if (foreground) setLoading(true);
     try {
       const [blocks, sources, published] = await Promise.all([
         api<BlockDefinition[]>('/definitions'),
         api<Datasource[]>('/datasources'),
         api<BlockDefinition[]>('/definitions?deployed=true'),
       ]);
+      if (current !== state.id) return;
+      setError(null);
       setDeployed(published);
       setDefinitions(blocks);
       setDatasources(sources);
     } catch (cause) {
-      setError(errorMessage(cause));
+      if (current === state.id) setError(errorMessage(cause));
     } finally {
-      setLoading(false);
+      state.pending--;
+      if (current === state.id) setLoading(false);
     }
   }, []);
   useEffect(() => {
+    const state = requests.current;
     void load();
-  }, [load]);
-  useEffect(() => {
-    let stopped = false;
     const refresh = () => {
-      if (!document.hidden)
-        void Promise.all([
-          api<BlockDefinition[]>('/definitions'),
-          api<BlockDefinition[]>('/definitions?deployed=true'),
-        ])
-          .then(([value, published]) => {
-            if (!stopped) {
-              setDefinitions(value);
-              setDeployed(published);
-            }
-          })
-          .catch(() => undefined);
+      if (!document.hidden) void load(false);
     };
     const timer = setInterval(refresh, 5000);
     window.addEventListener('focus', refresh);
     return () => {
-      stopped = true;
+      state.id++;
       clearInterval(timer);
       window.removeEventListener('focus', refresh);
     };
-  }, []);
+  }, [load]);
   const filtered = definitions.filter((item) =>
     `${item.name} ${item.displayName}`.toLowerCase().includes(search.toLowerCase()),
   );
@@ -139,7 +134,7 @@ export function SchemaLibrary({
                     </div>
                   </td>
                   <td>
-                    <span className={`pill ${item.kind === 'content-type' ? 'pill--green' : ''}`}>
+                    <span className={`pill pill--${kindColors[item.kind]}`}>
                       {kindLabels[item.kind]}
                     </span>
                   </td>

@@ -3,6 +3,30 @@ import { StorypaneError } from '@storypane/core';
 import type { Pool } from 'pg';
 import { acceptVerifiedEmailInvitations } from '@storypane/db';
 
+type Clerk = ReturnType<typeof createClerkClient>;
+type Identity = Awaited<ReturnType<Clerk['users']['getUser']>> | null;
+const pendingIdentities = new WeakMap<Clerk, Map<string, Promise<Identity>>>();
+
+function clerkIdentity(clerk: Clerk, userId: string, sessionId: string) {
+  let pending = pendingIdentities.get(clerk);
+  if (!pending) pendingIdentities.set(clerk, (pending = new Map()));
+  const key = JSON.stringify([userId, sessionId]);
+  let identity = pending.get(key);
+  if (!identity) {
+    // Share only concurrent lookups; the next request still checks revocation and account status.
+    identity = (async () => {
+      const session = await clerk.sessions.getSession(sessionId);
+      const user =
+        session.status === 'active' && session.userId === userId
+          ? await clerk.users.getUser(userId)
+          : null;
+      return user;
+    })().finally(() => pending.delete(key));
+    pending.set(key, identity);
+  }
+  return identity;
+}
+
 export async function clerkSession(
   request: Request,
   db: Pool,
@@ -17,12 +41,11 @@ export async function clerkSession(
   const auth = state.toAuth();
   if (!auth?.userId || !auth.sessionId)
     throw new StorypaneError('unauthenticated', 'Sign in to continue.');
-  const remote = await clerk.sessions.getSession(auth.sessionId);
-  if (remote.status !== 'active' || remote.userId !== auth.userId) {
+  const user = await clerkIdentity(clerk, auth.userId, auth.sessionId);
+  if (!user) {
     await db.query('DELETE FROM cms_sessions WHERE id=$1', [auth.sessionId]);
     throw new StorypaneError('unauthenticated', 'Your session has expired.');
   }
-  const user = await clerk.users.getUser(auth.userId);
   const email = user.emailAddresses.find((item) => item.id === user.primaryEmailAddressId);
   if (!email || email.verification?.status !== 'verified' || user.banned || user.locked)
     throw new StorypaneError('forbidden', 'A verified email address is required.');

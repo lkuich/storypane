@@ -9,7 +9,7 @@ import { defaultFilters, type ContentFilters } from './content-filters';
 
 const statuses = [
   { value: 'draft', label: 'Draft' },
-  { value: 'changed', label: 'Awaiting publish' },
+  { value: 'changed', label: 'Unpublished changes' },
   { value: 'published', label: 'Published' },
 ];
 const dates = [

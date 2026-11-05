@@ -7,6 +7,7 @@ import type {
 } from '@storypane/core';
 import { Button, ErrorNotice, Modal } from '@storypane/ui';
 import { api, errorMessage } from './api';
+import { PublicationStatus } from '../../components/publication-status';
 
 export function publicationSelection(
   review: PublicationReview | null,
@@ -50,6 +51,7 @@ export function publicationSelection(
           (choice) =>
             choice.localeId === reference.localeId &&
             choice.checkpointId === reference.checkpointId &&
+            (choice.publicationId ?? null) === (reference.publicationId ?? null) &&
             (choice.action === 'publish' ? reference.canPublish : reference.canOmit),
         ),
       ),
@@ -72,17 +74,22 @@ export function PublicationReferences({
   const [error, setError] = useState<string | null>(null);
   if (!references.length) return null;
   return (
-    <section className="publication-references" aria-label="Unpublished linked stories">
-      <h3>Unpublished linked stories</h3>
+    <section
+      className="publication-references"
+      aria-label="Linked stories with unpublished content"
+    >
+      <h3>Linked stories with unpublished content</h3>
       <p>
-        Choose what goes live with this page. Omitted references stay in your draft. Linked stories
-        with a live version keep using that version.
+        These linked stories are drafts or have unpublished changes visible in preview. Publish
+        their reviewed revisions too, or omit them from this publication. Your draft keeps the
+        links.
       </p>
       <ErrorNotice message={error} />
       {references.map((reference) => (
         <div className="publication-reference" key={reference.localeId}>
           <div className="publication-reference-info">
             <strong>{reference.storyName}</strong>
+            <PublicationStatus status={reference.publicationId ? 'changed' : 'draft'} />
             <span className="small muted">
               {reference.localeName} · Saved revision {reference.revision}
             </span>
@@ -123,6 +130,7 @@ export function PublicationReferences({
                     {
                       localeId: reference.localeId,
                       checkpointId: reference.checkpointId,
+                      publicationId: reference.publicationId,
                       action: event.target.value as PublicationReferenceChoice['action'],
                     },
                   ])
