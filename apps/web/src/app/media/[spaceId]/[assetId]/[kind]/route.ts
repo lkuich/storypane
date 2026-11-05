@@ -1,4 +1,4 @@
-import { env } from 'cloudflare:workers';
+import { env, openCache } from '#platform';
 import { handlePublicMedia } from '@storypane/assets';
 import { createServices } from '../../../../../lib/context';
 
@@ -14,7 +14,7 @@ async function handle(
       db: services.db,
       bucket: env.MEDIA,
       images: env.IMAGES,
-      cache: await caches.open('storypane-public-media-v1'),
+      cache: await openCache('storypane-public-media-v1'),
     });
   } finally {
     await services.db.end();

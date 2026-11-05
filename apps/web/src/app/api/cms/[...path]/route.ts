@@ -1,4 +1,4 @@
-import { env } from 'cloudflare:workers';
+import { env, openCache } from '#platform';
 import { StorypaneError, definitionSaveSchema, parseInput } from '@storypane/core';
 import { handleAssets } from '@storypane/assets';
 import { authenticate, createServices } from '../../../../lib/context';
@@ -8,10 +8,11 @@ async function handle(request: Request, route: { params: Promise<{ path: string[
   const services = createServices();
   try {
     const { path } = await route.params;
-    const managementToken =
-      path[0] === 'migrations'
-        ? request.headers.get('authorization')?.match(/^Bearer (sm_[\w-]+)$/)?.[1]
-        : undefined;
+    const authorization = request.headers.get('authorization');
+    const managementToken = authorization?.match(/^Bearer (sm_[\w-]+)$/)?.[1];
+    if (authorization && !managementToken) {
+      throw new StorypaneError('unauthenticated', 'A management bearer token is required');
+    }
     const authenticated = managementToken ? null : await authenticate(request, services);
     const actor =
       authenticated?.actor ??
@@ -20,14 +21,23 @@ async function handle(request: Request, route: { params: Promise<{ path: string[
         request.headers.get('x-storypane-space-id') ??
           new URL(request.url).searchParams.get('space') ??
           '',
+        path[0],
       ));
-    const space = authenticated?.space;
     const method = request.method;
     const isWebSocket = request.headers.get('upgrade')?.toLowerCase() === 'websocket';
     if (!managementToken && (!['GET', 'HEAD'].includes(method) || isWebSocket))
       assertOrigin(request, env.APP_URL);
     const [resource, id, child, localeId, action, targetId] = path;
     const store = services.store;
+    if (managementToken) {
+      await store.assertActor(actor);
+      if (path.includes('leases') || path.includes('preview') || path[0] === 'presence') {
+        throw new StorypaneError(
+          'forbidden',
+          'Browser editing sessions are not available to management tokens',
+        );
+      }
+    }
     if (resource === 'webhooks') {
       if (!id && method === 'GET') return jsonResponse(await store.listWebhooks(actor));
       if (!id && method === 'POST')
@@ -160,7 +170,11 @@ async function handle(request: Request, route: { params: Promise<{ path: string[
       if (method === 'GET' && !id) return jsonResponse(await store.listSpaceLocales(actor));
       if (method === 'POST' && !id)
         return jsonResponse(await store.createSpaceLocale(actor, await readJson(request)), 201);
-      if (method === 'PUT' && id)
+      if (method === 'PUT' && id && child === 'default' && !localeId) {
+        await store.setDefaultSpaceLocale(actor, id, await readJson(request));
+        return jsonResponse({ ok: true });
+      }
+      if (method === 'PUT' && id && !child)
         return jsonResponse(await store.updateSpaceLocale(actor, id, await readJson(request)));
       if (method === 'DELETE' && id && !child) {
         await store.deleteSpaceLocale(actor, id, request.body ? await readJson(request) : {});
@@ -197,16 +211,31 @@ async function handle(request: Request, route: { params: Promise<{ path: string[
       if (method === 'PUT')
         return jsonResponse(await store.updateSpace(actor, await readJson(request)));
     }
-    if (resource === 'assets')
+    if (resource === 'assets') {
+      const writes = !['GET', 'HEAD'].includes(method);
+      if (writes) {
+        await store.assertActor(actor, 'assets:write');
+      }
       return await handleAssets(request, path.slice(1), {
         db: services.db,
         actor,
-        canWrite: space!.permissions.includes('assets:write'),
+        canWrite: writes,
         bucket: env.MEDIA,
         images: env.IMAGES,
-        cache: await caches.open('storypane-thumbnails-v1'),
+        cache: await openCache('storypane-thumbnails-v1'),
       });
+    }
     if (resource === 'definitions') {
+      if (method === 'DELETE' && id && !child) {
+        await store.deleteDefinition(actor, id, await readJson(request));
+        return jsonResponse({ ok: true });
+      }
+      if (method === 'GET' && id && child === 'references' && !localeId)
+        return jsonResponse(
+          await store.listDefinitionReferences(actor, id, {
+            cursor: new URL(request.url).searchParams.get('cursor') ?? 0,
+          }),
+        );
       if (method === 'GET' && !id)
         return jsonResponse(
           await store.listDefinitions(
@@ -217,12 +246,21 @@ async function handle(request: Request, route: { params: Promise<{ path: string[
       if (method === 'POST' && !id) {
         const input = parseInput(definitionSaveSchema, await readJson(request));
         return jsonResponse(
-          await store.createDefinition(actor, input.schema, input.baseVersion),
+          await store.createDefinition(
+            actor,
+            input.schema,
+            input.baseVersion,
+            input.parentDefinitionId,
+          ),
           201,
         );
       }
+      if (method === 'PUT' && id && child === 'parent' && !localeId)
+        return jsonResponse(await store.moveDefinition(actor, id, await readJson(request)));
       if (method === 'POST' && id && child === 'versions') {
         const input = parseInput(definitionSaveSchema, await readJson(request));
+        if (input.parentDefinitionId !== undefined)
+          throw new StorypaneError('invalid', 'Change the block parent separately from its schema');
         if (!input.expectedVersionId)
           throw new StorypaneError('invalid', 'The starting definition version is required');
         return jsonResponse(
@@ -258,9 +296,9 @@ async function handle(request: Request, route: { params: Promise<{ path: string[
               new Request('https://room/invalidate', {
                 method: 'POST',
                 headers: {
-                  'x-blok-space-id': actor.spaceId,
-                  'x-blok-story-id': storyId,
-                  'x-blok-locale-id': localeId,
+                  'x-storypane-space-id': actor.spaceId,
+                  'x-storypane-story-id': storyId,
+                  'x-storypane-locale-id': localeId,
                 },
               }),
             );

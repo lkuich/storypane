@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
-import { ExternalLink, Globe2, Pencil, Plus, Trash2 } from 'lucide-react';
+import { ExternalLink, Globe2, Pencil, Plus, Star, Trash2 } from 'lucide-react';
 import type { SpaceLocale, SpaceLocaleDeletionReview } from '@storypane/core';
 import { Button, ErrorNotice, Loading, Modal } from '@storypane/ui';
 import { ApiError, api, errorMessage, jsonRequest } from '../editor/api';
@@ -26,6 +26,10 @@ export function LocaleSettings({
     [review, setReview] = useState<SpaceLocaleDeletionReview | null>(null),
     [deleteContent, setDeleteContent] = useState(false),
     [deleteError, setDeleteError] = useState('');
+  const [defaultTarget, setDefaultTarget] = useState<SpaceLocale | null>(null),
+    [defaultError, setDefaultError] = useState('');
+  const defaultLocale = locales?.find((locale) => locale.isDefault);
+  const hasLastLocale = review?.stories.some((story) => story.lastLocale) ?? false;
   const dirty =
     editing !== null &&
     (editing === 'new' ? !!(name || slug) : name !== editing.name || slug !== editing.slug);
@@ -114,7 +118,7 @@ export function LocaleSettings({
                 <tr key={locale.id}>
                   <td>
                     <strong>{locale.name}</strong>
-                    {locale.slug === '' && (
+                    {locale.isDefault && (
                       <span className="locale-default-label">Default locale</span>
                     )}
                   </td>
@@ -126,28 +130,40 @@ export function LocaleSettings({
                   {canManage && (
                     <td>
                       <div className="locale-row-actions">
-                        {locale.slug !== '' && (
-                          <>
-                            <Button
-                              variant="ghost"
-                              className="icon-button"
-                              aria-label={`Edit ${locale.name}`}
-                              onClick={() => edit(locale)}
-                              disabled={busy}
-                            >
-                              <Pencil />
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              className="icon-button"
-                              aria-label={`Remove ${locale.name}`}
-                              disabled={busy}
-                              title={`Remove ${locale.name}`}
-                              onClick={() => void reviewDeletion(locale)}
-                            >
-                              <Trash2 />
-                            </Button>
-                          </>
+                        {!locale.isDefault && (
+                          <Button
+                            variant="ghost"
+                            className="button--small"
+                            disabled={busy}
+                            aria-label={`Set ${locale.name} as default`}
+                            onClick={() => {
+                              setDefaultTarget(locale);
+                              setDefaultError('');
+                            }}
+                          >
+                            <Star /> Set as default
+                          </Button>
+                        )}
+                        <Button
+                          variant="ghost"
+                          className="icon-button"
+                          aria-label={`Edit ${locale.name}`}
+                          onClick={() => edit(locale)}
+                          disabled={busy}
+                        >
+                          <Pencil />
+                        </Button>
+                        {!locale.isDefault && (
+                          <Button
+                            variant="ghost"
+                            className="icon-button"
+                            aria-label={`Remove ${locale.name}`}
+                            disabled={busy}
+                            title={`Remove ${locale.name}`}
+                            onClick={() => void reviewDeletion(locale)}
+                          >
+                            <Trash2 />
+                          </Button>
                         )}
                       </div>
                     </td>
@@ -159,9 +175,52 @@ export function LocaleSettings({
         </div>
       )}
       <p className="locale-settings-note">
-        Default always uses an empty slug and cannot be removed. Removing another locale lets you
-        review and delete its story content too.
+        The default is used for new stories and requests without a locale. Changing it keeps all URL
+        prefixes unchanged. Choose another default before removing the current one.
       </p>
+      <Modal
+        open={defaultTarget !== null}
+        onClose={() => {
+          if (!busy) setDefaultTarget(null);
+        }}
+        title={`Make ${defaultTarget?.name ?? 'locale'} the default?`}
+        description="New stories and requests without a locale will use this locale. Existing content and URL prefixes stay unchanged."
+      >
+        <ErrorNotice message={defaultError} />
+        <p>
+          Stories without content in {defaultTarget?.name} will keep their existing locales. No
+          content will be copied or published.
+        </p>
+        <div className="dialog-actions">
+          <Button disabled={busy} onClick={() => setDefaultTarget(null)}>
+            Cancel
+          </Button>
+          <Button
+            variant="primary"
+            disabled={busy || !defaultLocale}
+            onClick={async () => {
+              if (!defaultTarget || !defaultLocale) return;
+              setBusy(true);
+              setDefaultError('');
+              try {
+                await api(
+                  `/locales/${defaultTarget.id}/default`,
+                  jsonRequest('PUT', { expectedDefaultLocaleId: defaultLocale.id }),
+                );
+                setDefaultTarget(null);
+                await load();
+              } catch (cause) {
+                setDefaultError(errorMessage(cause));
+                if (cause instanceof ApiError && cause.code === 'stale_revision') await load();
+              } finally {
+                setBusy(false);
+              }
+            }}
+          >
+            <Star /> {busy ? 'Saving…' : 'Set as default'}
+          </Button>
+        </div>
+      </Modal>
       <Modal
         open={removing !== null}
         onClose={() => {
@@ -204,16 +263,23 @@ export function LocaleSettings({
                           </a>
                         )}
                         <code>
-                          /{review.locale.slug}/{story.urlSlug}
+                          /{[review.locale.slug, story.urlSlug].filter(Boolean).join('/')}
                         </code>
                       </div>
                       <span className="muted">
                         {story.deleted ? 'Deleted story' : story.published ? 'Published' : 'Draft'}
                         {story.scheduled ? ' · Scheduled' : ''}
+                        {story.lastLocale ? ' · Only remaining locale' : ''}
                       </span>
                     </li>
                   ))}
                 </ul>
+                {hasLastLocale && (
+                  <p className="notice">
+                    Add another locale to each story marked “Only remaining locale” before removing
+                    this locale. Restore deleted stories first to add their content.
+                  </p>
+                )}
                 {review.stories.some((story) => story.published || story.scheduled) && (
                   <p className="notice">
                     Published content in this locale will be removed from delivery and its schedules
@@ -228,8 +294,10 @@ export function LocaleSettings({
                     disabled={busy}
                     onChange={(event) => setDeleteContent(event.target.checked)}
                   />
-                  Delete this locale’s content and revision history from all {review.stories.length}{' '}
-                  {review.stories.length === 1 ? 'story' : 'stories'}
+                  Delete this locale’s content and revision history from{' '}
+                  {review.stories.length === 1
+                    ? 'this story'
+                    : `all ${review.stories.length} stories`}
                 </label>
               </>
             ) : (
@@ -243,7 +311,9 @@ export function LocaleSettings({
           </Button>
           <Button
             variant="danger"
-            disabled={busy || !review || (!!review.stories.length && !deleteContent)}
+            disabled={
+              busy || !review || hasLastLocale || (!!review.stories.length && !deleteContent)
+            }
             onClick={async () => {
               if (!review) return;
               setBusy(true);
@@ -318,7 +388,6 @@ export function LocaleSettings({
             Locale slug
             <input
               aria-label="Locale slug"
-              required
               maxLength={30}
               pattern="[a-zA-Z0-9][a-zA-Z0-9-]*"
               value={slug}
@@ -327,8 +396,8 @@ export function LocaleSettings({
               placeholder="fr-CA"
             />
             <span className="field-hint">
-              URL prefix, for example <code>/{slug || 'fr-CA'}/home</code>. Use letters, numbers,
-              and hyphens.
+              URL prefix, for example <code>/{[slug, 'home'].filter(Boolean).join('/')}</code>. Use
+              letters, numbers, and hyphens, or leave empty for root URLs.
             </span>
           </label>
           {editing && editing !== 'new' && (
@@ -341,11 +410,7 @@ export function LocaleSettings({
             <Button onClick={close} disabled={busy}>
               Cancel
             </Button>
-            <Button
-              type="submit"
-              variant="primary"
-              disabled={busy || !dirty || !name.trim() || !slug.trim()}
-            >
+            <Button type="submit" variant="primary" disabled={busy || !dirty || !name.trim()}>
               {busy ? 'Saving…' : editing === 'new' ? 'Add locale' : 'Save locale'}
             </Button>
           </div>

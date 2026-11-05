@@ -56,7 +56,7 @@ export function connectPreview<T>(options: PreviewOptions<T>): () => void {
       typeof value.token === 'string' &&
       /^bp_[\w-]{43}$/.test(value.token) &&
       value.spaceId === options.spaceId &&
-      value.locale === (options.story.locale ?? '') &&
+      (options.story.locale === undefined || value.locale === options.story.locale) &&
       (options.story.id ? value.storyId === options.story.id : value.slug === options.story.slug) &&
       Date.parse(value.expiresAt) > Date.now()
     );
@@ -145,7 +145,6 @@ export function connectPreview<T>(options: PreviewOptions<T>): () => void {
           type: 'storypane:ready',
           spaceId: options.spaceId,
           ...options.story,
-          locale: options.story.locale ?? '',
         });
         if (!ready)
           ready = setInterval(
@@ -154,7 +153,6 @@ export function connectPreview<T>(options: PreviewOptions<T>): () => void {
                 type: 'storypane:ready',
                 spaceId: options.spaceId,
                 ...options.story,
-                locale: options.story.locale ?? '',
               }),
             3000,
           );

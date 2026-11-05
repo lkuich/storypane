@@ -144,9 +144,24 @@ Docker volumes, databases, buckets, or Durable Object namespaces.
 - Inline choices, managed KV datasources, other-story references, and external
   JSON sources. External sources require an exact public HTTPS hostname in
   `EXTERNAL_OPTION_HOSTS` and return `{ "items": [{ "value": "key", "label": "Label" }] }`.
-- Independent locale structures. Default uses `""` as its locale slug; importing
-  from Default makes one-time subtree copies with fresh IDs.
+  External JSON fields support up to 20 custom request headers (8 KB total). Headers are
+  sent by the CMS server; values are part of the versioned block schema and visible to
+  schema readers. They are not a secret store and are excluded from delivery schemas/content.
+  Editor requests automatically include `X-Storypane-Space-Id`, `X-Storypane-Story-Id`,
+  `X-Storypane-Story-Slug`, `X-Storypane-Locale-Id`, `X-Storypane-Locale`,
+  `X-Storypane-Block-Id`, `X-Storypane-Block-Type`, and `X-Storypane-Field`.
+  Story slug is the selected locale's URL slug; Locale is its URL prefix (empty for root).
+  Decode percent-encoded slug/prefix values at the endpoint. Context is checked against
+  the requesting user's access and saved field configuration; custom headers cannot
+  override context or transport headers. Requests never forward the editor's session
+  credentials or follow redirects.
+- Independent locale structures. Importing from the configured default locale
+  makes one-time subtree copies with fresh IDs.
 - **Space settings → Locales** manages shared locale names and URL prefixes.
+  Set any locale as the default without changing URL prefixes or copying content.
+  New stories and delivery requests that omit `locale` use that default; explicit
+  `locale: ''` selects the root locale. The former default, including root, can be
+  deleted once every affected story has another locale. The current default cannot be deleted.
   Configured locales appear on every story; opening a new locale creates its
   independent page. Removing a locale lists affected stories with links to their locale
   editors and requires explicit confirmation to delete its content and history.
@@ -204,7 +219,10 @@ Links use `/?space=<id>&story=<id>&locale=<slug>&block=<id>` (omit `locale` for
 Default). A deleted or published-only block shows a notice when absent from the draft.
 
 Use **Copy block** in a block's toolbar (or its list-row copy icon), then
-**Paste block** in a destination block list. Copies include nested blocks and
+**Paste block** to append to a destination block list, or **Paste here** above a
+block to insert at that position. Paste actions appear when a valid copied block
+matches the destination's space, schema and allowed types, and the list has room.
+Copies include nested blocks and
 visible unsaved field values; pasting creates independent block IDs, including
 across pages and locales in the same space. Asset and story references keep their
 existing targets. Pasting follows the destination's schema, limits and editing
@@ -214,7 +232,10 @@ browser blocks clipboard access, the editor provides manual copy/paste fields.
 The SDK CLI supports `migrations pull`, `migrations create "description"`,
 `migrations push`, and `migrations push --deploy --yes` for CI/CD. Generate types
 from the latest deployed migration with `generate-types --out src/types/storypane.ts`.
-Admin-issued management tokens are available in the migration panel. See the
+Admin-issued migration tokens are available in the migration panel. General management
+API tokens are available in Space settings → API & preview. The versioned HTTP API,
+`@storypane/sdk/management`, and resource CLI commands cover drafts, assets, and
+space configuration; see the [management API guide](docs/management-api.md). See the
 [SDK migration guide](packages/sdk/README.md#schema-migrations-and-generated-types)
 for credentials, files, conflicts, and pipeline usage. Outdated SDK consumers
 continue receiving content with advisory version warnings.
@@ -273,69 +294,23 @@ The root installs TypeScript 7's compiler as `@typescript/native` and the compat
 TypeScript 6 JavaScript API as `typescript` for ESLint. Keep both aliases when
 updating dependencies so linting and the `tsc` command continue to work together.
 
-## Cloudflare deployment target
+## Self-hosting
 
-The CMS is deployed at **https://storypane.dev** in account
-`c813587edc389800e834e0c261a91ef5`. Production builds select `storypane-web`,
-`storypane-realtime`, and the custom domain; development keeps the local overrides.
-The machine's default `cf` login belongs to another account. Use a profile or
-`CLOUDFLARE_API_TOKEN` for the deployment account and keep credentials outside git.
+Use the [Cloudflare guided setup](docs/deploy-cloudflare.md) or read the
+[Railway readiness and setup guide](docs/deploy-railway.md). Cloudflare retains
+Workers, Durable Objects, R2, Images, Postgres and Clerk. The independent Node
+runtime uses Postgres, private S3-compatible storage and Sharp.
 
-Production resources provisioned on 2026-11-04:
-
-- Neon project `delicate-fog-38250737` (`storypane`), main branch, database
-  `storypane`, AWS Oregon, fixed 0.25 CU. Migrations 001–020 are applied.
-- Hyperdrive `dba85d3dab20441c9d23c8e813b6c27b`, with query caching disabled.
-- Private R2 bucket `storypane-assets` and an Images binding.
-- `storypane-realtime` owns the SQLite-backed `StoryRoom` Durable Objects.
-- `storypane-web` serves the domain and runs the minute publishing/webhook cron.
-
-The initial deployment uses the existing Clerk development instance by explicit
-choice. Clerk requires new accounts to complete organization selection before
-their sessions become active. Use production Clerk keys before a production launch.
-
-`pnpm build` emits both Workers and static assets under
-`apps/web/.cloudflare/output`. Deployment bindings and optional overrides are:
-
-- `HYPERDRIVE_ID`: a real Hyperdrive configuration with **query caching disabled**,
-  so session, permission, and content reads remain current. The zero ID in local
-  config is only a development placeholder.
-- `R2_BUCKET`: the private asset bucket name.
-- `IMAGES`: the configured [Cloudflare Images binding](https://developers.cloudflare.com/images/optimization/binding/)
-  transforms private R2 images into 160/320/640/1280px WebP previews. The Worker
-  authorizes each request before reading its internal edge cache; browser-facing
-  responses remain private. Local development uses Cloudflare's image simulator.
-  Images over the binding's 20 MiB input limit retain original downloads but
-  show a preview-unavailable state. Production Images access must be enabled.
-- `STORYPANE_APP_URL`: the deployed HTTPS origin, matching cookie/origin validation.
-- `CLERK_SECRET_KEY` and `VITE_CLERK_PUBLISHABLE_KEY`: Clerk keys for the target instance; the secret stays on the Worker.
-- `EXTERNAL_OPTION_HOSTS`: approved option-source hostnames, if used.
-- `WEBHOOK_ENCRYPTION_KEY`: configured as a Worker secret. Preserve it across
-  deployments; existing endpoint secrets depend on it.
-- `WEBHOOK_HOSTS`: approved receiver hostnames. It starts empty; configure it
-  before adding outbound endpoints. See [the webhook guide](docs/webhooks.md).
-
-Rebuild and deploy the realtime Worker before the web Worker:
-
-```sh
-pnpm build
-pnpm --filter @storypane/web exec cf deploy --prebuilt --mode production --worker storypane-realtime
-pnpm --filter @storypane/web exec cf deploy --prebuilt --mode production --worker storypane-web --secrets-file "$HOME/.config/storypane/production-secrets.json"
-```
-
-The private JSON secrets file contains the two Clerk keys and webhook encryption
-key; it is stored outside the repository with owner-only permissions. For later
-deployments that do not change secrets, omit `--secrets-file` to retain them.
-Use `--dry-run` to inspect either deployment before uploading. Apply future database
-migrations with the exported `@storypane/db/migrate` runner against Neon before
-deploying code that requires them; `db:setup` is deliberately local-only.
-Production starts with a new database; local development content was not copied.
+Fresh-install acceptance is still pending for both guided flows. Follow the
+[verification checklist](docs/deployment-verification.md) before calling an
+installation ready for users. The existing owner's resource IDs and domain are
+preserved in ignored `.env.production`, not as defaults for new installations.
 
 See [the SDK integration guide](packages/sdk/README.md) for static Next.js/Astro
 pages, preview authentication, client rendering requirements, and SDK limitations.
 Draft JSON remains in Postgres; Durable Objects stream its committed checkpoints.
 
-Design review is pending. Complete Docker app packaging, offline merging, asset garbage collection,
+Design review is pending. Offline merging, asset garbage collection,
 and history retention are deferred. Full
 snapshots per autosave favor recovery simplicity; storage will grow until a
 retention policy is added. CMS reads follow each member’s content scopes. Published and server-preview delivery
@@ -356,3 +331,8 @@ asset ownership and includes them in media usage. External links also accept
 External option feeds accept both `{items: [{value, label}]}` and existing
 `[{value, name}]` arrays. Both formats retain the same host allowlist, DNS, size,
 and uniqueness checks.
+
+## License
+
+Storypane is [MIT licensed](LICENSE). Third-party components retain their own
+licenses. Plus Jakarta Sans is distributed under its [OFL notice](apps/web/public/fonts/OFL.txt).

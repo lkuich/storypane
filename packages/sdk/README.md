@@ -23,7 +23,7 @@ install a packed archive or link `packages/sdk` into your app. Entrypoints:
 
 In **Space settings → API & preview**, create a **Published content** token and
 set the application preview URL, e.g. `https://site.example/{locale}/{slug}`.
-Default locale contributes an empty path segment; the editor removes doubled
+The root locale contributes an empty path segment; the editor removes doubled
 slashes. `{slug}` is the selected locale's URL slug. Query placeholders also work:
 `https://site.example/preview?slug={slug}&locale={locale}`.
 
@@ -49,7 +49,7 @@ const storypane = createStorypaneClient({
 const page = await storypane.getStory({ slug: 'home', locale: '' });
 const byId = await storypane.getStory({ id: page.id, locale: '' });
 const { stories, nextOffset } = await storypane.listStories({ locale: '', limit: 50 });
-const locales = await storypane.listLocales(); // [{ id, name: 'Default', slug: '' }, ...]
+const locales = await storypane.listLocales(); // [{ id, name: 'Default', slug: '', isDefault: true }, ...]
 ```
 
 These reads use the CMS delivery API, which queries publication snapshots in
@@ -101,8 +101,11 @@ export default async function Page() {
 ```
 
 For static routes, `listAllStories({ locale: '' })` returns every published story
-in one locale, following pagination. It defaults to the Default locale, just like
-`listStories`. Use `listLocales()` when building routes for every locale.
+at root URLs, following pagination. Omit `locale` to use the space's configured default,
+as with `getStory`, `listStories`, and `createPreviewSession`. An explicit `locale: ''`
+always selects root, even when another locale is the default. Changing the default
+does not change URL prefixes. `listLocales()` includes `isDefault` and supports building
+routes for every locale.
 `getStory`, `listStories`, and `listAllStories` accept fetch options as their second
 argument. Choose static rendering or request-time fetching in your Next.js routes;
 the SDK does not impose a cache policy on story reads.
@@ -295,6 +298,38 @@ revisions are ignored. Errors are exposed through `onStatus` / the React hook.
   published-site rebuild/revalidation, and unpublished route handling belong to
   the consuming app. The Astro example is built and tested through its real React
   island; the Next.js example remains an integration recipe.
+
+## Management API
+
+Use `@storypane/sdk/management` in server code to read and edit drafts, publish
+checkpoints, and manage assets and configuration. Create a scoped token in
+**Space settings → API & preview → Management API**. Tokens and writes obey the
+issuer's current permissions, content restrictions, and active editor locks.
+
+```ts
+import { createManagementClient } from '@storypane/sdk/management';
+
+const management = createManagementClient({
+  url: process.env.STORYPANE_URL!,
+  spaceId: process.env.STORYPANE_SPACE_ID!,
+  token: process.env.STORYPANE_MANAGEMENT_TOKEN!,
+});
+
+const stories = await management.stories.list({ limit: 20 });
+```
+
+The CLI uses the same environment variables:
+
+```sh
+storypane stories list --json
+storypane content get STORY_ID LOCALE_ID --json
+storypane assets upload ./cover.jpg --mime image/jpeg
+storypane api GET /delivery-settings
+```
+
+See the [management API guide](../../docs/management-api.md) for safe edits,
+publishing, token permissions, pagination, HTTP operations, and CLI JSON input.
+The delivery SDK remains the entrypoint for public sites.
 
 ## Schema migrations and generated types
 

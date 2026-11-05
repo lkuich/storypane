@@ -86,6 +86,18 @@ async function fixture() {
   await cli.pullMigrations(request, dir);
   return { dir, base, remote, request };
 }
+it('excludes library organization from migration files and delivery schemas', async () => {
+  const { base } = await fixture();
+  const child = {
+    ...base.definitions[0],
+    id: randomUUID(),
+    name: 'child',
+    parentDefinitionId: base.definitions[0].id,
+  };
+  const file = cli.migrationFile({ ...base, definitions: [...base.definitions, child] });
+  expect(file.definitions[1].schema).not.toHaveProperty('parentDefinitionId');
+  expect(cli.schemaFromMigration(file).components[1]).not.toHaveProperty('parentDefinitionId');
+});
 it('creates, deploys noninteractively, archives, and generates only the deployed schema', async () => {
   vi.spyOn(console, 'log').mockImplementation(() => {});
   const { dir, request } = await fixture();

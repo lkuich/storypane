@@ -2,6 +2,7 @@ import { expect, it } from 'vitest';
 import {
   migrateSnapshot,
   migrationChanges,
+  definitionInput,
   type BlockDefinition,
   type LocaleSnapshot,
 } from './index.js';
@@ -20,6 +21,11 @@ const definition: BlockDefinition = {
     { id: 'c', name: 'body', label: 'Body', type: 'blocks' },
   ],
 };
+it('includes whole-block deletions in migration diffs', () => {
+  expect(migrationChanges([definition], [])).toEqual([
+    { definition: 'page', kind: 'removed', before: definitionInput(definition) },
+  ]);
+});
 const snapshot = {
   migrationVersion: 1,
   definitions: [definition],
@@ -235,4 +241,11 @@ it('counts removed blocks separately from value resets inside those blocks', () 
   };
   const result = migrateSnapshot(snapshot, [target], 2, true);
   expect(result).toMatchObject({ deletedBlocks: 1, resetValues: 1, deletedValues: 0 });
+});
+
+it('excludes organizational parents from migration inputs and changes, including old snapshots', () => {
+  const nested = { ...definition, parentDefinitionId: 'parent' };
+  expect(definitionInput(nested)).toEqual(definitionInput(definition));
+  expect(migrationChanges([definition], [nested])).toEqual([]);
+  expect(migrationChanges([nested], [definition])).toEqual([]);
 });

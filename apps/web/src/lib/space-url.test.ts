@@ -44,6 +44,8 @@ it('keeps the story and locale in this tab’s URL and clears them when leaving'
   setStoryLocation('story-one');
   expect(url.searchParams.has('locale')).toBe(false);
   expect(url.searchParams.has('block')).toBe(false);
+  setStoryLocation('story-one', '');
+  expect(url.searchParams.get('locale')).toBe('');
   setStoryLocation(null);
   expect(Object.fromEntries(url.searchParams)).toEqual({ space: 'one', unrelated: 'keep' });
 });
@@ -53,6 +55,9 @@ it('creates standalone links to the precise space, story, locale and block', () 
     storyUrl({ spaceId: 'space', storyId: 'story', localeSlug: 'fr-CA', blockId: 'block' }),
   ).toBe('/?space=space&story=story&locale=fr-CA&block=block');
   expect(storyUrl({ spaceId: 'space', storyId: 'story' })).toBe('/?space=space&story=story');
+  expect(storyUrl({ spaceId: 'space', storyId: 'story', localeSlug: '' })).toBe(
+    '/?space=space&story=story&locale=',
+  );
 });
 
 it('pushes a story entry while keeping selection changes in that entry and preserving history state', () => {

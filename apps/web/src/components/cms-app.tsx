@@ -79,7 +79,7 @@ export function CMSApp({ session: initialSession }: { session: CMSSession }) {
       stopped = true;
     };
   }, [storyId, story?.id, storyAttempt]);
-  function openStory(next: Story, locale = '') {
+  function openStory(next: Story, locale?: string) {
     setStoryLocation(next.id, locale, undefined, 'push');
     historyIndex.current = window.history.state.storypaneIndex;
     setStory(next);

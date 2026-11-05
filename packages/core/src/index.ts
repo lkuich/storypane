@@ -5,6 +5,7 @@ import {
   type EditorAccess,
 } from './content-permissions.js';
 export * from './content-permissions.js';
+export * from './management.js';
 
 export type Json = null | boolean | number | string | Json[] | { [key: string]: Json };
 export type Actor = {
@@ -105,7 +106,13 @@ export function can(
     return false;
   return space.permissions.includes(permission);
 }
-export type SpaceLocale = { id: string; name: string; slug: string; storyCount: number };
+export type SpaceLocale = {
+  id: string;
+  name: string;
+  slug: string;
+  isDefault: boolean;
+  storyCount: number;
+};
 export type SpaceLocaleDeletionReview = {
   locale: SpaceLocale;
   token: string;
@@ -117,6 +124,7 @@ export type SpaceLocaleDeletionReview = {
     deleted: boolean;
     published: boolean;
     scheduled: boolean;
+    lastLocale: boolean;
   }[];
 };
 export const deleteSpaceLocaleSchema = z
@@ -134,7 +142,7 @@ export const spaceLocaleInputSchema = z
     slug: z
       .string()
       .trim()
-      .regex(/^[a-zA-Z0-9][a-zA-Z0-9-]*$/)
+      .regex(/^(?:[a-zA-Z0-9][a-zA-Z0-9-]*)?$/)
       .max(30),
   })
   .strict();
@@ -285,10 +293,76 @@ export type OptionItem = z.infer<typeof optionItemSchema> & {
   publication?: { status: PublicationStatus; localeName: string; localeSlug: string };
 };
 export type OptionPage = { items: OptionItem[]; nextCursor?: string };
+const externalOptionHeadersSchema = z
+  .array(
+    z
+      .object({
+        name: z
+          .string()
+          .trim()
+          .min(1)
+          .max(100)
+          .regex(/^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/, 'Use a valid HTTP header name')
+          .refine((name) => {
+            const key = name.toLowerCase();
+            return (
+              !key.startsWith('x-storypane-') &&
+              ![
+                'host',
+                'content-length',
+                'connection',
+                'transfer-encoding',
+                'upgrade',
+                'proxy-authorization',
+                'proxy-connection',
+                'te',
+                'trailer',
+                'keep-alive',
+              ].includes(key)
+            );
+          }, 'This header is managed by the server'),
+        value: z
+          .string()
+          .max(2000)
+          .regex(/^[\x20-\x7E]*$/, 'Use printable ASCII without line breaks'),
+      })
+      .strict(),
+  )
+  .max(20)
+  .superRefine((headers, ctx) => {
+    const names = new Set<string>();
+    for (const [index, header] of headers.entries()) {
+      const name = header.name.toLowerCase();
+      if (names.has(name))
+        ctx.addIssue({
+          code: 'custom',
+          path: [index, 'name'],
+          message: 'Header names must be unique',
+        });
+      names.add(name);
+    }
+    if (headers.reduce((size, header) => size + header.name.length + header.value.length, 0) > 8192)
+      ctx.addIssue({ code: 'custom', message: 'Request headers must fit within 8 KB' });
+  });
+export const optionRequestContextSchema = z
+  .object({
+    storyId: z.uuid(),
+    localeId: z.uuid(),
+    blockId: z.uuid(),
+    fieldName: z.string().min(1).max(100),
+  })
+  .strict();
+export type OptionRequestContext = z.infer<typeof optionRequestContextSchema>;
 export const optionSourceSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('inline'), items: z.array(optionItemSchema).max(1000) }).strict(),
   z.object({ type: z.literal('datasource'), datasourceId: z.uuid() }).strict(),
-  z.object({ type: z.literal('external'), url: z.url().max(2000) }).strict(),
+  z
+    .object({
+      type: z.literal('external'),
+      url: z.url().max(2000),
+      headers: externalOptionHeadersSchema.optional(),
+    })
+    .strict(),
   z.object({ type: z.literal('stories'), contentTypeId: z.uuid().optional() }).strict(),
 ]);
 export type OptionSource = z.infer<typeof optionSourceSchema>;
@@ -428,6 +502,7 @@ export const definitionSaveSchema = z
     schema: definitionInputSchema,
     baseVersion: z.number().int().nonnegative(),
     expectedVersionId: z.uuid().optional(),
+    parentDefinitionId: z.uuid().nullable().optional(),
   })
   .strict();
 export type DefinitionInput = z.infer<typeof definitionInputSchema>;
@@ -436,7 +511,52 @@ export type BlockDefinition = DefinitionInput & {
   versionId: string;
   version: number;
   createdAt: string;
+  parentDefinitionId?: string | null;
 };
+export type DefinitionReference = {
+  storyId: string;
+  storyName: string;
+  locales: {
+    localeId: string;
+    localeName: string;
+    localeSlug: string;
+    path: string;
+    blockId: string | null;
+    draft: boolean;
+    published: boolean;
+  }[];
+};
+export type DefinitionReferencesPage = {
+  total: number;
+  items: DefinitionReference[];
+  nextCursor: string | null;
+};
+export const definitionParentSchema = z
+  .object({
+    parentDefinitionId: z.uuid().nullable(),
+    expectedParentDefinitionId: z.uuid().nullable(),
+  })
+  .strict();
+export function validateDefinitionHierarchy(
+  definitions: Pick<BlockDefinition, 'id' | 'parentDefinitionId'>[],
+): void {
+  const byId = new Map(definitions.map((definition) => [definition.id, definition]));
+  const visited = new Set<string>();
+  for (const definition of definitions) {
+    const path = new Set<string>();
+    let current: string | null | undefined = definition.id;
+    while (current && !visited.has(current)) {
+      if (path.has(current))
+        throw new StorypaneError('invalid', 'Block parents cannot form a cycle');
+      const ancestor = byId.get(current);
+      if (!ancestor)
+        throw new StorypaneError('invalid', 'Parent block must belong to this schema workspace');
+      path.add(current);
+      current = ancestor.parentDefinitionId;
+    }
+    for (const id of path) visited.add(id);
+  }
+}
 export function isBlockAllowed(
   field: Extract<FieldDefinition, { type: 'blocks' }>,
   definition: Pick<BlockDefinition, 'id' | 'kind' | 'tags'>,
@@ -474,6 +594,8 @@ export type PageEditor = {
 export type PageEditors = Record<string, PageEditor[]>;
 export type PublicationStatus = 'draft' | 'changed' | 'published';
 export type StorySummary = Story & {
+  /** URL path in the default locale, falling back to an accessible existing locale. */
+  path?: string;
   pinned: boolean;
   publicationStatus: PublicationStatus;
   localeCount: number;
@@ -702,7 +824,12 @@ export const commandSchema = z.discriminatedUnion('type', [
       ...mutationBase,
       type: z.literal('pasteBlock'),
       payload: z
-        .object({ clipboard: blockClipboardSchema, parentId: id, parentField: z.string() })
+        .object({
+          clipboard: blockClipboardSchema,
+          parentId: id,
+          parentField: z.string(),
+          position: z.number().int().nonnegative().optional(),
+        })
         .strict(),
     })
     .strict(),

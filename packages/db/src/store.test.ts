@@ -1,8 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { Pool } from 'pg';
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { StorypaneStore } from './store.js';
+import * as externalOptions from './external-options.js';
 import { migrate } from './migrate.js';
 import { acceptVerifiedEmailInvitations } from './invitations.js';
 import { createBlockClipboard, contentScopesSchema, definitionInput } from '@storypane/core';
@@ -906,7 +907,7 @@ describe('Postgres collaboration and immutable history', () => {
     )!;
     await expect(
       store.updateSpaceLocale(alice, defaultLocale.id, { name: 'English', slug: 'en' }),
-    ).rejects.toMatchObject({ code: 'invalid' });
+    ).resolves.toMatchObject({ name: 'English', slug: 'en', isDefault: true });
     await expect(store.deleteSpaceLocale(alice, defaultLocale.id)).rejects.toMatchObject({
       code: 'invalid',
     });
@@ -953,6 +954,7 @@ describe('Postgres collaboration and immutable history', () => {
         deleted: false,
         published: true,
         scheduled: true,
+        lastLocale: false,
       },
     ]);
     await expect(
@@ -1693,6 +1695,65 @@ describe('Postgres collaboration and immutable history', () => {
       blockNamed(await store.getSnapshot(alice, destination.id, locale.id), 'hero').fields.title,
     ).toBe(blockNamed(snapshot, 'hero').fields.title);
     expect(await store.getPublished(alice, destination.id, locale.id)).toBeNull();
+  });
+  it.each([0, 1, 2])(
+    'pastes at position %i without replacing or reordering existing siblings',
+    async (position) => {
+      const root = blockNamed(snapshot, 'page');
+      const hero = blockNamed(snapshot, 'hero');
+      const own = await lease(alice, snapshot, root);
+      const command: Command = {
+        ...commandBase({ block: root, lease: own }),
+        type: 'pasteBlock',
+        payload: {
+          clipboard: createBlockClipboard(snapshot, alice.spaceId, hero.id),
+          parentId: root.id,
+          parentField: 'body',
+          position,
+        },
+      };
+      const pasted = await run(alice, snapshot, command);
+      const children = pasted.snapshot.blocks
+        .filter((block) => block.parentId === root.id)
+        .sort((a, b) => a.position - b.position);
+      const copy = children.find(
+        (block) => !snapshot.blocks.some((original) => original.id === block.id),
+      )!;
+      const expected = snapshot.blocks
+        .filter((block) => block.parentId === root.id)
+        .sort((a, b) => a.position - b.position)
+        .map((block) => block.id);
+      expected.splice(position, 0, copy.id);
+      expect(children.map((block) => block.id)).toEqual(expected);
+      expect(children.map((block) => block.position)).toEqual([0, 1, 2]);
+      expect(copy.fields).toEqual(hero.fields);
+      expect((await run(alice, snapshot, command)).checkpointId).toBe(pasted.checkpointId);
+    },
+  );
+  it('rejects invalid paste positions without changing the content or revision', async () => {
+    const root = blockNamed(snapshot, 'page');
+    const own = await lease(alice, snapshot, root);
+    for (const position of [-1, 0.5, 3]) {
+      await expect(
+        run(alice, snapshot, {
+          ...commandBase({ block: root, lease: own }),
+          type: 'pasteBlock',
+          payload: {
+            clipboard: createBlockClipboard(
+              snapshot,
+              alice.spaceId,
+              blockNamed(snapshot, 'hero').id,
+            ),
+            parentId: root.id,
+            parentField: 'body',
+            position,
+          },
+        }),
+      ).rejects.toMatchObject({ code: 'invalid' });
+    }
+    const unchanged = await store.getSnapshot(alice, snapshot.story.id, snapshot.locale.id);
+    expect(unchanged.blocks).toEqual(snapshot.blocks);
+    expect(unchanged.checkpointId).toBe(snapshot.checkpointId);
   });
   it('validates every pasted block, references, limits, leases, spaces and migration versions atomically', async () => {
     const root = snapshot.blocks.find((block) => block.id === snapshot.locale.rootBlockId)!,
@@ -2437,7 +2498,418 @@ describe('Space roles and permissions', () => {
   });
 });
 
+describe('Configurable default locales', () => {
+  it('lists copyable locale paths using the default or a readable existing locale', async () => {
+    const root = (await store.listSpaceLocales(alice))[0];
+    const canada = await store.createSpaceLocale(alice, { name: 'Canada', slug: 'ca' });
+    await store.setDefaultSpaceLocale(alice, canada.id, { expectedDefaultLocaleId: root.id });
+    expect((await store.listStories(alice))[0].path).toBe('/home');
+    await store.createLocale(alice, snapshot.story.id, {
+      spaceLocaleId: canada.id,
+      urlSlug: 'accueil',
+    });
+    expect((await store.listStories(alice))[0].path).toBe('/ca/accueil');
+    await pool.query("UPDATE space_roles SET content_scopes=$2 WHERE space_id=$1 AND id='editor'", [
+      alice.spaceId,
+      JSON.stringify(contentScopesSchema.parse({ read: { localeIds: [root.id] } })),
+    ]);
+    expect((await store.listStories(bob))[0].path).toBe('/home');
+  });
+  it('resolves linked drafts through the chosen default in preview and publication review', async () => {
+    const definition = await store.createDefinition(alice, {
+      name: 'linked',
+      displayName: 'Linked',
+      kind: 'universal',
+      fields: [{ name: 'link', label: 'Link', type: 'link' }],
+    });
+    await deployActive();
+    const root = (await store.listSpaceLocales(alice))[0];
+    const canada = await store.createSpaceLocale(alice, { name: 'Canada', slug: 'ca' });
+    await store.setDefaultSpaceLocale(alice, canada.id, { expectedDefaultLocaleId: root.id });
+    const target = await store.createStory(alice, {
+      name: 'Target',
+      slug: 'target',
+      definitionId: definition.id,
+    });
+    const source = await store.createStory(alice, {
+      name: 'Source',
+      slug: 'source',
+      definitionId: definition.id,
+    });
+    const french = await store.createSpaceLocale(alice, { name: 'French', slug: 'fr' });
+    const translated = await store.createLocale(alice, source.story.id, {
+      spaceLocaleId: french.id,
+    });
+    const linked = (
+      await save(alice, translated, translated.blocks[0], {
+        link: { type: 'story', storyId: target.story.id },
+      })
+    ).snapshot;
+    const previewId = randomUUID();
+    await store.updateDeliverySettings(alice, {
+      previewUrls: [{ id: previewId, name: 'Local', url: 'http://localhost:3131/{locale}/{slug}' }],
+      defaultPreviewId: previewId,
+    });
+    const session = await store.createEditorPreview(alice, source.story.id, linked.locale.id);
+    const connection = await store.authenticatePreview(session.token, 'http://localhost:3131');
+    expect((await store.previewStory(connection.id)).references).toEqual([
+      expect.objectContaining({ id: target.story.id, locale: 'ca' }),
+    ]);
+    const review = await store.reviewPublication(
+      alice,
+      source.story.id,
+      linked.locale.id,
+      linked.checkpointId!,
+    );
+    expect(review.references).toEqual([
+      expect.objectContaining({ storyId: target.story.id, localeId: target.locale.id }),
+    ]);
+    expect(
+      (
+        await store.resolveOptions(alice, {
+          source: { type: 'stories' },
+          values: [target.story.id],
+          locale: 'fr',
+        })
+      ).items[0].publication,
+    ).toMatchObject({ localeSlug: 'ca', status: 'draft' });
+  });
+  it('switches defaults without changing URLs, content, or publications and distinguishes omitted delivery locales from root', async () => {
+    const root = (await store.listSpaceLocales(alice))[0];
+    const canada = await store.createSpaceLocale(alice, { name: 'English (Canada)', slug: 'ca' });
+    const translated = await store.createLocale(alice, snapshot.story.id, {
+      spaceLocaleId: canada.id,
+    });
+    for (const state of [snapshot, translated])
+      await run(alice, state, {
+        ...commandBase(),
+        type: 'publishCheckpoint',
+        payload: { checkpointId: state.checkpointId! },
+      });
+    const before = await Promise.all(
+      [snapshot, translated].map((state) =>
+        store.getSnapshot(alice, state.story.id, state.locale.id),
+      ),
+    );
+    const input = { expectedDefaultLocaleId: root.id };
+    await expect(store.setDefaultSpaceLocale(bob, canada.id, input)).rejects.toMatchObject({
+      code: 'forbidden',
+    });
+    await expect(store.setDefaultSpaceLocale(alice, randomUUID(), input)).rejects.toMatchObject({
+      code: 'not_found',
+    });
+    await expect(
+      store.setDefaultSpaceLocale(alice, canada.id, { expectedDefaultLocaleId: randomUUID() }),
+    ).rejects.toMatchObject({ code: 'stale_revision' });
+    await store.setDefaultSpaceLocale(alice, canada.id, input);
+    await store.setDefaultSpaceLocale(alice, canada.id, input);
+    expect(
+      await Promise.all(
+        [snapshot, translated].map((state) =>
+          store.getSnapshot(alice, state.story.id, state.locale.id),
+        ),
+      ),
+    ).toEqual(before);
+    expect(await store.listSpaceLocales(alice)).toEqual([
+      { ...canada, isDefault: true, storyCount: 1 },
+      { ...root, isDefault: false },
+    ]);
+    const token = await store.createDeliveryToken(alice, { name: 'Locale test', scope: 'preview' });
+    expect(
+      (await store.publishedStories(token.token, alice.spaceId, {})).stories.map(
+        (story) => story.locale,
+      ),
+    ).toEqual(['ca']);
+    expect(
+      (await store.publishedStories(token.token, alice.spaceId, { locale: '' })).stories.map(
+        (story) => story.locale,
+      ),
+    ).toEqual(['']);
+    expect((await store.deliveryLocales(token.token, alice.spaceId))[0]).toMatchObject({
+      id: canada.id,
+      isDefault: true,
+      slug: 'ca',
+    });
+    const previewId = randomUUID();
+    await store.updateDeliverySettings(alice, {
+      previewUrls: [
+        { id: previewId, name: 'Preview', url: 'http://localhost:3131/{locale}/{slug}' },
+      ],
+      defaultPreviewId: previewId,
+      previewParameter: 'review',
+    });
+    expect(
+      await store.createTokenPreview(token.token, alice.spaceId, { id: snapshot.story.id }),
+    ).toMatchObject({ localeId: translated.locale.id, locale: 'ca' });
+    expect(
+      await store.createTokenPreview(token.token, alice.spaceId, {
+        id: snapshot.story.id,
+        locale: '',
+      }),
+    ).toMatchObject({ localeId: snapshot.locale.id, locale: '' });
+    await expect(store.deleteSpaceLocale(alice, canada.id)).rejects.toMatchObject({
+      code: 'invalid',
+    });
+    const review = await store.reviewSpaceLocaleDeletion(alice, root.id);
+    expect(review.stories[0]).toMatchObject({ lastLocale: false, published: true });
+    await store.deleteSpaceLocale(alice, root.id, {
+      deleteContent: true,
+      reviewToken: review.token,
+    });
+    expect(
+      (await store.listLocales(alice, snapshot.story.id)).map((locale) => locale.slug),
+    ).toEqual(['ca']);
+    expect((await store.listStories(alice))[0].contentType?.id).toBe(
+      snapshot.definitions.find((definition) => definition.name === 'page')!.id,
+    );
+    expect(
+      (await store.publishedStories(token.token, alice.spaceId, { locale: '' })).stories,
+    ).toEqual([]);
+    const page = snapshot.definitions.find((definition) => definition.name === 'page')!;
+    expect(
+      (await store.resolveOptions(alice, { source: { type: 'stories', contentTypeId: page.id } }))
+        .items[0],
+    ).toMatchObject({ value: snapshot.story.id, publication: { localeSlug: 'ca' } });
+    const folder = await store.saveFolder(alice, {
+      name: 'Articles',
+      slug: 'articles',
+      localeSlugs: { [canada.id]: 'news' },
+      allowedDefinitionIds: [page.id],
+    });
+    const created = await store.createStory(alice, {
+      name: 'New',
+      slug: 'new',
+      definitionId: page.id,
+      folderId: folder.id,
+    });
+    expect(created.story.slug).toBe('articles/new');
+    expect(created.locale).toMatchObject({
+      slug: 'ca',
+      urlSlug: 'news/new',
+      spaceLocaleId: canada.id,
+    });
+    await expect(
+      store.updateSpaceLocale(alice, canada.id, { name: canada.name, slug: '' }),
+    ).rejects.toThrow('folder slug overrides');
+    await store.updateStoryLocation(alice, snapshot.story.id, {
+      folderId: folder.id,
+      slug: 'home',
+    });
+    const german = await store.createSpaceLocale(alice, { name: 'German', slug: 'de' });
+    expect(
+      (await store.createLocale(alice, snapshot.story.id, { spaceLocaleId: german.id })).blocks,
+    ).toHaveLength(1);
+    await store.seed(alice);
+    expect((await store.listSpaceLocales(alice)).some((locale) => locale.slug === '')).toBe(false);
+  });
+
+  it('protects a story’s only locale and invalidates removal reviews when other locales disappear', async () => {
+    const root = (await store.listSpaceLocales(alice))[0];
+    const canada = await store.createSpaceLocale(alice, { name: 'Canada', slug: 'ca' });
+    await store.setDefaultSpaceLocale(alice, canada.id, { expectedDefaultLocaleId: root.id });
+    const review = await store.reviewSpaceLocaleDeletion(alice, root.id);
+    expect(review.stories[0].lastLocale).toBe(true);
+    await expect(
+      store.deleteSpaceLocale(alice, root.id, { deleteContent: true, reviewToken: review.token }),
+    ).rejects.toThrow('only remaining locale');
+    const german = await store.createSpaceLocale(alice, { name: 'German', slug: 'de' });
+    await store.createLocale(alice, snapshot.story.id, { spaceLocaleId: german.id });
+    const rootReview = await store.reviewSpaceLocaleDeletion(alice, root.id);
+    const germanReview = await store.reviewSpaceLocaleDeletion(alice, german.id);
+    await store.deleteSpaceLocale(alice, german.id, {
+      deleteContent: true,
+      reviewToken: germanReview.token,
+    });
+    await expect(
+      store.deleteSpaceLocale(alice, root.id, {
+        deleteContent: true,
+        reviewToken: rootReview.token,
+      }),
+    ).rejects.toThrow('only remaining locale');
+    await pool.query('UPDATE stories SET deleted_at=now() WHERE id=$1', [snapshot.story.id]);
+    expect((await store.reviewSpaceLocaleDeletion(alice, root.id)).stories[0]).toMatchObject({
+      deleted: true,
+      lastLocale: true,
+    });
+    await expect(
+      store.deleteSpaceLocale(alice, root.id, {
+        deleteContent: true,
+        reviewToken: rootReview.token,
+      }),
+    ).rejects.toThrow('only remaining locale');
+    await store.setDefaultSpaceLocale(alice, root.id, { expectedDefaultLocaleId: canada.id });
+    await expect(
+      store.deleteSpaceLocale(alice, root.id, {
+        deleteContent: true,
+        reviewToken: rootReview.token,
+      }),
+    ).rejects.toThrow('Choose another default');
+  });
+
+  it('imports blocks from the selected default into the former root locale', async () => {
+    const root = (await store.listSpaceLocales(alice))[0];
+    const canada = await store.createSpaceLocale(alice, { name: 'Canada', slug: 'ca' });
+    const translated = await store.createLocale(alice, snapshot.story.id, {
+      spaceLocaleId: canada.id,
+    });
+    const hero = blockNamed(snapshot, 'hero');
+    const parent = translated.blocks[0];
+    const own = await lease(alice, translated, parent);
+    const imported = (
+      await run(alice, translated, {
+        ...commandBase({ block: parent, lease: own }),
+        type: 'importBlocks',
+        payload: {
+          sourceLocaleId: snapshot.locale.id,
+          blockIds: [hero.id],
+          parentId: parent.id,
+          parentField: 'body',
+        },
+      })
+    ).snapshot;
+    await store.setDefaultSpaceLocale(alice, canada.id, { expectedDefaultLocaleId: root.id });
+    const rootBlock = snapshot.blocks.find((block) => !block.parentId)!;
+    const rootLease = await lease(alice, snapshot, rootBlock);
+    const copied = await run(alice, snapshot, {
+      ...commandBase({ block: rootBlock, lease: rootLease }),
+      type: 'importBlocks',
+      payload: {
+        sourceLocaleId: translated.locale.id,
+        blockIds: [blockNamed(imported, 'hero').id],
+        parentId: rootBlock.id,
+        parentField: 'body',
+      },
+    });
+    expect(
+      copied.snapshot.blocks.filter((block) => block.schemaVersionId === hero.schemaVersionId),
+    ).toHaveLength(2);
+  });
+});
+
 describe('Searchable page references', () => {
+  it('resolves external options with verified story/block context and saved headers, including search and paging', async () => {
+    const page = snapshot.definitions.find((definition) => definition.name === 'page')!;
+    const source = {
+      type: 'external' as const,
+      url: 'https://example.com/catalog',
+      headers: [{ name: 'X-Catalog', value: 'courses' }],
+    };
+    await store.updateDefinition(alice, page.id, {
+      ...definitionInput(page),
+      fields: [...page.fields, { name: 'courses', label: 'Courses', type: 'options', source }],
+    });
+    await deployActive();
+    const block = blockNamed(snapshot, 'page');
+    const context = {
+      storyId: snapshot.story.id,
+      localeId: snapshot.locale.id,
+      blockId: block.id,
+      fieldName: 'courses',
+    };
+    const fetchOptions = vi.spyOn(externalOptions, 'fetchExternalOptions').mockResolvedValue(
+      Array.from({ length: 65 }, (_, index) => ({
+        value: String(index),
+        label: `Course ${index}`,
+      })),
+    );
+    try {
+      const result = await store.resolveOptions(bob, {
+        source: {
+          type: 'external',
+          url: 'https://elsewhere.example',
+          headers: [{ name: 'X-Catalog', value: 'forged' }],
+        },
+        context,
+      });
+      expect(result.items).toHaveLength(50);
+      expect(result.nextCursor).toBe('50');
+      expect(fetchOptions).toHaveBeenLastCalledWith(source.url, [], {
+        'X-Catalog': 'courses',
+        'X-Storypane-Space-Id': alice.spaceId,
+        'X-Storypane-Story-Id': snapshot.story.id,
+        'X-Storypane-Story-Slug': 'home',
+        'X-Storypane-Locale-Id': snapshot.locale.id,
+        'X-Storypane-Locale': '',
+        'X-Storypane-Block-Id': block.id,
+        'X-Storypane-Block-Type': 'page',
+        'X-Storypane-Field': 'courses',
+      });
+      expect(
+        (await store.resolveOptions(bob, { source, context, cursor: result.nextCursor })).items,
+      ).toHaveLength(15);
+      expect((await store.resolveOptions(bob, { source, context, values: ['64'] })).items).toEqual([
+        { value: '64', label: 'Course 64' },
+      ]);
+      expect(
+        (await store.resolveOptions(bob, { source, context, query: 'Course 64' })).items,
+      ).toHaveLength(1);
+      const french = await store.createSpaceLocale(alice, { name: 'French', slug: 'fr' });
+      const translated = await store.createLocale(alice, snapshot.story.id, {
+        spaceLocaleId: french.id,
+        urlSlug: 'équipe',
+      });
+      await store.resolveOptions(bob, {
+        source,
+        context: { ...context, localeId: translated.locale.id, blockId: translated.blocks[0].id },
+      });
+      expect(fetchOptions.mock.lastCall?.[2]).toMatchObject({
+        'X-Storypane-Locale': 'fr',
+        'X-Storypane-Story-Slug': '%C3%A9quipe',
+      });
+      const calls = fetchOptions.mock.calls.length;
+      await expect(
+        store.resolveOptions(bob, { source, context: { ...context, blockId: randomUUID() } }),
+      ).rejects.toMatchObject({ code: 'not_found' });
+      await expect(
+        store.resolveOptions(bob, {
+          source,
+          context: {
+            ...context,
+            storyId: legacyStoryId,
+            localeId: legacyLocaleId,
+            blockId: legacyRootId,
+          },
+        }),
+      ).rejects.toMatchObject({ code: 'not_found' });
+      await pool.query(
+        "UPDATE space_roles SET content_scopes=$2 WHERE space_id=$1 AND id='editor'",
+        [
+          alice.spaceId,
+          JSON.stringify(contentScopesSchema.parse({ read: { localeIds: [french.id] } })),
+        ],
+      );
+      await expect(store.resolveOptions(bob, { source, context })).rejects.toMatchObject({
+        code: 'not_found',
+      });
+      await pool.query(
+        "UPDATE space_roles SET content_scopes=$2 WHERE space_id=$1 AND id='editor'",
+        [
+          alice.spaceId,
+          JSON.stringify(
+            contentScopesSchema.parse({
+              read: {
+                fieldIds: [
+                  snapshot.definitions
+                    .find((definition) => definition.id === page.id)!
+                    .fields.find((field) => field.name === 'title')!.id!,
+                ],
+              },
+            }),
+          ),
+        ],
+      );
+      await expect(store.resolveOptions(bob, { source, context })).rejects.toMatchObject({
+        code: 'forbidden',
+      });
+      expect(fetchOptions).toHaveBeenCalledTimes(calls);
+      const token = await store.createDeliveryToken(alice, { name: 'Schema', scope: 'preview' });
+      expect(JSON.stringify(await store.deliverySchema(token.token, alice.spaceId))).not.toContain(
+        'X-Catalog',
+      );
+    } finally {
+      fetchOptions.mockRestore();
+    }
+  });
   it('reports draft, published, and changed status for selected values and search results', async () => {
     const input = { source: { type: 'stories' }, values: [snapshot.story.id] };
     expect((await store.resolveOptions(bob, input)).items[0].publication?.status).toBe('draft');
@@ -2749,7 +3221,555 @@ describe('Active editor avatars', () => {
   });
 });
 
+describe('block definition references', () => {
+  it('counts unique stories across nested instances, locales, and current publications', async () => {
+    const hero = blockNamed(snapshot, 'hero'),
+      root = snapshot.blocks.find((block) => block.id === snapshot.locale.rootBlockId)!;
+    const french = await store.createSpaceLocale(alice, { name: 'French', slug: 'fr' });
+    const translated = await store.createLocale(alice, snapshot.story.id, {
+      spaceLocaleId: french.id,
+    });
+    for (const locale of [snapshot.locale, translated.locale]) {
+      await pool.query(
+        'INSERT INTO block_drafts(id,locale_id,schema_version_id,parent_id,parent_field,position,fields) VALUES($1,$2,$3,$4,$5,10,$6)',
+        [
+          randomUUID(),
+          locale.id,
+          hero.schemaVersionId,
+          locale.rootBlockId,
+          'body',
+          JSON.stringify(hero.fields),
+        ],
+      );
+    }
+    const references = await store.listDefinitionReferences(alice, hero.definitionId);
+    expect(references.total).toBe(1);
+    expect(references.nextCursor).toBeNull();
+    expect(references.items).toHaveLength(1);
+    expect(references.items[0]).toMatchObject({
+      storyId: snapshot.story.id,
+      storyName: snapshot.story.name,
+    });
+    expect(references.items[0].locales.map((locale) => locale.localeSlug)).toEqual(['', 'fr']);
+    expect(
+      references.items[0].locales.every(
+        (locale) => locale.draft && !locale.published && !!locale.blockId,
+      ),
+    ).toBe(true);
+    expect((await store.listDefinitionReferences(alice, root.definitionId)).total).toBe(1);
+    const unused = await store.createDefinition(alice, {
+      name: 'unused_reference_parent',
+      displayName: 'Unused parent',
+      kind: 'nestable',
+      fields: [],
+    });
+    await store.moveDefinition(alice, hero.definitionId, {
+      parentDefinitionId: unused.id,
+      expectedParentDefinitionId: null,
+    });
+    expect((await store.listDefinitionReferences(alice, unused.id)).total).toBe(0);
+    await run(alice, snapshot, {
+      ...commandBase(),
+      type: 'publishCheckpoint',
+      payload: { checkpointId: snapshot.checkpointId! },
+    });
+    expect(
+      (await store.listDefinitionReferences(alice, hero.definitionId)).items[0].locales[0],
+    ).toMatchObject({ draft: true, published: true });
+    await pool.query(
+      'DELETE FROM block_drafts WHERE schema_version_id=$1 AND locale_id=ANY($2::uuid[])',
+      [hero.schemaVersionId, [snapshot.locale.id, translated.locale.id]],
+    );
+    const liveOnly = await store.listDefinitionReferences(alice, hero.definitionId);
+    expect(liveOnly.total).toBe(1);
+    expect(liveOnly.items[0].locales).toMatchObject([
+      { localeId: snapshot.locale.id, draft: false, published: true, blockId: null },
+    ]);
+    await pool.query('UPDATE stories SET deleted_at=now() WHERE id=$1', [snapshot.story.id]);
+    expect((await store.listDefinitionReferences(alice, hero.definitionId)).total).toBe(0);
+    await pool.query('UPDATE stories SET deleted_at=NULL WHERE id=$1', [snapshot.story.id]);
+    await pool.query('UPDATE story_locales SET published_version_id=NULL WHERE id=$1', [
+      snapshot.locale.id,
+    ]);
+    expect(await store.listDefinitionReferences(alice, hero.definitionId)).toEqual({
+      total: 0,
+      items: [],
+      nextCursor: null,
+    });
+  });
+  it('paginates stories while keeping an exact total and rejects foreign or invalid requests', async () => {
+    const root = snapshot.blocks.find((block) => block.id === snapshot.locale.rootBlockId)!;
+    for (let index = 0; index < 21; index++) {
+      const story = (
+        await pool.query('INSERT INTO stories(space_id,name,slug) VALUES($1,$2,$2) RETURNING id', [
+          alice.spaceId,
+          `reference-${String(index).padStart(2, '0')}`,
+        ])
+      ).rows[0];
+      const id = randomUUID();
+      const locale = (
+        await pool.query(
+          'INSERT INTO story_locales(story_id,slug,name,url_slug,root_block_id,space_locale_id) VALUES($1,$2,$3,$4,$5,$6) RETURNING id',
+          [story.id, '', 'Default', `reference-${index}`, id, snapshot.locale.spaceLocaleId],
+        )
+      ).rows[0];
+      await pool.query(
+        'INSERT INTO block_drafts(id,locale_id,schema_version_id,fields) VALUES($1,$2,$3,$4)',
+        [id, locale.id, root.schemaVersionId, JSON.stringify(root.fields)],
+      );
+    }
+    const first = await store.listDefinitionReferences(alice, root.definitionId);
+    expect(first.total).toBe(22);
+    expect(first.items).toHaveLength(20);
+    expect(first.nextCursor).toBe('20');
+    const second = await store.listDefinitionReferences(alice, root.definitionId, {
+      cursor: first.nextCursor,
+    });
+    expect(second.total).toBe(22);
+    expect(second.items).toHaveLength(2);
+    expect(second.nextCursor).toBeNull();
+    expect(new Set([...first.items, ...second.items].map((item) => item.storyId)).size).toBe(22);
+    expect(await store.listDefinitionReferences(alice, root.definitionId, { cursor: 100 })).toEqual(
+      { total: 22, items: [], nextCursor: null },
+    );
+    for (const cursor of [-1, 'bad', 1.5])
+      await expect(
+        store.listDefinitionReferences(alice, root.definitionId, { cursor }),
+      ).rejects.toMatchObject({ code: 'invalid' });
+    await expect(store.listDefinitionReferences(alice, 'bad')).rejects.toMatchObject({
+      code: 'invalid',
+    });
+    await expect(store.listDefinitionReferences(alice, randomUUID())).rejects.toMatchObject({
+      code: 'not_found',
+    });
+    const other = await store.createSpace(alice, { name: 'Other references' });
+    await expect(
+      store.listDefinitionReferences({ ...alice, spaceId: other.id }, root.definitionId),
+    ).rejects.toMatchObject({ code: 'not_found' });
+  });
+});
+
 describe('shared schema migrations', () => {
+  it('stages unused block deletion, preserves history and promotes nested definitions', async () => {
+    const root = snapshot.definitions.find((item) => item.name === 'page')!;
+    const unused = await store.createDefinition(
+      alice,
+      { name: 'unused', displayName: 'Unused', kind: 'universal', fields: [] },
+      undefined,
+      root.id,
+    );
+    const child = await store.createDefinition(
+      alice,
+      { name: 'child', displayName: 'Child', kind: 'nestable', fields: [] },
+      undefined,
+      unused.id,
+    );
+    await deployActive();
+    const before = await store.listMigrations(alice);
+    const checkpoint = snapshot.checkpointId;
+    await store.deleteDefinition(alice, unused.id, {
+      expectedVersionId: unused.versionId,
+      baseVersion: 2,
+    });
+    const workspace = await store.listDefinitions(alice);
+    expect(workspace.some((item) => item.id === unused.id)).toBe(false);
+    expect(workspace.find((item) => item.id === child.id)?.parentDefinitionId).toBe(root.id);
+    expect((await store.listDefinitions(alice, true)).some((item) => item.id === unused.id)).toBe(
+      true,
+    );
+    expect(
+      (await store.listMigrations(alice)).filter((item) => item.status === 'deployed'),
+    ).toEqual(before);
+    expect(
+      (await store.getSnapshot(alice, snapshot.story.id, snapshot.locale.id)).checkpointId,
+    ).toBe(checkpoint);
+    expect(
+      (await pool.query('SELECT id FROM definition_versions WHERE id=$1', [unused.versionId]))
+        .rowCount,
+    ).toBe(1);
+    await expect(
+      store.createDefinition(
+        alice,
+        { name: 'invalid_parent', displayName: 'Invalid parent', kind: 'nestable', fields: [] },
+        undefined,
+        unused.id,
+      ),
+    ).rejects.toMatchObject({ code: 'invalid' });
+    const active = (await store.listMigrations(alice)).find((item) => item.status === 'active')!;
+    const review = await store.reviewMigration(alice, active.id);
+    expect(review.changes).toEqual([
+      { definition: 'unused', kind: 'removed', before: definitionInput(unused) },
+    ]);
+    expect(review.blockers).toEqual([]);
+    await deployActive();
+    expect((await store.listDefinitions(alice, true)).some((item) => item.id === unused.id)).toBe(
+      false,
+    );
+    await expect(
+      store.createStory(alice, { name: 'Removed', slug: 'removed', definitionId: unused.id }),
+    ).rejects.toMatchObject({ code: 'invalid' });
+    const pending = await store.createDefinition(alice, {
+      name: 'never_deployed',
+      displayName: 'Never deployed',
+      kind: 'nestable',
+      fields: [],
+    });
+    await store.deleteDefinition(alice, pending.id, {
+      expectedVersionId: pending.versionId,
+      baseVersion: 3,
+    });
+    expect((await store.listDefinitions(alice)).some((item) => item.id === pending.id)).toBe(false);
+  });
+  it('blocks deletion of draft, published-only and deleted-story content without changing the migration', async () => {
+    const hero = snapshot.definitions.find((item) => item.name === 'hero')!;
+    const input = { expectedVersionId: hero.versionId, baseVersion: 1 };
+    const before = await store.listMigrations(alice);
+    await expect(store.deleteDefinition(alice, hero.id, input)).rejects.toMatchObject({
+      code: 'invalid',
+      message: expect.stringContaining('story content'),
+    });
+    await run(alice, snapshot, {
+      ...commandBase(),
+      type: 'publishCheckpoint',
+      payload: { checkpointId: snapshot.checkpointId! },
+    });
+    await pool.query('DELETE FROM block_drafts WHERE schema_version_id=$1', [hero.versionId]);
+    await expect(store.deleteDefinition(alice, hero.id, input)).rejects.toMatchObject({
+      code: 'invalid',
+    });
+    await pool.query('UPDATE stories SET deleted_at=now() WHERE id=$1', [snapshot.story.id]);
+    await expect(store.deleteDefinition(alice, hero.id, input)).rejects.toMatchObject({
+      code: 'invalid',
+    });
+    const footer = snapshot.definitions.find((item) => item.name === 'footer')!;
+    await expect(
+      store.deleteDefinition(alice, footer.id, { ...input, expectedVersionId: footer.versionId }),
+    ).rejects.toMatchObject({ code: 'invalid' });
+    expect(await store.listMigrations(alice)).toEqual(before);
+  });
+  it('blocks linked schema and folder settings, stale deletes, foreign blocks and unauthorized users', async () => {
+    const unused = await store.createDefinition(alice, {
+      name: 'unused',
+      displayName: 'Unused',
+      kind: 'universal',
+      fields: [],
+    });
+    await deployActive();
+    const input = { expectedVersionId: unused.versionId, baseVersion: 2 };
+    await expect(store.deleteDefinition(bob, unused.id, input)).rejects.toMatchObject({
+      code: 'forbidden',
+    });
+    await expect(store.deleteDefinition(alice, unused.id, {})).rejects.toMatchObject({
+      code: 'invalid',
+    });
+    await expect(store.deleteDefinition(alice, 'bad', input)).rejects.toMatchObject({
+      code: 'invalid',
+    });
+    await expect(
+      store.deleteDefinition(alice, unused.id, { ...input, baseVersion: 1 }),
+    ).rejects.toMatchObject({ code: 'stale_revision' });
+    await expect(
+      store.deleteDefinition(alice, unused.id, { ...input, expectedVersionId: randomUUID() }),
+    ).rejects.toMatchObject({ code: 'stale_revision' });
+    const other = await store.createSpace(alice, { name: 'Other deletion' });
+    await expect(
+      store.deleteDefinition({ ...alice, spaceId: other.id }, unused.id, input),
+    ).rejects.toMatchObject({ code: 'not_found' });
+    const folder = await store.saveFolder(alice, {
+      name: 'Restricted',
+      slug: 'restricted',
+      allowedDefinitionIds: [unused.id],
+      defaultDefinitionId: unused.id,
+    });
+    await expect(store.deleteDefinition(alice, unused.id, input)).rejects.toMatchObject({
+      code: 'invalid',
+      message: expect.stringContaining('Restricted'),
+    });
+    await store.deleteFolder(alice, folder.id);
+    const root = snapshot.definitions.find((item) => item.name === 'page')!;
+    const changed = await store.updateDefinition(alice, root.id, {
+      ...definitionInput(root),
+      fields: root.fields.map((field) =>
+        field.type === 'blocks' ? { ...field, allowedDefinitionIds: [unused.id] } : field,
+      ),
+    });
+    await expect(store.deleteDefinition(alice, unused.id, input)).rejects.toMatchObject({
+      code: 'invalid',
+      message: expect.stringContaining('Allowed blocks'),
+    });
+    await store.updateDefinition(alice, root.id, definitionInput(root), changed.versionId);
+    await store.deleteDefinition(alice, unused.id, input);
+    await expect(
+      store.moveDefinition(alice, unused.id, {
+        parentDefinitionId: null,
+        expectedParentDefinitionId: null,
+      }),
+    ).rejects.toMatchObject({ code: 'not_found' });
+  });
+  it('rechecks staged deletions against new content and schema references before deployment', async () => {
+    const unused = await store.createDefinition(alice, {
+      name: 'unused',
+      displayName: 'Unused',
+      kind: 'content-type',
+      fields: [],
+    });
+    await deployActive();
+    await store.deleteDefinition(alice, unused.id, {
+      expectedVersionId: unused.versionId,
+      baseVersion: 2,
+    });
+    const active = (await store.listMigrations(alice)).find((item) => item.status === 'active')!;
+    const clean = await store.reviewMigration(alice, active.id);
+    const story = await store.createStory(alice, {
+      name: 'Late reference',
+      slug: 'late',
+      definitionId: unused.id,
+    });
+    await expect(store.deployMigration(alice, active.id, clean.token)).rejects.toMatchObject({
+      code: 'stale_revision',
+    });
+    const blocked = await store.reviewMigration(alice, active.id);
+    expect(blocked.blockers.some((item) => item.storyId === story.story.id)).toBe(true);
+    await expect(store.deployMigration(alice, active.id, blocked.token)).rejects.toMatchObject({
+      code: 'invalid',
+    });
+    await pool.query('UPDATE stories SET deleted_at=now() WHERE id=$1', [story.story.id]);
+    expect((await store.reviewMigration(alice, active.id)).blockers.length).toBeGreaterThan(0);
+    await pool.query('DELETE FROM stories WHERE id=$1', [story.story.id]);
+    const root = snapshot.definitions.find((item) => item.name === 'page')!;
+    await store.updateDefinition(alice, root.id, {
+      ...definitionInput(root),
+      fields: root.fields.map((field) =>
+        field.type === 'blocks' ? { ...field, allowedDefinitionIds: [unused.id] } : field,
+      ),
+    });
+    expect(
+      (await store.reviewMigration(alice, active.id)).blockers.some((item) =>
+        item.message.includes('deleted block'),
+      ),
+    ).toBe(true);
+  });
+  it('saves parents immediately without creating migrations, schema versions, or content changes', async () => {
+    const definitions = await store.listDefinitions(alice);
+    const root = definitions.find((item) => item.name === 'page')!;
+    const child = definitions.find((item) => item.name === 'hero')!;
+    const leaf = definitions.find((item) => item.name === 'footer')!;
+    const before = await store.listMigrations(alice);
+    const content = await store.getSnapshot(alice, snapshot.story.id, snapshot.locale.id);
+    const other = await store.createSpace(alice, { name: 'Other hierarchy' });
+    const foreign = await store.createDefinition(
+      { ...alice, spaceId: other.id },
+      { name: 'foreign', displayName: 'Foreign', kind: 'nestable', fields: [] },
+    );
+    const moved = await store.moveDefinition(alice, child.id, {
+      parentDefinitionId: root.id,
+      expectedParentDefinitionId: null,
+    });
+    await store.moveDefinition(alice, leaf.id, {
+      parentDefinitionId: child.id,
+      expectedParentDefinitionId: null,
+    });
+    expect(moved.versionId).toBe(child.versionId);
+    expect(moved.version).toBe(child.version);
+    expect(moved.createdAt).toBe(child.createdAt);
+    for (const parentDefinitionId of [root.id, child.id, leaf.id, foreign.id, randomUUID()])
+      await expect(
+        store.moveDefinition(alice, root.id, {
+          parentDefinitionId,
+          expectedParentDefinitionId: null,
+        }),
+      ).rejects.toMatchObject({ code: 'invalid' });
+    await expect(
+      store.moveDefinition(bob, child.id, {
+        parentDefinitionId: null,
+        expectedParentDefinitionId: root.id,
+      }),
+    ).rejects.toMatchObject({ code: 'forbidden' });
+    await expect(
+      store.moveDefinition(alice, child.id, {
+        parentDefinitionId: null,
+        expectedParentDefinitionId: null,
+      }),
+    ).rejects.toMatchObject({ code: 'stale_revision' });
+    await store.moveDefinition(alice, child.id, {
+      parentDefinitionId: null,
+      expectedParentDefinitionId: root.id,
+    });
+    expect(
+      (await store.listDefinitions(alice)).find((item) => item.id === leaf.id)?.parentDefinitionId,
+    ).toBe(child.id);
+    expect(await store.listMigrations(alice)).toEqual(before);
+    expect(await store.getSnapshot(alice, snapshot.story.id, snapshot.locale.id)).toEqual(content);
+    const token = await store.createDeliveryToken(alice, { name: 'Tree schema', scope: 'preview' });
+    expect(
+      (await store.deliverySchema(token.token, alice.spaceId)).components.find(
+        (item) => item.id === leaf.id,
+      ),
+    ).not.toHaveProperty('parentDefinitionId');
+  });
+  it('keeps parent moves independent of staged schema changes and deployment', async () => {
+    const root = (await store.listDefinitions(alice)).find((item) => item.name === 'page')!;
+    const child = await store.createDefinition(
+      alice,
+      { name: 'new_child', displayName: 'Child', kind: 'nestable', fields: [] },
+      undefined,
+      root.id,
+    );
+    expect(child.parentDefinitionId).toBe(root.id);
+    const migrations = await store.listMigrations(alice);
+    const active = migrations.find((item) => item.status === 'active')!;
+    expect(active.definitions.find((item) => item.id === child.id)).not.toHaveProperty(
+      'parentDefinitionId',
+    );
+    const review = await store.reviewMigration(alice, active.id);
+    await store.moveDefinition(alice, child.id, {
+      parentDefinitionId: null,
+      expectedParentDefinitionId: root.id,
+    });
+    expect(await store.listMigrations(alice)).toEqual(migrations);
+    await store.deployMigration(alice, active.id, review.token);
+    expect(
+      (await store.listDefinitions(alice)).find((item) => item.id === child.id)?.parentDefinitionId,
+    ).toBeNull();
+    const changed = await store.updateDefinition(
+      alice,
+      child.id,
+      { ...definitionInput(child), displayName: 'Updated child' },
+      child.versionId,
+    );
+    expect(changed.parentDefinitionId).toBeNull();
+    await store.moveDefinition(alice, child.id, {
+      parentDefinitionId: root.id,
+      expectedParentDefinitionId: null,
+    });
+    const latest = (await store.listMigrations(alice)).find((item) => item.status === 'active')!;
+    const pushed = await store.pushMigration(alice, {
+      formatVersion: 1,
+      id: latest.id,
+      spaceId: alice.spaceId,
+      version: latest.version,
+      baseVersion: latest.baseVersion,
+      name: latest.name,
+      status: 'active',
+      remoteRevision: latest.revision,
+      sourceHash: null,
+      definitions: latest.definitions.map((item) => ({
+        id: item.id,
+        schema: {
+          ...definitionInput(item),
+          ...(item.id === child.id ? { displayName: 'CLI update' } : {}),
+        },
+      })),
+    });
+    expect(pushed.definitions.find((item) => item.id === child.id)).not.toHaveProperty(
+      'parentDefinitionId',
+    );
+    await deployActive();
+    expect(
+      (await store.listDefinitions(alice)).find((item) => item.id === child.id)?.parentDefinitionId,
+    ).toBe(root.id);
+    await expect(
+      store.createDefinition(
+        alice,
+        { name: 'bad_parent', displayName: 'Bad', kind: 'nestable', fields: [] },
+        undefined,
+        randomUUID(),
+      ),
+    ).rejects.toMatchObject({ code: 'invalid' });
+  });
+  it('serializes competing parent moves so only an acyclic hierarchy is saved', async () => {
+    const definitions = await store.listDefinitions(alice);
+    const [a, b] = definitions;
+    const results = await Promise.allSettled([
+      store.moveDefinition(alice, a.id, {
+        parentDefinitionId: b.id,
+        expectedParentDefinitionId: null,
+      }),
+      store.moveDefinition(alice, b.id, {
+        parentDefinitionId: a.id,
+        expectedParentDefinitionId: null,
+      }),
+    ]);
+    expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
+    expect(results.find((result) => result.status === 'rejected')).toMatchObject({
+      reason: { code: 'invalid' },
+    });
+  });
+  it('backfills existing hierarchy without modifying versioned schema history', async () => {
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query(
+        'CREATE TEMP TABLE definitions(id uuid PRIMARY KEY, space_id uuid NOT NULL, current_version integer) ON COMMIT DROP',
+      );
+      await client.query(
+        'CREATE TEMP TABLE definition_versions(definition_id uuid, version integer, schema jsonb) ON COMMIT DROP',
+      );
+      const root = randomUUID(),
+        child = randomUUID();
+      await client.query('INSERT INTO definitions VALUES($1,$3,1),($2,$3,2)', [
+        root,
+        child,
+        alice.spaceId,
+      ]);
+      const schema = { name: 'child', parentDefinitionId: root, fields: [] };
+      await client.query('INSERT INTO definition_versions VALUES($1,1,$3),($2,1,$4),($2,2,$5)', [
+        root,
+        child,
+        JSON.stringify({ name: 'root', fields: [] }),
+        JSON.stringify({ name: 'child', fields: [] }),
+        JSON.stringify(schema),
+      ]);
+      await client.query(
+        await readFile(
+          new URL('../migrations/022_definition_parents.sql', import.meta.url),
+          'utf8',
+        ),
+      );
+      expect(
+        (await client.query('SELECT parent_definition_id FROM definitions WHERE id=$1', [child]))
+          .rows[0].parent_definition_id,
+      ).toBe(root);
+      expect(
+        (
+          await client.query(
+            'SELECT schema FROM definition_versions WHERE definition_id=$1 AND version=2',
+            [child],
+          )
+        ).rows[0].schema,
+      ).toEqual(schema);
+      await client.query('ROLLBACK');
+    } finally {
+      await client.query('ROLLBACK');
+      client.release();
+    }
+  });
+  it('removes tag restrictions in a new migration without rewriting deployed history', async () => {
+    const definition = await store.createDefinition(alice, {
+      name: 'tag_cleanup',
+      displayName: 'Tag cleanup',
+      kind: 'nestable',
+      fields: [{ name: 'body', label: 'Body', type: 'blocks', allowedTags: ['legacy'] }],
+    });
+    await deployActive();
+    const input = definitionInput(definition);
+    input.fields = input.fields.map((field) => {
+      const { allowedTags: _tags, ...rest } = field as Extract<typeof field, { type: 'blocks' }>;
+      return rest;
+    });
+    const cleaned = await store.updateDefinition(alice, definition.id, input, definition.versionId);
+    expect(cleaned.fields[0]).not.toHaveProperty('allowedTags');
+    expect(
+      (await store.listDefinitions(alice, true)).find((item) => item.id === definition.id)
+        ?.fields[0],
+    ).toHaveProperty('allowedTags', ['legacy']);
+    await deployActive();
+    expect(
+      (await store.listDefinitions(alice, true)).find((item) => item.id === definition.id)
+        ?.fields[0],
+    ).not.toHaveProperty('allowedTags');
+  });
+
   it('backfills identities without changing legacy content, then normalizes only on admin deployment', async () => {
     const actor = { ...alice, spaceId: legacySpaceId };
     const before = await store.getSnapshot(actor, legacyStoryId, legacyLocaleId);
@@ -3206,6 +4226,73 @@ describe('scoped content permissions', () => {
     await store.updateSpaceMember(alice, bob.userId, { role: role.id });
     return role;
   }
+  it('restricts block reference counts and links by locale, location, definition, and field access', async () => {
+    const hero = blockNamed(snapshot, 'hero'),
+      footer = blockNamed(snapshot, 'footer');
+    await run(alice, snapshot, {
+      ...commandBase(),
+      type: 'publishCheckpoint',
+      payload: { checkpointId: snapshot.checkpointId! },
+    });
+    const french = await store.createSpaceLocale(alice, { name: 'French', slug: 'fr' });
+    const translated = await store.createLocale(alice, snapshot.story.id, {
+      spaceLocaleId: french.id,
+    });
+    await pool.query(
+      'INSERT INTO block_drafts(id,locale_id,schema_version_id,parent_id,parent_field,fields) VALUES($1,$2,$3,$4,$5,$6)',
+      [
+        randomUUID(),
+        translated.locale.id,
+        hero.schemaVersionId,
+        translated.locale.rootBlockId,
+        'body',
+        JSON.stringify(hero.fields),
+      ],
+    );
+    const scopes = contentScopesSchema.parse({});
+    scopes.read.locations = { folderIds: [], storyIds: [snapshot.story.id] };
+    scopes.read.localeIds = [french.id];
+    scopes.read.definitionIds = [hero.definitionId];
+    scopes.read.fieldIds = [
+      snapshot.definitions
+        .find((item) => item.id === hero.definitionId)!
+        .fields.find((item) => item.name === 'title')!.id!,
+    ];
+    const role = await restrict(scopes);
+    const refs = await store.listDefinitionReferences(bob, hero.definitionId);
+    expect(refs.total).toBe(1);
+    expect(refs.items[0].locales.map((item) => item.localeSlug)).toEqual(['fr']);
+    expect((await store.listDefinitionReferences(bob, footer.definitionId)).total).toBe(0);
+    scopes.read.definitionIds = null;
+    scopes.read.localeIds = null;
+    scopes.read.fieldIds = [
+      snapshot.definitions.find((item) => item.id === footer.definitionId)!.fields[0].id!,
+    ];
+    await store.saveSpaceRole(
+      alice,
+      { name: role.name, permissions: role.permissions, contentScopes: scopes },
+      role.id,
+    );
+    expect((await store.listDefinitionReferences(bob, hero.definitionId)).total).toBe(0);
+    expect((await store.listDefinitionReferences(bob, footer.definitionId)).total).toBe(1);
+    scopes.read.locations = { folderIds: [], storyIds: [] };
+    await store.saveSpaceRole(
+      alice,
+      { name: role.name, permissions: role.permissions, contentScopes: scopes },
+      role.id,
+    );
+    expect((await store.listDefinitionReferences(bob, footer.definitionId)).total).toBe(0);
+    await store.saveSpaceRole(
+      alice,
+      {
+        name: role.name,
+        permissions: ['schemas:write'],
+        contentScopes: contentScopesSchema.parse({}),
+      },
+      role.id,
+    );
+    expect((await store.listDefinitionReferences(bob, hero.definitionId)).total).toBe(0);
+  });
   it('redacts current and historical fields, preserves hidden values on save and rejects whole-page actions', async () => {
     const hero = blockNamed(snapshot, 'hero');
     const title = snapshot.definitions
@@ -3427,4 +4514,182 @@ it('backfills legacy custom roles without adding edit or publish authority', asy
     await client.query('ROLLBACK');
     client.release();
   }
+});
+
+describe('scoped management automation', () => {
+  async function token(scopes = ['read', 'content:edit']) {
+    const issued = await store.createManagementToken(alice, { name: 'CI', scopes });
+    return {
+      issued,
+      actor: await store.authenticateManagement(issued.token, alice.spaceId, 'stories'),
+    };
+  }
+  function edit(block = blockNamed(snapshot, 'hero')) {
+    return {
+      type: 'saveBlock',
+      mutationId: randomUUID(),
+      expectedRevisions: { [block.id]: block.revision },
+      payload: { blockId: block.id, fields: { ...block.fields, title: 'From CI' } },
+    };
+  }
+  it('enforces token scopes and keeps legacy tokens restricted to migrations', async () => {
+    const { actor } = await token(['read']);
+    expect((await store.getSnapshot(actor, snapshot.story.id, snapshot.locale.id)).story.id).toBe(
+      snapshot.story.id,
+    );
+    await expect(
+      store.command(actor, snapshot.story.id, snapshot.locale.id, edit()),
+    ).rejects.toMatchObject({ code: 'forbidden' });
+    for (const permission of ['assets:write', 'settings:write', 'admin'] as const) {
+      await expect(store.assertActor(actor, permission)).rejects.toMatchObject({
+        code: 'forbidden',
+      });
+    }
+    const legacy = await store.createManagementToken(alice, {
+      name: 'Schema only',
+      capability: 'deploy',
+    });
+    await expect(
+      store.authenticateManagement(legacy.token, alice.spaceId, 'stories'),
+    ).rejects.toMatchObject({ code: 'forbidden' });
+    const migrationActor = await store.authenticateManagement(
+      legacy.token,
+      alice.spaceId,
+      'migrations',
+    );
+    expect((await store.listMigrations(migrationActor)).length).toBeGreaterThan(0);
+    await expect(
+      store.command(migrationActor, snapshot.story.id, snapshot.locale.id, edit()),
+    ).rejects.toMatchObject({ code: 'forbidden' });
+  });
+  it('edits without a browser lease, checks revisions, and deduplicates identical retries', async () => {
+    const { actor } = await token();
+    const input = edit();
+    const result = await store.command(actor, snapshot.story.id, snapshot.locale.id, input);
+    expect(blockNamed(result.snapshot, 'hero').fields.title).toBe('From CI');
+    expect(blockNamed(result.snapshot, 'hero').revision).toBe(
+      blockNamed(snapshot, 'hero').revision + 1,
+    );
+    const retry = await store.command(actor, snapshot.story.id, snapshot.locale.id, input);
+    expect(retry.checkpointId).toBe(result.checkpointId);
+    await expect(
+      store.command(actor, snapshot.story.id, snapshot.locale.id, {
+        ...input,
+        payload: { ...input.payload, fields: { title: 'Changed retry' } },
+      }),
+    ).rejects.toMatchObject({ code: 'invalid' });
+    await expect(
+      store.command(actor, snapshot.story.id, snapshot.locale.id, edit()),
+    ).rejects.toMatchObject({ code: 'stale_revision' });
+    await expect(
+      store.command(actor, snapshot.story.id, snapshot.locale.id, {
+        ...edit(blockNamed(result.snapshot, 'hero')),
+        migrationVersion: 0,
+      }),
+    ).rejects.toMatchObject({ code: 'stale_revision' });
+  });
+  it('respects a human lease even when that human issued the token', async () => {
+    const { actor } = await token();
+    const hero = blockNamed(snapshot, 'hero');
+    const own = await lease(alice, snapshot, hero);
+    const view = await store.getSnapshot(actor, snapshot.story.id, snapshot.locale.id);
+    expect(view.leases.every((item) => !item.token)).toBe(true);
+    await expect(
+      store.command(actor, snapshot.story.id, snapshot.locale.id, edit()),
+    ).rejects.toMatchObject({ code: 'locked' });
+    await store.releaseLease(alice, snapshot.story.id, snapshot.locale.id, hero.id, own.token!);
+    await expect(
+      store.command(actor, snapshot.story.id, snapshot.locale.id, edit()),
+    ).resolves.toMatchObject({ changedBlockIds: [hero.id] });
+  });
+  it('separates editing, publishing, and administration and cannot mint more tokens', async () => {
+    const { actor } = await token();
+    await expect(
+      store.command(actor, snapshot.story.id, snapshot.locale.id, {
+        type: 'publishCheckpoint',
+        mutationId: randomUUID(),
+        payload: { checkpointId: snapshot.checkpointId },
+      }),
+    ).rejects.toMatchObject({ code: 'forbidden' });
+    const { actor: publisher } = await token(['read', 'content:publish']);
+    await expect(
+      store.command(publisher, snapshot.story.id, snapshot.locale.id, {
+        type: 'publishCheckpoint',
+        mutationId: randomUUID(),
+        payload: { checkpointId: snapshot.checkpointId },
+      }),
+    ).resolves.toHaveProperty('publicationId');
+    const { actor: administrator } = await token(['read', 'admin']);
+    await expect(
+      store.createManagementToken(administrator, { name: 'Escalation', scopes: ['read'] }),
+    ).rejects.toMatchObject({ code: 'forbidden' });
+    await expect(store.assertActor(administrator, 'content:edit')).rejects.toMatchObject({
+      code: 'forbidden',
+    });
+  });
+  it('rejects revoked and cross-space credentials and invalid scope input', async () => {
+    for (const scopes of [[], ['content:edit'], ['read', 'read'], ['read', 'unknown']]) {
+      await expect(
+        store.createManagementToken(alice, { name: 'Invalid', scopes }),
+      ).rejects.toMatchObject({ code: 'invalid' });
+    }
+    const { actor, issued } = await token();
+    const metadata = JSON.stringify(await store.listManagementTokens(alice));
+    expect(metadata).not.toContain(issued.token);
+    expect(metadata).not.toContain('token_hash');
+    await expect(
+      store.authenticateManagement(issued.token, randomUUID(), 'stories'),
+    ).rejects.toMatchObject({ code: 'unauthenticated' });
+    await store.revokeManagementToken(alice, issued.id);
+    await expect(
+      store.getSnapshot(actor, snapshot.story.id, snapshot.locale.id),
+    ).rejects.toMatchObject({ code: 'unauthenticated' });
+  });
+  it('rechecks the issuing user’s role and field restrictions for every request and retry', async () => {
+    const { actor } = await token(['read', 'content:edit', 'admin']);
+    const hero = blockNamed(snapshot, 'hero');
+    const definition = snapshot.definitions.find(
+      (item) => item.versionId === hero.schemaVersionId,
+    )!;
+    const title = definition.fields.find((field) => field.name === 'title')!;
+    const scopes = contentScopesSchema.parse({
+      read: { fieldIds: [title.id] },
+      edit: { fieldIds: [title.id] },
+    });
+    await store.saveSpaceRole(alice, {
+      name: 'Title only',
+      permissions: ['content:read', 'content:edit'],
+      contentScopes: scopes,
+    });
+    const role = (await store.listSpaceRoles(alice)).find((item) => item.name === 'Title only')!;
+    await pool.query('UPDATE memberships SET role=$1 WHERE space_id=$2 AND user_id=$3', [
+      role.id,
+      alice.spaceId,
+      alice.userId,
+    ]);
+    await expect(store.assertActor({ ...actor, role: 'admin' }, 'admin')).rejects.toMatchObject({
+      code: 'forbidden',
+    });
+    const view = await store.getSnapshot(actor, snapshot.story.id, snapshot.locale.id);
+    expect(blockNamed(view, 'hero').fields).toEqual({ title: hero.fields.title });
+    const input = { ...edit(), payload: { blockId: hero.id, fields: { title: 'Scoped CI' } } };
+    const saved = await store.command(actor, snapshot.story.id, snapshot.locale.id, input);
+    expect(blockNamed(saved.snapshot, 'hero').fields).toEqual({ title: 'Scoped CI' });
+    expect(
+      blockNamed(
+        (await store.command(actor, snapshot.story.id, snapshot.locale.id, input)).snapshot,
+        'hero',
+      ).fields,
+    ).toEqual({ title: 'Scoped CI' });
+    const stored = (await pool.query('SELECT fields FROM block_drafts WHERE id=$1', [hero.id]))
+      .rows[0].fields;
+    expect(stored.description).toEqual(hero.fields.description);
+    await pool.query('DELETE FROM memberships WHERE space_id=$1 AND user_id=$2', [
+      alice.spaceId,
+      alice.userId,
+    ]);
+    await expect(
+      store.getSnapshot(actor, snapshot.story.id, snapshot.locale.id),
+    ).rejects.toMatchObject({ code: 'forbidden' });
+  });
 });

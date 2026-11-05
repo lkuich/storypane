@@ -50,8 +50,8 @@ Each agent owns tests for its behavior. The coordinator owns cross-feature tests
 - Use `cf` for the new project and `cloudflare.config.ts`. Pin supported tooling:
   the inspected cf beta requires Node ^22.23, ^24.22, or ^26.12; the current
   machine runs Node 24.7. Upgrade the task runtime before application setup.
-- Explicitly target account `c813587edc389800e834e0c261a91ef5`
-  (`loren.jk3@gmail.com`). Do not change another project's default CLI login.
+- Explicitly target the operator's `CLOUDFLARE_ACCOUNT_ID` from ignored
+  `.env.production`. Do not change another project's default CLI login.
 - Integrate database-backed cookie sessions with Better Auth, invite-only users,
   and space membership. Seed two local editors for concurrency testing. Admins
   manage schemas/datasources; editors manage content/assets/publishing. Account

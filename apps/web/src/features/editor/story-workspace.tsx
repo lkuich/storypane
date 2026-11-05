@@ -1,4 +1,5 @@
 'use client';
+import { rememberClipboard, writeClipboardText } from '../../lib/clipboard';
 import {
   createBlockClipboard,
   isBlockAllowed,
@@ -8,7 +9,7 @@ import {
 import { setStoryLocation, spaceUrl } from '../../lib/space-url';
 import { PublicationReferences, publicationSelection } from './publication-references';
 
-import { useCallback, useEffect, useRef, useState, type DragEvent } from 'react';
+import { Fragment, useCallback, useEffect, useRef, useState, type DragEvent } from 'react';
 import {
   CalendarClock,
   Check,
@@ -52,13 +53,14 @@ import { can } from '@storypane/core';
 import { PublicationStatus } from '../../components/publication-status';
 import { BlockEditorAvatar, EditorAvatars } from '../../components/editor-avatars';
 import { usePageEditors } from './use-page-editors';
-import { PageId } from '../../components/page-id';
+import { CopyableValue } from '../../components/copyable-value';
 import { ActionDropdown } from '../../components/action-dropdown';
 import type { CMSSession } from '../../components/cms-app';
 import { api, ApiError, dateLabel, errorMessage, jsonRequest } from './api';
 import { FieldInput } from './field-input';
 import type { NavigationGuard, RegisterGuard } from './navigation';
 import { useStoryEditor } from './use-story-editor';
+import { useBlockClipboard } from './use-block-clipboard';
 import { PreviewPanel } from './preview-panel';
 import { BlockNavigation, blockSummary, blockTitle, definitionFor } from './block-navigation';
 import { SchemaDrawer } from '../schema/schema-drawer';
@@ -130,14 +132,22 @@ export function StoryWorkspace({
         api<SpaceLocale[]>('/locales'),
       ]);
       const requestedLocale = new URLSearchParams(window.location.search).get('locale');
-      const slug = requestedLocale ?? '';
       const target =
-        configured.find((locale) => locale.slug === slug) ??
-        (requestedLocale === null
-          ? configured.find((locale) => available.some((item) => item.spaceLocaleId === locale.id))
-          : undefined);
+        requestedLocale !== null
+          ? configured.find((locale) => locale.slug === requestedLocale)
+          : (configured.find(
+              (locale) =>
+                locale.isDefault && available.some((item) => item.spaceLocaleId === locale.id),
+            ) ??
+            configured.find((locale) =>
+              available.some((item) => item.spaceLocaleId === locale.id),
+            ));
       if (!target)
-        throw new Error(`Locale “${slug || 'Default'}” is not configured in this space.`);
+        throw new Error(
+          requestedLocale === null
+            ? 'No locale is available for this story.'
+            : `Locale “${requestedLocale || '/'}” is not configured in this space.`,
+        );
       const locale =
         available.find((locale) => locale.spaceLocaleId === target.id) ??
         (await api<StoryLocale>(
@@ -354,10 +364,12 @@ function LocaleEditor({
     null,
   );
   const [clipboardNotice, setClipboardNotice] = useState('');
+  const copiedBlock = useBlockClipboard();
   const [copyFallback, setCopyFallback] = useState<string | null>(null);
   const [pasteTo, setPasteTo] = useState<{
     parentId: string;
     field: Extract<FieldDefinition, { type: 'blocks' }>;
+    position?: number;
   } | null>(null);
   const [pasteText, setPasteText] = useState(''),
     [pasteError, setPasteError] = useState('');
@@ -431,7 +443,11 @@ function LocaleEditor({
     editor.connection !== 'connected';
   const ownsLease = editor.canEdit;
   const disabled = !can(session.space, 'content:edit') || !ownsLease || busy;
-  const defaultLocale = locales.find((locale) => locale.slug === '');
+  const defaultLocale = locales.find((locale) =>
+    configuredLocales.some(
+      (configured) => configured.id === locale.spaceLocaleId && configured.isDefault,
+    ),
+  );
 
   async function action(work: () => Promise<unknown>) {
     setBusy(true);
@@ -463,7 +479,7 @@ function LocaleEditor({
       createBlockClipboard(snapshot, session.space.id, blockId, editor.buffers),
     );
     try {
-      await navigator.clipboard.writeText(text);
+      await writeClipboardText(text);
       setClipboardNotice(
         'Block copied, including nested blocks. Paste it into a block list in this space.',
       );
@@ -475,7 +491,9 @@ function LocaleEditor({
     text: string,
     parentId: string,
     field: Extract<FieldDefinition, { type: 'blocks' }>,
+    position?: number,
   ) {
+    rememberClipboard(text);
     const clipboard = parseBlockClipboard(text);
     if (clipboard.spaceId !== session.space.id)
       throw new Error('Blocks can only be pasted within the space they were copied from.');
@@ -487,7 +505,7 @@ function LocaleEditor({
     if (!definition || !isBlockAllowed(field, definition))
       throw new Error(`${field.label} does not allow this block type.`);
     const result = await editor.runCommand(
-      { type: 'pasteBlock', payload: { parentId, parentField: field.name, clipboard } },
+      { type: 'pasteBlock', payload: { parentId, parentField: field.name, clipboard, position } },
       [parentId],
     );
     setPasteTo(null);
@@ -503,17 +521,37 @@ function LocaleEditor({
   async function readAndPaste(
     parentId: string,
     field: Extract<FieldDefinition, { type: 'blocks' }>,
+    position?: number,
   ) {
     let text: string;
     try {
       text = await navigator.clipboard.readText();
     } catch {
-      setPasteTo({ parentId, field });
+      setPasteTo({ parentId, field, position });
       setPasteText('');
       setPasteError('');
       return;
     }
-    await pasteBlock(text, parentId, field);
+    await pasteBlock(text, parentId, field, position);
+  }
+  function canPaste(parentId: string, field: Extract<FieldDefinition, { type: 'blocks' }>) {
+    if (
+      !copiedBlock ||
+      copiedBlock.spaceId !== session.space.id ||
+      copiedBlock.migrationVersion !== (snapshot.migrationVersion ?? 0)
+    )
+      return false;
+    const copiedDefinition = definitions.find(
+      (item) => item.id === copiedBlock.blocks[0]?.definitionId,
+    );
+    return (
+      !!copiedDefinition &&
+      isBlockAllowed(field, copiedDefinition) &&
+      (field.maxItems === undefined ||
+        snapshot.blocks.filter(
+          (item) => item.parentId === parentId && item.parentField === field.name,
+        ).length < field.maxItems)
+    );
   }
   async function openHistory() {
     setHistoryOpen(true);
@@ -665,7 +703,7 @@ function LocaleEditor({
   }
   async function copyRecovery() {
     try {
-      await navigator.clipboard.writeText(JSON.stringify(currentBuffer?.fields ?? {}, null, 2));
+      await writeClipboardText(JSON.stringify(currentBuffer?.fields ?? {}, null, 2));
     } catch {
       editor.setError('Could not copy to your clipboard. Select and copy the recovery text below.');
     }
@@ -855,7 +893,7 @@ function LocaleEditor({
               /{snapshot.locale.slug ? `${snapshot.locale.slug}/` : ''}
               {snapshot.locale.urlSlug}
             </span>
-            <PageId id={snapshot.story.id} name={snapshot.story.name} />
+            <CopyableValue value={snapshot.story.id} label="Page ID" name={snapshot.story.name} />
           </div>
         </div>
         <div className="story-toolbar">
@@ -1014,7 +1052,7 @@ function LocaleEditor({
           {configuredLocales.map((locale) => (
             <button
               role="tab"
-              aria-label={locale.slug ? `${locale.name} ${locale.slug}` : 'Default'}
+              aria-label={locale.slug ? `${locale.name} ${locale.slug}` : locale.name}
               aria-selected={locale.id === snapshot.locale.spaceLocaleId}
               disabled={
                 switchingLocale ||
@@ -1026,7 +1064,7 @@ function LocaleEditor({
               key={locale.id}
               onClick={() => onLocale(locale.id)}
             >
-              {locale.slug === '' ? 'Default' : locale.name}
+              {locale.name}
               {locale.slug !== '' && (
                 <span
                   className="mono"
@@ -1279,63 +1317,75 @@ function LocaleEditor({
                                 item.parentId === block.id && item.parentField === field.name,
                             )
                             .sort((a, b) => a.position - b.position)
-                            .map((child) => (
-                              <div
-                                className="block-list-item"
-                                key={child.id}
-                                {...sortableProps(child)}
-                              >
-                                {dragHandle(child)}
-                                <button
-                                  className="entity-title"
-                                  onClick={() => void editor.select(child.id)}
-                                >
-                                  {blockTitle(snapshot, child)}
-                                </button>
-                                <span className="small muted">{blockSummary(child)}</span>
-                                <div className="button-group">
-                                  <BlockEditorAvatar
-                                    blockId={child.id}
-                                    snapshot={snapshot}
-                                    editors={currentEditors}
-                                    currentUserId={session.user.id}
-                                  />
-                                  <Button
-                                    variant="ghost"
-                                    className="icon-button"
-                                    disabled={busy}
-                                    aria-label={`Copy ${blockTitle(snapshot, child)}`}
-                                    title="Copy block and nested content"
-                                    onClick={() => void action(() => copyBlock(child.id))}
+                            .map((child, position) => (
+                              <Fragment key={child.id}>
+                                {canPaste(block.id, field) && (
+                                  <div className="block-list-insert">
+                                    <Button
+                                      variant="ghost"
+                                      disabled={disabled}
+                                      aria-label={`Paste block before ${blockTitle(snapshot, child)}`}
+                                      onClick={() =>
+                                        void action(() => readAndPaste(block.id, field, position))
+                                      }
+                                    >
+                                      <ClipboardPaste aria-hidden="true" /> Paste here
+                                    </Button>
+                                  </div>
+                                )}
+                                <div className="block-list-item" {...sortableProps(child)}>
+                                  {dragHandle(child)}
+                                  <button
+                                    className="entity-title"
+                                    onClick={() => void editor.select(child.id)}
                                   >
-                                    <Copy aria-hidden="true" />
-                                  </Button>
-                                  <Button
-                                    variant="ghost"
-                                    className="icon-button"
-                                    disabled={disabled}
-                                    aria-label={`Remove ${blockTitle(snapshot, child)}`}
-                                    onClick={() => {
-                                      if (
-                                        window.confirm(
-                                          `Remove ${blockTitle(snapshot, child)} and its nested blocks? You can restore the page from history.`,
+                                    {blockTitle(snapshot, child)}
+                                  </button>
+                                  <span className="small muted">{blockSummary(child)}</span>
+                                  <div className="button-group">
+                                    <BlockEditorAvatar
+                                      blockId={child.id}
+                                      snapshot={snapshot}
+                                      editors={currentEditors}
+                                      currentUserId={session.user.id}
+                                    />
+                                    <Button
+                                      variant="ghost"
+                                      className="icon-button"
+                                      disabled={busy}
+                                      aria-label={`Copy ${blockTitle(snapshot, child)}`}
+                                      title="Copy block and nested content"
+                                      onClick={() => void action(() => copyBlock(child.id))}
+                                    >
+                                      <Copy aria-hidden="true" />
+                                    </Button>
+                                    <Button
+                                      variant="ghost"
+                                      className="icon-button"
+                                      disabled={disabled}
+                                      aria-label={`Remove ${blockTitle(snapshot, child)}`}
+                                      onClick={() => {
+                                        if (
+                                          window.confirm(
+                                            `Remove ${blockTitle(snapshot, child)} and its nested blocks? You can restore the page from history.`,
+                                          )
                                         )
-                                      )
-                                        void action(() =>
-                                          editor.runCommand(
-                                            {
-                                              type: 'deleteBlock',
-                                              payload: { blockId: child.id },
-                                            },
-                                            [child.id, block.id],
-                                          ),
-                                        );
-                                    }}
-                                  >
-                                    <Trash2 />
-                                  </Button>
+                                          void action(() =>
+                                            editor.runCommand(
+                                              {
+                                                type: 'deleteBlock',
+                                                payload: { blockId: child.id },
+                                              },
+                                              [child.id, block.id],
+                                            ),
+                                          );
+                                      }}
+                                    >
+                                      <Trash2 />
+                                    </Button>
+                                  </div>
                                 </div>
-                              </div>
+                              </Fragment>
                             ))}
                           {!snapshot.blocks.some(
                             (item) => item.parentId === block.id && item.parentField === field.name,
@@ -1365,29 +1415,23 @@ function LocaleEditor({
                               >
                                 <Plus /> Add block
                               </Button>
-                              <Button
-                                variant="ghost"
-                                disabled={
-                                  disabled ||
-                                  (field.maxItems !== undefined &&
-                                    snapshot.blocks.filter(
-                                      (item) =>
-                                        item.parentId === block.id &&
-                                        item.parentField === field.name,
-                                    ).length >= field.maxItems)
-                                }
-                                onClick={() => void action(() => readAndPaste(block.id, field))}
-                              >
-                                <ClipboardPaste aria-hidden="true" />
-                                Paste block
-                              </Button>
-                              {snapshot.locale.slug !== '' && (
+                              {canPaste(block.id, field) && (
+                                <Button
+                                  variant="ghost"
+                                  disabled={disabled}
+                                  onClick={() => void action(() => readAndPaste(block.id, field))}
+                                >
+                                  <ClipboardPaste aria-hidden="true" />
+                                  Paste block
+                                </Button>
+                              )}
+                              {defaultLocale && snapshot.locale.id !== defaultLocale.id && (
                                 <Button
                                   variant="ghost"
                                   disabled={disabled}
                                   onClick={() => void startImport(block.id, field)}
                                 >
-                                  <Copy /> Import from Default
+                                  <Copy /> Import from {defaultLocale.name}
                                 </Button>
                               )}
                             </div>
@@ -1397,6 +1441,12 @@ function LocaleEditor({
                     ) : (
                       <FieldInput
                         key={`${block.id}:${field.name}`}
+                        optionContext={{
+                          storyId: snapshot.story.id,
+                          localeId: snapshot.locale.id,
+                          blockId: block.id,
+                          fieldName: field.name,
+                        }}
                         referenceRefreshKey={snapshot.locale.publishedVersionId ?? ''}
                         field={field}
                         value={fields[field.name]}
@@ -1469,6 +1519,7 @@ function LocaleEditor({
             onDefinitions(await api<BlockDefinition[]>('/definitions?deployed=true'));
             setSchema((current) => (current ? { ...current, definitions: latest } : null));
           }}
+          onDelete={() => setSchema(null)}
           description="Editing the shared active migration. Page content changes when an admin deploys it."
         />
       )}
@@ -1588,7 +1639,7 @@ function LocaleEditor({
             if (!pasteTo) return;
             setBusy(true);
             setPasteError('');
-            void pasteBlock(pasteText, pasteTo.parentId, pasteTo.field)
+            void pasteBlock(pasteText, pasteTo.parentId, pasteTo.field, pasteTo.position)
               .catch((cause) => setPasteError(errorMessage(cause)))
               .finally(() => setBusy(false));
           }}
@@ -1862,7 +1913,7 @@ function LocaleEditor({
       <Modal
         open={!!importTo}
         onClose={() => !busy && setImportTo(null)}
-        title="Import from Default"
+        title={`Import from ${defaultLocale?.name ?? 'default locale'}`}
         description="Selected blocks and their nested content become independent copies in this locale."
         wide
       >
@@ -1905,7 +1956,11 @@ function LocaleEditor({
                     </label>
                   );
                 })}
-              {source.blocks.length <= 1 && <EmptyState title="Default has no nested blocks yet" />}
+              {source.blocks.length <= 1 && (
+                <EmptyState
+                  title={`${defaultLocale?.name ?? 'The default locale'} has no nested blocks yet`}
+                />
+              )}
             </div>
           )
         )}

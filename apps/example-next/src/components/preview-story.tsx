@@ -33,7 +33,11 @@ export function PreviewStory({ cmsUrl, spaceId }: { cmsUrl: string; spaceId: str
         <div lang={story.locale || 'en'}>
           <StoryContent
             story={story}
-            references={referencesFor(story.references ?? [], story.locale)}
+            references={referencesFor(
+              story.references ?? [],
+              story.locale,
+              story.references?.find((reference) => reference.locale !== story.locale)?.locale,
+            )}
             preview={{ cmsUrl, spaceId }}
           />
         </div>

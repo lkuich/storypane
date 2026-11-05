@@ -13,7 +13,10 @@ const story: StorypaneStory<StorypaneContentType> = {
   publishedAt: '2026-11-04T00:00:00Z',
   content: { _uid: 'root', component: 'page', title: 'Home', body: [], footer: 'shared' },
 };
-const locales = [{ slug: '' }, { slug: 'fr' }];
+const locales = [
+  { slug: '', isDefault: true },
+  { slug: 'fr', isDefault: false },
+];
 it('builds nested/localized routes with the selected footer and rejects ambiguous or reserved paths', () => {
   const footer: StorypaneStory<StorypaneContentType> = {
     ...story,

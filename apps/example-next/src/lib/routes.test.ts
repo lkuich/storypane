@@ -2,10 +2,10 @@ import { expect, it } from 'vitest';
 import { referenceForPath, staticStoryParams } from './routes';
 
 const locales = [
-  { id: 'default', name: 'Default', slug: '' },
-  { id: 'french', name: 'French', slug: 'fr' },
+  { id: 'default', name: 'Default', slug: '', isDefault: false },
+  { id: 'french', name: 'French', slug: 'fr', isDefault: true },
 ];
-it('maps default, localized, and nested routes back to the exact delivery reference', () => {
+it('maps root, localized, and nested routes independently of the selected default', () => {
   const stories = [
     { locale: '', slug: 'home' },
     { locale: 'fr', slug: 'studio/home' },

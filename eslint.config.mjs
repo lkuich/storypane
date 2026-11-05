@@ -11,6 +11,7 @@ export default defineConfig([
     '**/node_modules/**',
     '**/dist/**',
     '**/.next/**',
+    '**/.node/**',
     '**/.astro/**',
     '**/.cloudflare/**',
     '**/.wrangler/**',

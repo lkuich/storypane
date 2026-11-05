@@ -11,7 +11,7 @@ export async function fetchPublishedStories(client: ReturnType<typeof createStor
 }
 export function pageEntries(
   stories: StorypaneStory<StorypaneContentType>[],
-  locales: Pick<StorypaneLocale, 'slug'>[],
+  locales: Pick<StorypaneLocale, 'slug' | 'isDefault'>[],
 ) {
   const paths = new Set<string>();
   const localePrefixes = new Set(locales.map(({ slug }) => slug).filter(Boolean));
@@ -25,6 +25,16 @@ export function pageEntries(
     if (!story.locale && localePrefixes.has(prefix))
       throw new Error(`Story path conflicts with a locale: ${path}`);
     paths.add(path);
-    return { params: { path }, props: { story, references: referencesFor(stories, story.locale) } };
+    return {
+      params: { path },
+      props: {
+        story,
+        references: referencesFor(
+          stories,
+          story.locale,
+          locales.find((locale) => locale.isDefault)?.slug,
+        ),
+      },
+    };
   });
 }

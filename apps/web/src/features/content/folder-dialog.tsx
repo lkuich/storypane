@@ -135,7 +135,7 @@ export function FolderDialog({
                   value={language}
                   onChange={(event) => setLanguage(event.target.value)}
                 >
-                  <option value="">Default</option>
+                  <option value="">Base path</option>
                   {locales
                     .filter((item) => item.slug)
                     .map((item) => (
@@ -160,7 +160,7 @@ export function FolderDialog({
             />
             <p className="field-hint">
               {language
-                ? 'Leave blank to use the default slug.'
+                ? 'Leave blank to use the base slug.'
                 : 'One URL segment. The parent folder adds its own prefix.'}
             </p>
           </div>

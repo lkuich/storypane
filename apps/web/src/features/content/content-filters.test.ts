@@ -38,6 +38,16 @@ const stories = [
 const ids = (items: StorySummary[]) => items.map((item) => item.id);
 
 describe('content filters', () => {
+  it('finds complete localized paths and preserves long slug searches in the URL', () => {
+    const path = `/ca/blog/${'long-slug-'.repeat(30)}`;
+    const filters = { ...defaultFilters, query: path };
+    const params = new URLSearchParams();
+    writeContentFilters(params, filters);
+    expect(readContentFilters(params).query).toBe(path);
+    expect(ids(filterStories([story('article', { slug: 'blog/base', path })], filters))).toEqual([
+      'article',
+    ]);
+  });
   it('puts personal pins first within every sort while still respecting filters', () => {
     const pinned = stories.map((story) => ({ ...story, pinned: story.id !== 'home' }));
     expect(ids(filterStories(pinned, defaultFilters))).toEqual(['news', 'draft', 'home']);

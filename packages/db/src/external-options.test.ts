@@ -15,6 +15,31 @@ function setup(response: Response) {
   return fetchMock;
 }
 describe('external option sources', () => {
+  it('sends configured and context headers without ambient credentials or redirect forwarding', async () => {
+    const fetchMock = setup(Response.json({ items: [] }));
+    await fetchExternalOptions('https://example.com/options', ['example.com'], {
+      Authorization: 'Bearer configured-value',
+      'X-Storypane-Story-Id': 'page-id',
+      'X-Catalog': 'courses',
+    });
+    const request = fetchMock.mock.calls[0][1];
+    expect(Object.fromEntries(request.headers)).toEqual({
+      accept: 'application/json',
+      authorization: 'Bearer configured-value',
+      'x-storypane-story-id': 'page-id',
+      'x-catalog': 'courses',
+    });
+    expect(request).toMatchObject({ credentials: 'omit', redirect: 'manual' });
+    fetchMock.mockResolvedValue(
+      new Response(null, { status: 302, headers: { Location: 'https://other.example/options' } }),
+    );
+    await expect(
+      fetchExternalOptions('https://example.com/options', ['example.com'], {
+        Authorization: 'Bearer configured-value',
+      }),
+    ).rejects.toMatchObject({ code: 'invalid' });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
   it('rejects loopback, private, reserved and mapped addresses', () => {
     for (const address of [
       '127.0.0.1',

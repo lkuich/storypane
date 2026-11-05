@@ -95,7 +95,7 @@ export function ContentFilterBar({
           <Search aria-hidden="true" />
           <input
             type="search"
-            maxLength={200}
+            maxLength={2080}
             aria-label="Search stories"
             placeholder="Search by name, path, or page ID…"
             value={filters.query}
@@ -190,7 +190,7 @@ export function ContentFilterBar({
         <span className="small muted" role="status">
           {loading
             ? 'Loading stories…'
-            : `${count} of ${stories.length} ${deleted ? 'deleted ' : ''}${stories.length === 1 ? 'story' : 'stories'}`}
+            : `${count} of ${stories.length} ${deleted ? 'deleted ' : ''}${stories.length === 1 ? 'story' : 'stories'}${hasSearch ? ' across all folders' : ''}`}
         </span>
         {(activeCount > 0 || hasSearch) && (
           <div className="content-filter-chips">

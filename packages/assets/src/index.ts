@@ -14,6 +14,8 @@ import type { AssetContext, AssetPart, AssetRecord } from './types';
 import { imageOptions } from './image-options';
 export type {
   AssetBucket,
+  AssetImages,
+  AssetImageTransform,
   AssetContext,
   AssetRecord,
   AssetFolder,

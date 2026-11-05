@@ -1,108 +1,108 @@
 'use client';
 
-import { useState } from 'react';
-import { Boxes, Search, Tags, X } from 'lucide-react';
-import { isBlockAllowed, type BlockDefinition, type FieldDefinition } from '@storypane/core';
+import { useRef, useState } from 'react';
+import { Boxes, GitBranch, Search, X } from 'lucide-react';
+import type { BlockDefinition, FieldDefinition } from '@storypane/core';
 import { Field } from '@storypane/ui';
 
 export function BlockRestrictions({
   field,
   definitions,
+  definitionId,
   onChange,
 }: {
   field: Extract<FieldDefinition, { type: 'blocks' }>;
   definitions: BlockDefinition[];
+  definitionId?: string;
   onChange: (field: FieldDefinition) => void;
 }) {
   const [query, setQuery] = useState('');
-  const byTags = field.allowedTags !== undefined;
-  const selected = (byTags ? field.allowedTags : field.allowedDefinitionIds) ?? [];
-  const nestable = definitions.filter((item) => item.kind !== 'content-type');
-  const choices = byTags
-    ? [...new Set([...nestable.flatMap((item) => item.tags ?? []), ...selected])]
-        .sort()
-        .map((tag) => {
-          const count = nestable.filter((item) => item.tags?.includes(tag)).length;
-          return { id: tag, label: tag, detail: `${count} ${count === 1 ? 'block' : 'blocks'}` };
-        })
-    : nestable.map((item) => ({
-        id: item.id,
-        label: item.displayName,
-        detail: [item.name, ...(item.tags ?? [])].join(' · '),
-      }));
-  const filtered = choices.filter((item) =>
-    `${item.label} ${item.detail}`.toLowerCase().includes(query.trim().toLowerCase()),
+  const [chosenTab, setChosenTab] = useState<'nested' | 'blocks' | null>(null);
+  const search = useRef<HTMLInputElement>(null);
+  const selected = field.allowedDefinitionIds ?? [];
+  const eligible = definitions.filter((item) => item.kind !== 'content-type');
+  const nested = eligible.filter(
+    (item) => definitionId && item.parentDefinitionId === definitionId,
   );
-  const matches = byTags ? nestable.filter((item) => isBlockAllowed(field, item)) : [];
+  const tab = chosenTab ?? (nested.length ? 'nested' : 'blocks');
+  const choices = tab === 'nested' ? nested : eligible;
+  const filtered = choices.filter((item) =>
+    `${item.displayName} ${item.name} ${(item.tags ?? []).join(' ')}`
+      .toLowerCase()
+      .includes(query.trim().toLowerCase()),
+  );
   function select(values: string[]) {
-    onChange({
-      ...field,
-      ...(byTags ? { allowedTags: values } : { allowedDefinitionIds: values }),
-    });
+    const { allowedTags: _tags, ...rest } = field;
+    onChange({ ...rest, allowedDefinitionIds: values });
   }
   return (
     <Field
       label="Allowed blocks"
-      description={
-        byTags
-          ? 'Allow blocks matching any selected tag. No tags selected allows any nestable or universal block.'
-          : 'Leave all unchecked to allow any nestable or universal block.'
-      }
+      description="Leave all unchecked to allow any nestable or universal block."
     >
       <div className="block-restrictions">
-        <div className="restriction-mode" role="group" aria-label="Restrict allowed blocks by">
-          {([false, true] as const).map((tags) => (
+        <div className="restriction-mode" role="group" aria-label="Browse allowed blocks">
+          {(['nested', 'blocks'] as const).map((value) => (
             <button
-              key={String(tags)}
+              key={value}
               type="button"
-              aria-pressed={byTags === tags}
+              aria-pressed={tab === value}
               onClick={() => {
-                if (tags === byTags) return;
+                setChosenTab(value);
                 setQuery('');
-                onChange({
-                  ...field,
-                  allowedDefinitionIds: undefined,
-                  allowedTags: tags ? [] : undefined,
-                });
               }}
             >
-              {tags ? <Tags aria-hidden="true" /> : <Boxes aria-hidden="true" />}
-              {tags ? 'Tags' : 'Blocks'}
+              {value === 'nested' ? <GitBranch aria-hidden="true" /> : <Boxes aria-hidden="true" />}
+              {value === 'nested' ? 'Nested' : 'Blocks'}
             </button>
           ))}
         </div>
         <div className="search-input">
           <Search aria-hidden="true" />
           <input
+            ref={search}
             type="search"
-            aria-label={byTags ? 'Search allowed tags' : 'Search allowed blocks'}
-            placeholder={byTags ? 'Search tags…' : 'Search blocks by name or tag…'}
+            aria-label="Search allowed blocks"
+            placeholder="Search blocks…"
             value={query}
             onChange={(event) => setQuery(event.target.value)}
           />
         </div>
         <div className="restriction-selection">
-          <span>{selected.length ? `${selected.length} selected` : 'All nestable blocks'}</span>
-          {selected.length > 0 && (
+          <span>
+            {field.allowedTags?.length
+              ? 'Legacy tag restriction'
+              : selected.length
+                ? `${selected.length} selected`
+                : 'All nestable and universal blocks'}
+          </span>
+          {(selected.length > 0 || !!field.allowedTags?.length) && (
             <button type="button" onClick={() => select([])}>
               Clear selection
             </button>
           )}
         </div>
-        {byTags && selected.length > 0 && (
-          <div className="restriction-tags">
-            {selected.map((tag) => (
-              <button
-                type="button"
-                key={tag}
-                aria-label={`Remove tag ${tag}`}
-                onClick={() => select(selected.filter((value) => value !== tag))}
-              >
-                <Tags aria-hidden="true" />
-                {tag}
-                <X aria-hidden="true" />
-              </button>
-            ))}
+        {selected.length > 0 && (
+          <div className="option-selections" role="group" aria-label="Selected allowed blocks">
+            {selected.map((id) => {
+              const definition = definitions.find((item) => item.id === id);
+              const name = definition?.displayName ?? id;
+              return (
+                <button
+                  key={id}
+                  type="button"
+                  title={definition ? `${name} (${definition.name})` : id}
+                  aria-label={`Remove ${name} from allowed blocks`}
+                  onClick={() => {
+                    search.current?.focus();
+                    select(selected.filter((value) => value !== id));
+                  }}
+                >
+                  {name}
+                  <X aria-hidden="true" />
+                </button>
+              );
+            })}
           </div>
         )}
         <div className="restriction-choices">
@@ -120,8 +120,8 @@ export function BlockRestrictions({
                 }
               />
               <span>
-                <strong>{item.label}</strong>
-                <small>{item.detail}</small>
+                <strong>{item.displayName}</strong>
+                <small>{item.name}</small>
               </span>
             </label>
           ))}
@@ -129,24 +129,12 @@ export function BlockRestrictions({
             <p role="status">
               {query
                 ? 'No matches. Try another search.'
-                : byTags
-                  ? 'Add tags to blocks in their Config tab to use them here.'
+                : tab === 'nested'
+                  ? 'No nested blocks yet. Set this block as a parent, or browse all blocks.'
                   : 'No nestable blocks yet.'}
             </p>
           )}
         </div>
-        {byTags && (
-          <div className="restriction-matches">
-            <strong>
-              {matches.length} matching {matches.length === 1 ? 'block' : 'blocks'}
-            </strong>
-            <p>
-              {matches.length
-                ? matches.map((item) => item.displayName).join(', ')
-                : 'No blocks currently match these tags.'}
-            </p>
-          </div>
-        )}
       </div>
     </Field>
   );

@@ -2,7 +2,13 @@
 
 import { useEffect, useId, useRef, useState } from 'react';
 import { Check, ChevronDown, ExternalLink, Search, X } from 'lucide-react';
-import type { Json, OptionItem, OptionPage, OptionSource } from '@storypane/core';
+import type {
+  Json,
+  OptionItem,
+  OptionPage,
+  OptionSource,
+  OptionRequestContext,
+} from '@storypane/core';
 import { Button, ErrorNotice } from '@storypane/ui';
 import { EditorAvatars } from '../../components/editor-avatars';
 import { PublicationStatus } from '../../components/publication-status';
@@ -16,7 +22,7 @@ function StoryOptionStatus({
   id,
 }: {
   item?: OptionItem;
-  locale: string;
+  locale: string | undefined;
   id?: string;
 }) {
   const publication = item?.publication;
@@ -51,6 +57,7 @@ export function OptionInput({
   id: controlId,
   placeholder,
   refreshKey,
+  context,
 }: {
   id?: string;
   source: OptionSource;
@@ -61,12 +68,13 @@ export function OptionInput({
   label: string;
   placeholder?: string;
   refreshKey?: string;
+  context?: OptionRequestContext;
 }) {
   const spaceId = selectedSpaceId();
   const locale =
     source.type === 'stories' && typeof window !== 'undefined'
-      ? (new URLSearchParams(window.location.search).get('locale') ?? '')
-      : '';
+      ? (new URLSearchParams(window.location.search).get('locale') ?? undefined)
+      : undefined;
   const [open, setOpen] = useState(false),
     [query, setQuery] = useState(''),
     [retry, setRetry] = useState(0);
@@ -86,10 +94,11 @@ export function OptionInput({
       ? [value]
       : [];
   const sourceKey = JSON.stringify(source),
+    contextKey = JSON.stringify(context),
     selectedKey = JSON.stringify(selected);
   useEffect(() => {
     setSaved([]);
-  }, [sourceKey, spaceId, locale]);
+  }, [sourceKey, contextKey, spaceId, locale]);
   useEffect(() => {
     let cancelled = false;
     let busy = false;
@@ -101,7 +110,12 @@ export function OptionInput({
       busy = true;
       try {
         const result = await api<OptionPage>('/options', {
-          ...jsonRequest('POST', { source: JSON.parse(sourceKey), values, locale }),
+          ...jsonRequest('POST', {
+            source: JSON.parse(sourceKey),
+            values,
+            locale,
+            context: contextKey ? JSON.parse(contextKey) : undefined,
+          }),
           signal: AbortSignal.any([controller.signal, AbortSignal.timeout(20_000)]),
         });
         if (!cancelled)
@@ -137,7 +151,7 @@ export function OptionInput({
       window.removeEventListener('focus', refresh);
       document.removeEventListener('visibilitychange', refresh);
     };
-  }, [sourceKey, selectedKey, retry, spaceId, locale, refreshKey]);
+  }, [sourceKey, contextKey, selectedKey, retry, spaceId, locale, refreshKey]);
   useEffect(() => {
     const current = ++generation.current;
     if (!open) return;
@@ -148,7 +162,12 @@ export function OptionInput({
     const timer = setTimeout(
       () => {
         void api<OptionPage>('/options', {
-          ...jsonRequest('POST', { source: JSON.parse(sourceKey), query, locale }),
+          ...jsonRequest('POST', {
+            source: JSON.parse(sourceKey),
+            query,
+            locale,
+            context: contextKey ? JSON.parse(contextKey) : undefined,
+          }),
           signal: controller.signal,
         })
           .then((result) => {
@@ -169,7 +188,7 @@ export function OptionInput({
       controller.abort();
       generation.current += 1;
     };
-  }, [sourceKey, query, retry, open, locale, spaceId, refreshKey]);
+  }, [sourceKey, contextKey, query, retry, open, locale, spaceId, refreshKey]);
   useEffect(() => {
     if (!open) return;
     search.current?.focus();
@@ -205,7 +224,7 @@ export function OptionInput({
     try {
       const next = await api<OptionPage>(
         '/options',
-        jsonRequest('POST', { source, query, cursor: page.nextCursor, locale }),
+        jsonRequest('POST', { source, query, cursor: page.nextCursor, locale, context }),
       );
       if (current === generation.current) {
         search.current?.focus();

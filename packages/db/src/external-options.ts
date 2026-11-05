@@ -25,6 +25,7 @@ export function isPublicAddress(address: string): boolean {
 export async function fetchExternalOptions(
   urlString: string,
   allowedHosts: string[],
+  headers: Record<string, string> = {},
 ): Promise<OptionItem[]> {
   const url = new URL(urlString);
   const host = url.hostname.toLowerCase();
@@ -64,10 +65,13 @@ export async function fetchExternalOptions(
       'External sources cannot resolve to private or reserved networks',
     );
   try {
+    const requestHeaders = new Headers({ Accept: 'application/json' });
+    for (const [name, value] of Object.entries(headers)) requestHeaders.set(name, value);
     const response = await fetch(url, {
       redirect: 'manual',
+      credentials: 'omit',
       signal: AbortSignal.timeout(5000),
-      headers: { Accept: 'application/json' },
+      headers: requestHeaders,
     });
     if (response.status >= 300 && response.status < 400)
       throw new StorypaneError('invalid', 'External source redirects are not allowed');

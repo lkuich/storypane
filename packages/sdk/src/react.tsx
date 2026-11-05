@@ -16,7 +16,7 @@ export function useStorypanePreview<T = StorypaneStory['content']>({
 }) {
   const id = reference?.id;
   const slug = reference?.slug;
-  const locale = reference?.locale ?? '';
+  const locale = reference?.locale;
   const key = JSON.stringify([cmsUrl, spaceId, id, slug, locale, migrationVersion]);
   const [result, setResult] = useState<{
     key: string;

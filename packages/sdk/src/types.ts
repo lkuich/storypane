@@ -7,6 +7,7 @@ export interface StorypaneLocale {
   id: string;
   name: string;
   slug: string;
+  isDefault: boolean;
 }
 export interface StorypaneAsset {
   assetId: string;

@@ -1,4 +1,4 @@
-import { env } from 'cloudflare:workers';
+import { env } from '#platform';
 import { authenticateSession, createServices } from '../../../../lib/context';
 import { assertOrigin, errorResponse, jsonResponse } from '../../../../lib/http';
 

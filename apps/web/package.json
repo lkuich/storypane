@@ -6,7 +6,9 @@
     "dev": "vite dev --host 127.0.0.1 --port 3130 --strictPort",
     "build": "vite build",
     "preview": "vite preview --host 127.0.0.1 --port 3130",
-    "lint": "pnpm --workspace-root exec eslint apps/web --max-warnings 0 && pnpm --workspace-root exec prettier apps/web --check"
+    "lint": "pnpm --workspace-root exec eslint apps/web --max-warnings 0 && pnpm --workspace-root exec prettier apps/web --check",
+    "build:node": "vite build --config vite.node.config.ts",
+    "start:node": "node --conditions=storypane-node --import tsx src/node.ts"
   },
   "dependencies": {
     "@clerk/backend": "^3.26.5",
@@ -24,7 +26,11 @@
     "react": "19.3.1",
     "react-dom": "19.3.1",
     "react-server-dom-webpack": "19.3.1",
-    "vinext": "1.4.2"
+    "vinext": "1.4.2",
+    "@storypane/runtime-node": "workspace:*",
+    "tsx": "^4.23.0",
+    "ws": "^8.18.0",
+    "@storypane/realtime": "workspace:*"
   },
   "devDependencies": {
     "@cloudflare/vite-plugin": "2.0.0-beta.v.9",
@@ -35,6 +41,14 @@
     "@vitejs/plugin-rsc": "latest",
     "cf": "1.0.0-beta.27",
     "tailwindcss": "latest",
-    "vite": "8.3.0"
+    "vite": "8.3.0",
+    "@types/ws": "^8.18.0"
+  },
+  "license": "MIT",
+  "imports": {
+    "#platform": {
+      "storypane-node": "@storypane/runtime-node",
+      "default": "./src/lib/platform-cloudflare.ts"
+    }
   }
 }

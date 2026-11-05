@@ -21,7 +21,8 @@ import {
 import { PublicationStatus } from '../../components/publication-status';
 import { EditorAvatars } from '../../components/editor-avatars';
 import { usePageEditors } from '../editor/use-page-editors';
-import { PageId } from '../../components/page-id';
+import { CopyableValue } from '../../components/copyable-value';
+import { storyPageUrl } from './story-page-url';
 import { ContentFilterBar } from './content-filter-bar';
 import {
   defaultFilters,
@@ -34,6 +35,7 @@ import {
   folderPath,
   type BlockDefinition,
   type ContentFolder,
+  type DeliverySettings,
   type SpaceLocale,
   type Story,
   type StorySummary,
@@ -70,6 +72,7 @@ export function ContentList({
   const [definitions, setDefinitions] = useState<BlockDefinition[]>([]);
   const [folders, setFolders] = useState<ContentFolder[]>([]);
   const [locales, setLocales] = useState<SpaceLocale[]>([]);
+  const [deliverySettings, setDeliverySettings] = useState<DeliverySettings | null>(null);
   const [folderHistory, setFolderHistory] = useState(() => ({
     entries: [
       typeof window === 'undefined'
@@ -101,16 +104,18 @@ export function ContentList({
       if (!quiet) setLoading(true);
       setError(null);
       try {
-        const [content, schemas, availableFolders, availableLocales] = await Promise.all([
+        const [content, schemas, availableFolders, availableLocales, settings] = await Promise.all([
           api<StorySummary[]>(`/stories${deleted ? '?deleted=true' : ''}`),
           api<BlockDefinition[]>('/definitions?deployed=true'),
           api<ContentFolder[]>('/folders'),
           api<SpaceLocale[]>('/locales'),
+          api<DeliverySettings>('/delivery-settings'),
         ]);
         setStories(content);
         setDefinitions(schemas);
         setFolders(availableFolders);
         setLocales(availableLocales);
+        setDeliverySettings(settings);
         const currentFolder = new URLSearchParams(window.location.search).get('folder');
         if (currentFolder && !availableFolders.some((item) => item.id === currentFolder)) {
           setFolderHistory({ entries: [null], index: 0 });
@@ -138,9 +143,10 @@ export function ContentList({
       (!destination?.allowedDefinitionIds.length ||
         destination.allowedDefinitionIds.includes(definition.id)),
   );
-  const scopedStories = stories.filter(
-    (story) => (story.folderId ?? null) === (currentFolder?.id ?? null),
-  );
+  const searching = !!filters.query.trim();
+  const scopedStories = searching
+    ? stories
+    : stories.filter((story) => (story.folderId ?? null) === (currentFolder?.id ?? null));
   const filtered = filterStories(scopedStories, filters).filter(
     (story) =>
       !scheduleFilter || story.schedules?.some((schedule) => schedule.status === scheduleFilter),
@@ -168,6 +174,7 @@ export function ContentList({
     scheduleFilter
   );
   function changeFilters(next: ContentFilters) {
+    if (!!next.query.trim() !== searching) setSelectedIds([]);
     setFilters(next);
     const url = new URL(window.location.href);
     writeContentFilters(url.searchParams, next);
@@ -526,9 +533,27 @@ export function ContentList({
                           </div>
                         )}
                       </td>
-                      <td className="mono table-mobile-hide">/{story.slug}</td>
+                      <td className="table-mobile-hide">
+                        <CopyableValue
+                          key={story.path ?? story.slug}
+                          label="Path"
+                          value={story.path ?? `/${story.slug}`}
+                          name={story.name}
+                          showLabel={false}
+                          href={
+                            deleted
+                              ? undefined
+                              : storyPageUrl(deliverySettings, story.path ?? `/${story.slug}`)
+                          }
+                        />
+                      </td>
                       <td>
-                        <PageId id={story.id} name={story.name} showLabel={false} />
+                        <CopyableValue
+                          value={story.id}
+                          label="Page ID"
+                          name={story.name}
+                          showLabel={false}
+                        />
                       </td>
                       <td>
                         <span className="small muted">{dateLabel(story.updatedAt)}</span>
@@ -567,7 +592,11 @@ export function ContentList({
             </div>
             <div className="table-count">
               {filtered.length} {filtered.length === 1 ? 'story' : 'stories'}
-              {hasFilters ? ' matching your filters' : ' in this folder'}
+              {searching
+                ? ' matching across all folders'
+                : hasFilters
+                  ? ' matching your filters in this folder'
+                  : ' in this folder'}
             </div>
           </>
         ) : (

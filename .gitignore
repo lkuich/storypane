@@ -1,6 +1,7 @@
 .env
 .env.*
 !.env.example
+!.env.production.example
 .dev.vars
 .dev.vars.*
 node_modules/
@@ -16,3 +17,5 @@ playwright-report/
 .cloudflare/
 .vinext/
 *.tsbuildinfo
+
+.node/

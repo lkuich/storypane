@@ -1,5 +1,6 @@
 'use client';
 
+import { writeClipboardText } from '../../lib/clipboard';
 import { useCallback, useEffect, useState } from 'react';
 import { Building2, Check, Code2, Copy, Globe2, ShieldCheck, Users, Webhook } from 'lucide-react';
 import { can, type SpaceRole, type Space, type SpaceDetails } from '@storypane/core';
@@ -7,6 +8,7 @@ import { Button, ErrorNotice, Loading } from '@storypane/ui';
 import { api, errorMessage, jsonRequest } from '../editor/api';
 import type { RegisterGuard } from '../editor/navigation';
 import './spaces.css';
+import { ManagementSettings } from './management-settings';
 import { DeliverySettings } from './delivery-settings';
 import { LocaleSettings } from './locale-settings';
 import { MemberSettings } from './member-settings';
@@ -49,6 +51,7 @@ export function SpaceSettings({
   const [deliveryDirty, setDeliveryDirty] = useState(false),
     [deliveryBusy, setDeliveryBusy] = useState(false);
   const [roles, setRoles] = useState<SpaceRole[]>([]);
+  const [managementBusy, setManagementBusy] = useState(false);
   const [roleBusy, setRoleBusy] = useState(false);
   const loadRoles = useCallback(async () => {
     setRoles(await api<SpaceRole[]>('/roles'));
@@ -94,6 +97,7 @@ export function SpaceSettings({
       () =>
         !saving &&
         !deliveryBusy &&
+        !managementBusy &&
         !localeBusy &&
         !memberBusy &&
         !roleBusy &&
@@ -107,6 +111,7 @@ export function SpaceSettings({
         saving ||
         deliveryDirty ||
         deliveryBusy ||
+        managementBusy ||
         localeDirty ||
         localeBusy ||
         memberBusy ||
@@ -126,6 +131,7 @@ export function SpaceSettings({
     saving,
     deliveryDirty,
     deliveryBusy,
+    managementBusy,
     localeDirty,
     localeBusy,
     memberBusy,
@@ -306,7 +312,7 @@ export function SpaceSettings({
                         className="button--small"
                         onClick={async () => {
                           try {
-                            await navigator.clipboard.writeText(space.id);
+                            await writeClipboardText(space.id);
                             setCopied(true);
                           } catch {
                             setError('Select and copy the space ID above.');
@@ -373,6 +379,7 @@ export function SpaceSettings({
                 onDirty={setDeliveryDirty}
                 onBusy={setDeliveryBusy}
               />
+              {space.role === 'admin' && <ManagementSettings onBusy={setManagementBusy} />}
             </div>
             <div
               id="settings-webhooks"

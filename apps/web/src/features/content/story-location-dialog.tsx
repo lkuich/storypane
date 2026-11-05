@@ -131,7 +131,7 @@ export function StoryLocationDialog({
                 value={language}
                 onChange={(event) => setLanguage(event.target.value)}
               >
-                <option value="">Default</option>
+                <option value="">Base path</option>
                 {locales
                   .filter((item) => item.slug)
                   .map((item) => (

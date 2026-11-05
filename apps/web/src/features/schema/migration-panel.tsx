@@ -63,8 +63,11 @@ export function MigrationPanel({
     [capability, setCapability] = useState<ManagementToken['capability']>('stage'),
     [secret, setSecret] = useState('');
   const linkedMigrationHandled = useRef(false);
-  const active = migrations?.find((item) => item.status === 'active'),
+  const workspace = migrations?.find((item) => item.status === 'active'),
     deployed = migrations?.filter((item) => item.status === 'deployed').at(-1);
+  const pendingChanges =
+    workspace && deployed ? migrationChanges(deployed.definitions, workspace.definitions) : [];
+  const active = workspace && (!deployed?.version || pendingChanges.length) ? workspace : undefined;
   const load = useCallback(async () => {
     setMigrations(await api<SchemaMigration[]>('/migrations?workspace=true'));
     setLoadError('');
@@ -169,7 +172,7 @@ export function MigrationPanel({
     let stopped = false;
     void api<ManagementToken[]>('/management-tokens')
       .then((value) => {
-        if (!stopped) setTokens(value);
+        if (!stopped) setTokens(value.filter((token) => !token.scopes));
       })
       .catch((cause) => {
         if (!stopped) setError(errorMessage(cause));
@@ -191,8 +194,6 @@ export function MigrationPanel({
   const releases = (history ?? [])
     .filter((item) => item.status === 'deployed' && item.version > 0)
     .reverse();
-  const pendingChanges =
-    active && deployed ? migrationChanges(deployed.definitions, active.definitions) : [];
   return (
     <section className="panel migration-panel" aria-label="Schema migrations">
       <header className="migration-panel-heading">

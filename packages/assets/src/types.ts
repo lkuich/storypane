@@ -64,6 +64,24 @@ export interface AssetContext {
   actor: Actor;
   canWrite: boolean;
   bucket: AssetBucket;
-  images?: Pick<ImagesBinding, 'input'>;
+  images?: AssetImages;
   cache?: Pick<Cache, 'match' | 'put'>;
+}
+
+export interface AssetImageTransform {
+  width: number;
+  height?: number;
+  fit: 'scale-down' | 'cover' | 'contain';
+  gravity?: { x: number; y: number; mode: 'remainder' };
+}
+export interface AssetImages {
+  input(body: ReadableStream<Uint8Array>): {
+    transform(options: AssetImageTransform): {
+      output(options: {
+        format: 'image/webp' | 'image/jpeg' | 'image/png';
+        quality?: number;
+        anim: false;
+      }): Promise<{ response(): Response }>;
+    };
+  };
 }

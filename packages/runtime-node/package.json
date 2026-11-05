@@ -1,0 +1,22 @@
+{
+  "name": "@storypane/runtime-node",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "exports": {
+    ".": "./src/index.ts",
+    "./s3": "./src/s3.ts",
+    "./images": "./src/images.ts",
+    "./scheduler": "./src/scheduler.ts"
+  },
+  "dependencies": {
+    "@storypane/assets": "workspace:*",
+    "@storypane/realtime": "workspace:*",
+    "@aws-sdk/client-s3": "^3.0.0",
+    "sharp": "^0.34.0",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/ws": "^8.18.0"
+  }
+}

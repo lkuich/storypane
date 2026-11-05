@@ -1,5 +1,6 @@
 'use client';
 
+import { useState } from 'react';
 import { Plus, Trash2 } from 'lucide-react';
 import type {
   BlockDefinition,
@@ -42,13 +43,26 @@ export function SourceSettings({
   onChange,
   datasources,
   definitions,
+  definitionId,
 }: {
   source: OptionSource;
   onChange: (source: OptionSource) => void;
   datasources: Datasource[];
   definitions: BlockDefinition[];
+  definitionId?: string;
 }) {
+  const [nestedFilter, setNestedFilter] = useState<boolean | null>(null);
+  const contentTypes = definitions.filter((item) => item.kind !== 'nestable');
+  const nested = contentTypes.filter(
+    (item) => definitionId && item.parentDefinitionId === definitionId,
+  );
+  const selected = source.type === 'stories' ? source.contentTypeId : undefined;
+  const selectedOutsideNested = contentTypes.find(
+    (item) => item.id === selected && !nested.some((child) => child.id === item.id),
+  );
+  const onlyNested = nestedFilter ?? (nested.length > 0 && !selectedOutsideNested);
   function changeType(type: OptionSource['type']) {
+    setNestedFilter(null);
     if (type === 'inline') onChange({ type, items: [] });
     if (type === 'datasource') onChange({ type, datasourceId: datasources[0]?.id ?? '' });
     if (type === 'external') onChange({ type, url: '' });
@@ -148,21 +162,110 @@ export function SourceSettings({
         </Field>
       )}
       {source.type === 'external' && (
-        <Field
-          label="JSON endpoint"
-          htmlFor="source-url"
-          description={
-            'Expected response: {"items":[{"value":"key","label":"Label"}]}. Public HTTPS endpoints only.'
-          }
-        >
-          <input
-            id="source-url"
-            type="url"
-            placeholder="https://example.com/options.json"
-            value={source.url}
-            onChange={(event) => onChange({ ...source, url: event.target.value })}
-          />
-        </Field>
+        <>
+          <Field
+            label="JSON endpoint"
+            htmlFor="source-url"
+            description={
+              'Expected response: {"items":[{"value":"key","label":"Label"}]}. Public HTTPS endpoints only.'
+            }
+          >
+            <input
+              id="source-url"
+              type="url"
+              placeholder="https://example.com/options.json"
+              value={source.url}
+              onChange={(event) => onChange({ ...source, url: event.target.value })}
+            />
+          </Field>
+          <div className="field">
+            <span className="field-label">Request headers</span>
+            {(source.headers ?? []).map((header, index) => (
+              <div className="key-value-grid" key={index}>
+                <input
+                  aria-label={`Header ${index + 1} name`}
+                  placeholder="Header name"
+                  maxLength={100}
+                  value={header.name}
+                  onChange={(event) =>
+                    onChange({
+                      ...source,
+                      headers: source.headers!.map((item, i) =>
+                        i === index ? { ...item, name: event.target.value } : item,
+                      ),
+                    })
+                  }
+                />
+                <input
+                  aria-label={`Header ${index + 1} value`}
+                  placeholder="Value"
+                  maxLength={2000}
+                  value={header.value}
+                  onChange={(event) =>
+                    onChange({
+                      ...source,
+                      headers: source.headers!.map((item, i) =>
+                        i === index ? { ...item, value: event.target.value } : item,
+                      ),
+                    })
+                  }
+                />
+                <Button
+                  variant="ghost"
+                  className="icon-button"
+                  aria-label={`Remove header ${index + 1}`}
+                  onClick={() =>
+                    onChange({ ...source, headers: source.headers!.filter((_, i) => i !== index) })
+                  }
+                >
+                  <Trash2 aria-hidden="true" />
+                </Button>
+              </div>
+            ))}
+            <Button
+              className="button--small"
+              disabled={(source.headers?.length ?? 0) >= 20}
+              onClick={() =>
+                onChange({
+                  ...source,
+                  headers: [...(source.headers ?? []), { name: '', value: '' }],
+                })
+              }
+            >
+              <Plus aria-hidden="true" /> Add header
+            </Button>
+            <p className="field-hint">
+              Sent by the CMS server. Values are stored with the block schema and visible to users
+              who can read it.
+            </p>
+          </div>
+          <details className="external-option-context">
+            <summary>Automatic context headers</summary>
+            <p className="field-hint">
+              Added when a story field requests options. These headers cannot be overridden. Slug
+              values are percent-encoded; decode them at your endpoint.
+            </p>
+            <dl>
+              {[
+                ['Space-Id', 'Space ID'],
+                ['Story-Id', 'Page ID'],
+                ['Story-Slug', 'Localized page slug'],
+                ['Locale-Id', 'Story locale ID'],
+                ['Locale', 'Locale URL prefix (empty for root)'],
+                ['Block-Id', 'Block instance ID'],
+                ['Block-Type', 'Block technical name'],
+                ['Field', 'Field technical name'],
+              ].map(([name, description]) => (
+                <div key={name}>
+                  <dt>
+                    <code>X-Storypane-{name}</code>
+                  </dt>
+                  <dd>{description}</dd>
+                </div>
+              ))}
+            </dl>
+          </details>
+        </>
       )}
       {source.type === 'stories' && (
         <Field label="Restrict to a content type" htmlFor="source-content-type">
@@ -177,14 +280,32 @@ export function SourceSettings({
             }
           >
             <option value="">All stories</option>
-            {definitions
-              .filter((item) => item.kind !== 'nestable')
-              .map((item) => (
-                <option value={item.id} key={item.id}>
-                  {item.displayName}
+            {(onlyNested ? nested : contentTypes).map((item) => (
+              <option value={item.id} key={item.id}>
+                {item.displayName}
+              </option>
+            ))}
+            {onlyNested && selectedOutsideNested && (
+              <optgroup label="Current selection (outside nested blocks)">
+                <option value={selectedOutsideNested.id}>
+                  {selectedOutsideNested.displayName}
                 </option>
-              ))}
+              </optgroup>
+            )}
           </select>
+          <label className="checkbox-field">
+            <input
+              type="checkbox"
+              checked={onlyNested}
+              onChange={(event) => setNestedFilter(event.target.checked)}
+            />
+            Show only directly nested blocks
+          </label>
+          {onlyNested && !nested.length && (
+            <p className="field-hint" role="status">
+              No directly nested content types. Uncheck to browse all content types.
+            </p>
+          )}
         </Field>
       )}
     </div>
@@ -193,11 +314,13 @@ export function SourceSettings({
 
 export function FieldSettings({
   field,
+  definitionId,
   onChange,
   definitions,
   datasources,
 }: {
   field: FieldDefinition;
+  definitionId?: string;
   onChange: (field: FieldDefinition) => void;
   definitions: BlockDefinition[];
   datasources: Datasource[];
@@ -363,6 +486,7 @@ export function FieldSettings({
       {(field.type === 'option' || field.type === 'options') && (
         <>
           <SourceSettings
+            definitionId={definitionId}
             source={field.source}
             onChange={(source) => update({ source })}
             datasources={datasources}
@@ -424,7 +548,12 @@ export function FieldSettings({
         </div>
       )}
       {field.type === 'blocks' && (
-        <BlockRestrictions field={field} definitions={definitions} onChange={onChange} />
+        <BlockRestrictions
+          field={field}
+          definitionId={definitionId}
+          definitions={definitions}
+          onChange={onChange}
+        />
       )}
       {field.type === 'asset' && (
         <Field

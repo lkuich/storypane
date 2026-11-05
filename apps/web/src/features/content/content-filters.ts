@@ -55,7 +55,7 @@ export function readContentFilters(params: URLSearchParams): ContentFilters {
         ? (value as ContentFilters['sort'])
         : 'newest';
     else if (key === 'from' || key === 'to') filters[key] = date(value) ? value : '';
-    else filters[key] = value.slice(0, 200);
+    else filters[key] = value.slice(0, key === 'query' ? 2080 : 200);
   }
   return filters;
 }
@@ -94,7 +94,9 @@ export function filterStories(
     .filter((story) => {
       const modified = Date.parse(story.updatedAt);
       return (
-        `${story.name} /${story.slug} ${story.id}`.toLowerCase().includes(query) &&
+        `${story.name} /${story.slug} ${story.path ?? ''} ${story.id}`
+          .toLowerCase()
+          .includes(query) &&
         (!filters.status || story.publicationStatus === filters.status) &&
         (!filters.modifiedBy || story.modifiedBy?.id === filters.modifiedBy) &&
         (!filters.contentType || story.contentType?.id === filters.contentType) &&

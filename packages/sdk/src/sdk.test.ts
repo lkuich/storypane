@@ -4,6 +4,24 @@ import { connectPreview } from './preview.js';
 
 afterEach(() => vi.unstubAllGlobals());
 describe('delivery and preview activation', () => {
+  it('preserves the difference between the configured default and an explicit root locale', async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>(async () =>
+      Response.json({ stories: [{ id: 'story' }], nextOffset: null }),
+    );
+    const client = createStorypaneClient({
+      url: 'https://cms.test',
+      spaceId: 'space',
+      token: 'key',
+      fetch,
+    });
+    await client.getStory({ slug: 'home' });
+    await client.getStory({ slug: 'home', locale: '' });
+    await client.listAllStories();
+    await client.listAllStories({ locale: '' });
+    expect(
+      fetch.mock.calls.map(([url]) => new URL(String(url)).searchParams.get('locale')),
+    ).toEqual([null, '', null, '']);
+  });
   it('downloads published assets as bytes with server credentials only in the header', async () => {
     const bytes = new Uint8Array([137, 80, 78, 71]);
     const fetch = vi
@@ -130,108 +148,111 @@ describe('delivery and preview activation', () => {
     stop();
     expect(WebSocket).not.toHaveBeenCalled();
   });
-  it('keeps preview streaming after a migration mismatch', async () => {
-    const warning = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    const browser = {
-      get parent(): unknown {
-        return this;
-      },
-      location: { href: 'https://site.test/' },
-      addEventListener: vi.fn(),
-      removeEventListener: vi.fn(),
-    };
-    vi.stubGlobal('window', browser);
-    vi.stubGlobal('document', {
-      cookie: '',
-      head: { appendChild: vi.fn() },
-      createElement: () => ({ remove: vi.fn() }),
-      querySelectorAll: () => [],
-      addEventListener: vi.fn(),
-      removeEventListener: vi.fn(),
-    });
-    vi.stubGlobal(
-      'MutationObserver',
-      class {
-        observe() {}
-        disconnect() {}
-      },
-    );
-    class MockSocket {
-      static OPEN = 1;
-      readyState = 1;
-      onmessage?: (event: { data: string }) => void;
-      onopen?: () => void;
-      onclose?: ((event: { code: number }) => void) | null;
-      send = vi.fn();
-      close = vi.fn();
-      constructor() {
-        sockets.push(this);
+  it.each(['', 'ca'])(
+    'keeps preview streaming after a migration mismatch with default locale %s',
+    async (locale) => {
+      const warning = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const browser = {
+        get parent(): unknown {
+          return this;
+        },
+        location: { href: 'https://site.test/' },
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      };
+      vi.stubGlobal('window', browser);
+      vi.stubGlobal('document', {
+        cookie: '',
+        head: { appendChild: vi.fn() },
+        createElement: () => ({ remove: vi.fn() }),
+        querySelectorAll: () => [],
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      });
+      vi.stubGlobal(
+        'MutationObserver',
+        class {
+          observe() {}
+          disconnect() {}
+        },
+      );
+      class MockSocket {
+        static OPEN = 1;
+        readyState = 1;
+        onmessage?: (event: { data: string }) => void;
+        onopen?: () => void;
+        onclose?: ((event: { code: number }) => void) | null;
+        send = vi.fn();
+        close = vi.fn();
+        constructor() {
+          sockets.push(this);
+        }
       }
-    }
-    const sockets: MockSocket[] = [];
-    vi.stubGlobal('WebSocket', MockSocket);
-    const onChange = vi.fn(),
-      onStatus = vi.fn();
-    const stop = connectPreview({
-      cmsUrl: 'https://cms.test',
-      spaceId: 'space',
-      migrationVersion: 1,
-      story: { id: 'story' },
-      mode: { draft: true },
-      onChange,
-      onStatus,
-      getSession: async () => ({
-        token: 'bp_' + 'a'.repeat(43),
-        expiresAt: new Date(Date.now() + 120000).toISOString(),
+      const sockets: MockSocket[] = [];
+      vi.stubGlobal('WebSocket', MockSocket);
+      const onChange = vi.fn(),
+        onStatus = vi.fn();
+      const stop = connectPreview({
+        cmsUrl: 'https://cms.test',
         spaceId: 'space',
-        storyId: 'story',
-        localeId: 'locale',
-        slug: 'home',
-        locale: '',
-      }),
-    });
-    try {
-      await vi.waitFor(() => expect(sockets).toHaveLength(1));
-      sockets[0].onopen!();
-      for (const revision of [1, 2])
+        migrationVersion: 1,
+        story: { id: 'story' },
+        mode: { draft: true },
+        onChange,
+        onStatus,
+        getSession: async () => ({
+          token: 'bp_' + 'a'.repeat(43),
+          expiresAt: new Date(Date.now() + 120000).toISOString(),
+          spaceId: 'space',
+          storyId: 'story',
+          localeId: 'locale',
+          slug: 'home',
+          locale,
+        }),
+      });
+      try {
+        await vi.waitFor(() => expect(sockets).toHaveLength(1));
+        sockets[0].onopen!();
+        for (const revision of [1, 2])
+          sockets[0].onmessage!({
+            data: JSON.stringify({
+              type: 'content',
+              story: {
+                id: 'story',
+                localeId: 'locale',
+                revision,
+                migrationVersion: 2,
+                content: { headline: 'Migrated' },
+              },
+            }),
+          });
+        expect(onChange).toHaveBeenCalledTimes(2);
+        expect(warning).toHaveBeenCalledTimes(1);
+        const references = [{ id: 'footer', content: { text: 'Updated footer' } }];
         sockets[0].onmessage!({
           data: JSON.stringify({
             type: 'content',
             story: {
               id: 'story',
               localeId: 'locale',
-              revision,
+              revision: 2,
               migrationVersion: 2,
-              content: { headline: 'Migrated' },
+              references,
+              referencesRevision: 'footer-v2',
             },
           }),
         });
-      expect(onChange).toHaveBeenCalledTimes(2);
-      expect(warning).toHaveBeenCalledTimes(1);
-      const references = [{ id: 'footer', content: { text: 'Updated footer' } }];
-      sockets[0].onmessage!({
-        data: JSON.stringify({
-          type: 'content',
-          story: {
-            id: 'story',
-            localeId: 'locale',
-            revision: 2,
-            migrationVersion: 2,
-            references,
-            referencesRevision: 'footer-v2',
-          },
-        }),
-      });
-      expect(onChange).toHaveBeenLastCalledWith(
-        expect.objectContaining({ revision: 2, references, referencesRevision: 'footer-v2' }),
-      );
-      expect(sockets[0].close).not.toHaveBeenCalled();
-      expect(onStatus).not.toHaveBeenCalledWith('error', expect.anything());
-    } finally {
-      stop();
-      warning.mockRestore();
-    }
-  });
+        expect(onChange).toHaveBeenLastCalledWith(
+          expect.objectContaining({ revision: 2, references, referencesRevision: 'footer-v2' }),
+        );
+        expect(sockets[0].close).not.toHaveBeenCalled();
+        expect(onStatus).not.toHaveBeenCalledWith('error', expect.anything());
+      } finally {
+        stop();
+        warning.mockRestore();
+      }
+    },
+  );
   it('uses bearer authentication and explicit locales for published reads, and throws on unpublished stories', async () => {
     const fetch = vi
       .fn()

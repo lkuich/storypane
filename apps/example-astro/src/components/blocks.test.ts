@@ -161,6 +161,13 @@ it('resolves localized references with Default fallbacks and accepts only usable
   );
   expect(result.paths).toEqual({ shared: '/fr/pied', about: '/about' });
   expect(result.footers.shared).toEqual(localized);
+  const changedDefault = referencesFor(
+    [story('shared', 'ca', 'footer', footer), story('other', '', 'root', page)],
+    'fr',
+    'ca',
+  );
+  expect(changedDefault.paths).toEqual({ shared: '/ca/footer' });
+  expect(changedDefault.footers.shared).toEqual(footer);
   expect(linkHref({ type: 'story', storyId: 'missing' }, result.paths)).toBeUndefined();
   expect(linkHref({ type: 'external', url: 'javascript:alert(1)' }, result.paths)).toBeUndefined();
   expect(

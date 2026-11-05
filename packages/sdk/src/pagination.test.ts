@@ -46,7 +46,7 @@ it('handles empty locales, pagination loops, and failed pages without returning 
     fetch,
   });
   expect(await client.listAllStories()).toEqual([]);
-  expect(fetch.mock.calls[0]![0].searchParams.get('locale')).toBe('');
+  expect(fetch.mock.calls[0]![0].searchParams.has('locale')).toBe(false);
   await expect(client.listAllStories()).rejects.toThrow('Invalid story pagination');
   await expect(client.listAllStories()).rejects.toMatchObject({
     name: 'StorypaneError',

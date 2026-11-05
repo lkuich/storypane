@@ -1,3 +1,4 @@
+import { createManagementClient } from '../dist/management.js';
 import { createHash, randomUUID } from 'node:crypto';
 import { link, mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
@@ -98,7 +99,14 @@ export function validateMigration(file) {
 }
 export function migrationFile(migration) {
   const definitions = migration.definitions.map(
-    ({ id, versionId: _versionId, version: _version, createdAt: _createdAt, ...schema }) => ({
+    ({
+      id,
+      versionId: _versionId,
+      version: _version,
+      createdAt: _createdAt,
+      parentDefinitionId: _parent,
+      ...schema
+    }) => ({
       id,
       schema,
     }),
@@ -195,37 +203,27 @@ export async function localMigrations(dir = directory) {
   return { deployed, active: await optionalFile(join(dir, 'active.json')) };
 }
 function client(setting) {
-  const base = new URL(setting('URL')),
-    spaceId = setting('SPACE_ID'),
-    token = setting('MANAGEMENT_TOKEN');
-  if (
-    base.username ||
-    base.password ||
-    !(
-      base.protocol === 'https:' ||
-      (base.protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]'].includes(base.hostname))
-    )
-  )
-    throw new Error('Management requests require HTTPS or localhost HTTP');
+  const api = createManagementClient({
+    url: setting('URL'),
+    spaceId: setting('SPACE_ID'),
+    token: setting('MANAGEMENT_TOKEN'),
+    timeoutMs: 120000,
+  });
   return async (path = '', body) => {
-    const response = await fetch(new URL(`/api/cms/migrations${path}`, base), {
-      method: body === undefined ? 'GET' : 'POST',
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'x-storypane-space-id': spaceId,
-        ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
-      },
-      body: body === undefined ? undefined : JSON.stringify(body),
-      signal: AbortSignal.timeout(path.endsWith('/deploy') ? 120000 : 20000),
-    });
-    const result = await response.json();
-    if (!response.ok)
-      throw new Error(
-        `${result.error?.message ?? `Migration request failed (${response.status})`}${result.error?.details?.length ? '\n' + result.error.details.map((issue) => `${issue.path}: ${issue.message}`).join('\n') : ''}`,
-      );
-    return result;
+    if (!path && body === undefined) {
+      const items = [];
+      let offset = 0;
+      do {
+        const page = await api.request(`/migrations?offset=${offset}&limit=1000`);
+        items.push(...page.items);
+        offset = page.nextOffset;
+      } while (offset !== null);
+      return items;
+    }
+    return api.request(`/migrations${path}`, { method: body === undefined ? 'GET' : 'POST', body });
   };
 }
+
 export async function pullMigrations(request, dir = directory) {
   const remote = (await request()).map(migrationFile).sort((a, b) => a.version - b.version),
     local = await localMigrations(dir);

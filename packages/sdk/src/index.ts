@@ -81,7 +81,7 @@ export function createStorypaneClient<TContent = StorypaneStory['content']>(
     }>(
       'stories',
       {
-        locale: query.locale ?? '',
+        ...(query.locale !== undefined ? { locale: query.locale } : {}),
         limit: String(query.limit ?? 50),
         offset: String(query.offset ?? 0),
       },
@@ -105,7 +105,7 @@ export function createStorypaneClient<TContent = StorypaneStory['content']>(
       init?: RequestInit,
     ): Promise<StorypaneStory<T>> {
       const query = {
-        locale: reference.locale ?? '',
+        ...(reference.locale !== undefined ? { locale: reference.locale } : {}),
         ...(reference.id ? { id: reference.id } : { slug: reference.slug! }),
       };
       const result = await request<{ stories: StorypaneStory<T>[] }>('stories', query, init);
@@ -113,7 +113,7 @@ export function createStorypaneClient<TContent = StorypaneStory['content']>(
       return result.stories[0];
     },
     listStories,
-    /** Fetch every published story in one locale, following pagination. Defaults to the Default locale. */
+    /** Fetch every published story in one locale, following pagination. Omit locale for the configured default; use '' for root URLs. */
     async listAllStories<T = TContent>(
       query: { locale?: string } = {},
       init?: RequestInit,

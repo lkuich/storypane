@@ -3,7 +3,13 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import { EditorContent, Mark, Node, useEditor, type JSONContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
-import type { AssetReference, FieldDefinition, Json, LinkValue } from '@storypane/core';
+import type {
+  AssetReference,
+  FieldDefinition,
+  Json,
+  LinkValue,
+  OptionRequestContext,
+} from '@storypane/core';
 import { isRichTextColor } from '@storypane/core';
 import { AssetPicker } from '../assets/asset-picker';
 import { OptionInput } from './option-input';
@@ -262,6 +268,7 @@ export function FieldInput({
   disabled,
   error,
   referenceRefreshKey,
+  optionContext,
 }: {
   field: Exclude<FieldDefinition, { type: 'blocks' }>;
   value: Json | undefined;
@@ -269,6 +276,7 @@ export function FieldInput({
   disabled: boolean;
   error?: string;
   referenceRefreshKey?: string;
+  optionContext?: OptionRequestContext;
 }) {
   const id = useId();
   const common = {
@@ -376,6 +384,7 @@ export function FieldInput({
         <OptionInput
           id={id}
           source={field.source}
+          context={field.source.type === 'external' ? optionContext : undefined}
           refreshKey={field.source.type === 'stories' ? referenceRefreshKey : undefined}
           label={field.label}
           value={value}

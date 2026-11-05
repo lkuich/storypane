@@ -1,5 +1,6 @@
 'use client';
 
+import { writeClipboardText } from '../../lib/clipboard';
 import { useEffect, useState } from 'react';
 import { Check, Copy, Mail, Trash2, UserPlus, Users } from 'lucide-react';
 import type { Actor, SpaceDetails, SpaceInvitation, SpaceRole } from '@storypane/core';
@@ -72,7 +73,7 @@ export function MemberSettings({
   }
   async function copyLink() {
     try {
-      await navigator.clipboard.writeText(`${window.location.origin}/?space=${space.id}`);
+      await writeClipboardText(`${window.location.origin}/?space=${space.id}`);
       setMessage('Workspace link copied.');
     } catch {
       setError('Could not copy the link. Copy the workspace URL from your address bar.');

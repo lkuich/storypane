@@ -1,5 +1,5 @@
 import { StorypaneError } from '@storypane/core';
-import { env } from 'cloudflare:workers';
+import { env } from '#platform';
 import { handleAssets } from '@storypane/assets';
 import { createServices } from '../../../../lib/context';
 import { errorResponse, jsonResponse, readJson } from '../../../../lib/http';
@@ -40,7 +40,7 @@ async function handle(request: Request, route: { params: Promise<{ resource: str
       const result = await services.store.publishedStories(token, spaceId, {
         ...(url.searchParams.has('id') ? { id: url.searchParams.get('id') } : {}),
         ...(url.searchParams.has('slug') ? { slug: url.searchParams.get('slug') } : {}),
-        locale: url.searchParams.get('locale') ?? '',
+        ...(url.searchParams.has('locale') ? { locale: url.searchParams.get('locale')! } : {}),
         offset: Number(url.searchParams.get('offset') ?? 0),
         limit: Number(url.searchParams.get('limit') ?? 50),
       });

@@ -22,11 +22,15 @@ import {
   StorypaneError,
   LEASE_SECONDS,
   commandSchema,
+  managementTokenInputSchema,
   datasourceInputSchema,
   defaultFields,
   definitionInputSchema,
+  definitionParentSchema,
+  validateDefinitionHierarchy,
   localeInputSchema,
   optionSourceSchema,
+  optionRequestContextSchema,
   parseInput,
   storyInputSchema,
   validateFields,
@@ -39,6 +43,7 @@ import {
   type CommitResult,
   type Datasource,
   type DefinitionInput,
+  type DefinitionReferencesPage,
   type FieldDefinition,
   type Json,
   type Lease,
@@ -120,7 +125,7 @@ const deliveryQuerySchema = z
   .object({
     id: z.uuid().optional(),
     slug: z.string().max(2048).optional(),
-    locale: z.string().max(80).default(''),
+    locale: z.string().max(80).optional(),
     offset: z.number().int().min(0).max(100000).default(0),
     limit: z.number().int().min(1).max(100).default(50),
   })
@@ -227,7 +232,8 @@ const blockRow = (r: Row): BlockDraft => ({
   revision: Number(r.revision),
 });
 const definitionRow = (r: Row): BlockDefinition => ({
-  ...r.schema,
+  ...definitionInput(r.schema),
+  ...(r.parent_definition_id !== undefined ? { parentDefinitionId: r.parent_definition_id } : {}),
   id: r.definition_id,
   versionId: r.id,
   version: r.version,
@@ -254,7 +260,9 @@ const migrationRow = (row: Row): SchemaMigration => ({
   name: row.name,
   status: row.status,
   revision: row.revision,
-  definitions: row.definitions,
+  definitions: row.definitions.map(
+    ({ parentDefinitionId: _parent, ...definition }: BlockDefinition) => definition,
+  ),
   contributors: row.contributors,
   createdAt: iso(row.created_at),
   deployedAt: row.deployed_at ? iso(row.deployed_at) : null,
@@ -350,12 +358,17 @@ export class StorypaneStore {
     if (actor.managementTokenId) {
       const token = (
         await client.query(
-          'SELECT capability FROM schema_management_tokens WHERE id=$1 AND space_id=$2 AND user_id=$3 AND revoked_at IS NULL',
+          'SELECT capability,scopes FROM schema_management_tokens WHERE id=$1 AND space_id=$2 AND user_id=$3 AND revoked_at IS NULL',
           [actor.managementTokenId, actor.spaceId, actor.userId],
         )
       ).rows[0];
       if (!token) throw new StorypaneError('unauthenticated', 'Management token was revoked');
-      if (
+      if (token.scopes) {
+        const scope = permission === 'content:read' || !permission ? 'read' : permission;
+        if (!token.scopes.includes(scope)) {
+          throw new StorypaneError('forbidden', 'Management token does not allow this action');
+        }
+      } else if (
         permission &&
         (permission === 'admin'
           ? token.capability !== 'deploy'
@@ -526,9 +539,10 @@ export class StorypaneStore {
         'INSERT INTO spaces(name,description) VALUES($1,$2) RETURNING id',
         [input.name, input.description],
       );
-      await client.query("INSERT INTO space_locales(space_id,name,slug) VALUES($1,'Default','')", [
-        rows[0].id,
-      ]);
+      await client.query(
+        "INSERT INTO space_locales(space_id,name,slug,is_default) VALUES($1,'Default','',true)",
+        [rows[0].id],
+      );
       await client.query("INSERT INTO memberships(space_id,user_id,role) VALUES($1,$2,'admin')", [
         rows[0].id,
         actor.userId,
@@ -851,7 +865,7 @@ export class StorypaneStore {
       const access = await this.contentAccess(client, actor);
       const configured = (
         await client.query(
-          "SELECT id,name,slug FROM space_locales WHERE space_id=$1 ORDER BY (slug='') DESC,name,id",
+          'SELECT id,name,slug,is_default AS "isDefault" FROM space_locales WHERE space_id=$1 ORDER BY is_default DESC,name,id',
           [actor.spaceId],
         )
       ).rows;
@@ -874,7 +888,7 @@ export class StorypaneStore {
       actor,
       async (client) => {
         const { rows } = await client.query(
-          'INSERT INTO space_locales(space_id,name,slug) VALUES($1,$2,$3) RETURNING id,name,slug',
+          'INSERT INTO space_locales(space_id,name,slug) VALUES($1,$2,$3) RETURNING id,name,slug,is_default AS "isDefault"',
           [actor.spaceId, input.name, input.slug],
         );
         return { ...rows[0], storyCount: 0 };
@@ -892,12 +906,21 @@ export class StorypaneStore {
           [id, actor.spaceId],
         );
         if (!rows[0]) throw new StorypaneError('not_found', 'Locale not found');
-        if (rows[0].slug === '')
+        const input = parseInput(spaceLocaleInputSchema, raw);
+        if (
+          input.slug === '' &&
+          rows[0].slug !== '' &&
+          (
+            await client.query(
+              'SELECT 1 FROM content_folders WHERE space_id=$1 AND locale_slugs ? $2 LIMIT 1',
+              [actor.spaceId, id],
+            )
+          ).rowCount
+        )
           throw new StorypaneError(
             'invalid',
-            'Default always uses an empty slug and cannot be changed',
+            'Remove this locale’s folder slug overrides before using root URLs.',
           );
-        const input = parseInput(spaceLocaleInputSchema, raw);
         await client.query('UPDATE space_locales SET name=$2,slug=$3 WHERE id=$1', [
           id,
           input.name,
@@ -907,9 +930,37 @@ export class StorypaneStore {
           'SELECT count(*)::integer AS count FROM story_locales WHERE space_locale_id=$1',
           [id],
         );
-        return { id, ...input, storyCount: count.rows[0].count };
+        return { id, ...input, isDefault: rows[0].is_default, storyCount: count.rows[0].count };
       },
       'settings:write',
+      true,
+    );
+  }
+  async setDefaultSpaceLocale(actor: Actor, id: string, raw: unknown): Promise<void> {
+    parseInput(z.uuid(), id);
+    const input = parseInput(z.object({ expectedDefaultLocaleId: z.uuid() }).strict(), raw);
+    await this.tx(
+      actor,
+      async (client) => {
+        const locales = (
+          await client.query('SELECT id,is_default FROM space_locales WHERE space_id=$1', [
+            actor.spaceId,
+          ])
+        ).rows;
+        if (!locales.some((locale) => locale.id === id))
+          throw new StorypaneError('not_found', 'Locale not found');
+        const current = locales.find((locale) => locale.is_default);
+        if (current?.id === id) return;
+        if (current?.id !== input.expectedDefaultLocaleId)
+          throw new StorypaneError(
+            'stale_revision',
+            'The default locale changed. Reload locales and try again.',
+          );
+        await client.query('UPDATE space_locales SET is_default=false WHERE id=$1', [current.id]);
+        await client.query('UPDATE space_locales SET is_default=true WHERE id=$1', [id]);
+      },
+      'settings:write',
+      true,
     );
   }
   private async localeDeletionReview(
@@ -918,17 +969,19 @@ export class StorypaneStore {
     id: string,
   ): Promise<SpaceLocaleDeletionReview> {
     const locale = (
-      await client.query('SELECT id,name,slug FROM space_locales WHERE id=$1 AND space_id=$2', [
-        id,
-        actor.spaceId,
-      ])
+      await client.query(
+        'SELECT id,name,slug,is_default AS "isDefault" FROM space_locales WHERE id=$1 AND space_id=$2',
+        [id, actor.spaceId],
+      )
     ).rows[0];
     if (!locale) throw new StorypaneError('not_found', 'Locale not found');
-    if (locale.slug === '') throw new StorypaneError('invalid', 'Default cannot be removed');
+    if (locale.isDefault)
+      throw new StorypaneError('invalid', 'Choose another default locale before removing this one');
     // Include deleted stories: their retained translations must not outlive the configured locale.
     const rows = (
       await client.query(
         `SELECT s.id,s.name,s.folder_id,s.deleted_at,l.id AS locale_id,l.url_slug,l.revision,l.checkpoint_id,l.published_version_id,
+        (SELECT coalesce(jsonb_agg(other.id ORDER BY other.id),'[]'::jsonb) FROM story_locales other WHERE other.story_id=s.id AND other.id<>l.id) AS other_locales,
         (SELECT coalesce(jsonb_agg(jsonb_build_array(p.id,p.revision) ORDER BY p.id),'[]'::jsonb)
           FROM publication_schedules p WHERE p.locale_id=l.id AND p.status='pending') AS schedules
         FROM story_locales l JOIN stories s ON s.id=l.story_id
@@ -947,6 +1000,7 @@ export class StorypaneStore {
         deleted: !!row.deleted_at,
         published: !!row.published_version_id,
         scheduled: !!row.schedules.length,
+        lastLocale: row.other_locales.length === 0,
       })),
     };
   }
@@ -965,6 +1019,11 @@ export class StorypaneStore {
       actor,
       async (client) => {
         const review = await this.localeDeletionReview(client, actor, id);
+        if (review.stories.some((story) => story.lastLocale))
+          throw new StorypaneError(
+            'invalid',
+            'Add another locale to each affected story before deleting its only remaining locale.',
+          );
         if (review.stories.length && (!input.deleteContent || !input.reviewToken))
           throw new StorypaneError(
             'invalid',
@@ -1025,11 +1084,11 @@ export class StorypaneStore {
   async deliveryLocales(
     token: string,
     spaceId: string,
-  ): Promise<Pick<SpaceLocale, 'id' | 'name' | 'slug'>[]> {
+  ): Promise<Pick<SpaceLocale, 'id' | 'name' | 'slug' | 'isDefault'>[]> {
     await this.authenticateDelivery(token, spaceId);
     return (
       await this.pool.query(
-        "SELECT id,name,slug FROM space_locales WHERE space_id=$1 ORDER BY (slug='') DESC,name,id",
+        'SELECT id,name,slug,is_default AS "isDefault" FROM space_locales WHERE space_id=$1 ORDER BY is_default DESC,name,id',
         [spaceId],
       )
     ).rows;
@@ -1272,11 +1331,18 @@ export class StorypaneStore {
       `WITH page AS (
       SELECT s.id AS story_id,p.snapshot->'story'->>'name' AS name,coalesce(p.snapshot->'locale'->>'urlSlug',l.url_slug) AS slug,l.slug AS locale,l.id AS locale_id,p.revision,p.content,p.created_at AS published_at
       FROM stories s JOIN story_locales l ON l.story_id=s.id JOIN publications p ON p.id=l.published_version_id
-      WHERE s.space_id=$1 AND s.deleted_at IS NULL AND l.slug=$2 AND ($3::uuid IS NULL OR s.id=$3) AND ($4::text IS NULL OR coalesce(p.snapshot->'locale'->>'urlSlug',l.url_slug)=$4)
+      WHERE s.space_id=$1 AND s.deleted_at IS NULL AND l.slug=coalesce($2,(SELECT slug FROM space_locales WHERE space_id=$1 AND is_default)) AND ($3::uuid IS NULL OR s.id=$3) AND ($4::text IS NULL OR coalesce(p.snapshot->'locale'->>'urlSlug',l.url_slug)=$4)
       ORDER BY coalesce(p.snapshot->'locale'->>'urlSlug',l.url_slug),s.id LIMIT $5 OFFSET $6)
       SELECT s.schema_version,coalesce(jsonb_agg(to_jsonb(page) ORDER BY page.slug,page.story_id) FILTER(WHERE page.locale_id IS NOT NULL),'[]') AS stories
       FROM spaces s LEFT JOIN page ON true WHERE s.id=$1 GROUP BY s.schema_version`,
-      [spaceId, input.locale, input.id ?? null, input.slug ?? null, input.limit + 1, input.offset],
+      [
+        spaceId,
+        input.locale ?? null,
+        input.id ?? null,
+        input.slug ?? null,
+        input.limit + 1,
+        input.offset,
+      ],
     );
     const version = Number(rows[0].schema_version),
       stories: Row[] = rows[0].stories;
@@ -1323,7 +1389,7 @@ export class StorypaneStore {
         .object({
           id: z.uuid().optional(),
           slug: z.string().max(2048).optional(),
-          locale: z.string().max(80).default(''),
+          locale: z.string().max(80).optional(),
           previewId: z.uuid().optional(),
         })
         .strict()
@@ -1333,8 +1399,8 @@ export class StorypaneStore {
     const client = await this.pool.connect();
     try {
       const { rows } = await client.query(
-        'SELECT s.id AS story_id,l.id AS locale_id FROM stories s JOIN story_locales l ON l.story_id=s.id WHERE s.space_id=$1 AND s.deleted_at IS NULL AND l.slug=$2 AND ($3::uuid IS NULL OR s.id=$3) AND ($4::text IS NULL OR l.url_slug=$4)',
-        [spaceId, input.locale, input.id ?? null, input.slug ?? null],
+        'SELECT s.id AS story_id,l.id AS locale_id FROM stories s JOIN story_locales l ON l.story_id=s.id WHERE s.space_id=$1 AND s.deleted_at IS NULL AND l.slug=coalesce($2,(SELECT slug FROM space_locales WHERE space_id=$1 AND is_default)) AND ($3::uuid IS NULL OR s.id=$3) AND ($4::text IS NULL OR l.url_slug=$4)',
+        [spaceId, input.locale ?? null, input.id ?? null, input.slug ?? null],
       );
       if (!rows[0]) throw new StorypaneError('not_found', 'Story locale not found');
       return await this.insertPreview(
@@ -1478,9 +1544,9 @@ export class StorypaneStore {
           await this.pool.query(
             `SELECT DISTINCT ON (st.id) st.id AS story_id,st.name,l.url_slug AS slug,l.slug AS locale,l.id AS locale_id,c.revision,c.content,c.snapshot
       FROM stories st JOIN story_locales l ON l.story_id=st.id JOIN checkpoints c ON c.id=l.checkpoint_id AND c.locale_id=l.id
-      WHERE st.space_id=$1 AND st.deleted_at IS NULL AND st.id=ANY($2::uuid[]) AND l.slug=ANY($3::text[])
-      ORDER BY st.id,(l.slug=$4) DESC`,
-            [rows[0].space_id, [...ids], ['', story.locale], story.locale],
+      WHERE st.space_id=$1 AND st.deleted_at IS NULL AND st.id=ANY($2::uuid[]) AND l.slug IN ($3,(SELECT slug FROM space_locales WHERE space_id=$1 AND is_default))
+      ORDER BY st.id,(l.slug=$3) DESC`,
+            [rows[0].space_id, [...ids], story.locale],
           )
         ).rows
       : [];
@@ -1710,7 +1776,7 @@ export class StorypaneStore {
       const access = await this.contentAccess(client, actor);
       const definitions = deployed
         ? (await this.deployedMigration(client, actor.spaceId)).definitions
-        : await this.definitionHeads(client, actor.spaceId);
+        : await this.definitionHeads(client, actor.spaceId, true);
       if (unrestrictedRead(access)) return definitions;
       if (
         !access.permissions.includes('content:read') ||
@@ -1744,11 +1810,92 @@ export class StorypaneStore {
         );
     });
   }
-  private async definitionHeads(client: PoolClient, spaceId: string): Promise<BlockDefinition[]> {
+  async listDefinitionReferences(
+    actor: Actor,
+    definitionId: string,
+    raw: unknown = {},
+  ): Promise<DefinitionReferencesPage> {
+    parseInput(z.uuid(), definitionId);
+    const { cursor } = parseInput(
+      z.object({ cursor: z.coerce.number().int().min(0).max(1000000).default(0) }).strict(),
+      raw,
+    );
+    return this.tx(actor, async (client) => {
+      if (
+        !(
+          await client.query('SELECT 1 FROM definitions WHERE id=$1 AND space_id=$2', [
+            definitionId,
+            actor.spaceId,
+          ])
+        ).rowCount
+      )
+        throw new StorypaneError('not_found', 'Definition not found');
+      const access = await this.contentAccess(client, actor);
+      if (
+        !access.admin &&
+        access.scopes.read.definitionIds &&
+        !access.scopes.read.definitionIds.includes(definitionId)
+      )
+        return { total: 0, items: [], nextCursor: null };
+      const { rows } = await client.query<{
+        total: number;
+        items: DefinitionReferencesPage['items'];
+      }>(
+        `WITH usage AS (
+          SELECT s.id AS story_id,s.name AS story_name,l.id AS locale_id,l.name AS locale_name,
+            l.slug AS locale_slug,l.url_slug AS path,b.id::text AS block_id,true AS draft,false AS published
+          FROM stories s JOIN story_locales l ON l.story_id=s.id
+            JOIN block_drafts b ON b.locale_id=l.id JOIN definition_versions v ON v.id=b.schema_version_id
+          WHERE s.space_id=$1 AND s.deleted_at IS NULL AND l.id=ANY($4::uuid[]) AND v.definition_id=$2
+            AND ($5::text[] IS NULL OR EXISTS(SELECT 1 FROM jsonb_array_elements(v.schema->'fields') f WHERE f->>'id'=ANY($5)))
+          UNION ALL
+          SELECT s.id,s.name,l.id,l.name,l.slug,l.url_slug,NULL,false,true
+          FROM stories s JOIN story_locales l ON l.story_id=s.id JOIN publications p ON p.id=l.published_version_id
+            CROSS JOIN LATERAL jsonb_array_elements(p.snapshot->'blocks') b
+            CROSS JOIN LATERAL jsonb_array_elements(p.snapshot->'definitions') d
+          WHERE s.space_id=$1 AND s.deleted_at IS NULL AND l.id=ANY($4::uuid[])
+            AND d->>'id'=$2::text AND d->>'versionId'=b->>'schemaVersionId'
+            AND ($5::text[] IS NULL OR EXISTS(SELECT 1 FROM jsonb_array_elements(d->'fields') f WHERE f->>'id'=ANY($5)))
+        ), locales AS (
+          SELECT story_id,story_name,locale_id,locale_name,locale_slug,path,min(block_id) AS block_id,
+            bool_or(draft) AS draft,bool_or(published) AS published
+          FROM usage GROUP BY story_id,story_name,locale_id,locale_name,locale_slug,path
+        ), referenced_stories AS (
+          SELECT story_id AS "storyId",story_name AS "storyName",
+            jsonb_agg(jsonb_build_object('localeId',locale_id,'localeName',locale_name,'localeSlug',locale_slug,'path',path,'blockId',block_id,'draft',draft,'published',published)
+              ORDER BY (locale_slug='') DESC,locale_name,locale_id) AS locales
+          FROM locales GROUP BY story_id,story_name
+        ) SELECT (SELECT count(*)::int FROM referenced_stories) AS total,
+          coalesce((SELECT jsonb_agg(page ORDER BY "storyName","storyId") FROM (
+            SELECT * FROM referenced_stories ORDER BY "storyName","storyId" LIMIT 21 OFFSET $3
+          ) page),'[]'::jsonb) AS items`,
+        [
+          actor.spaceId,
+          definitionId,
+          cursor,
+          access.locales.map((locale) => locale.id),
+          access.admin ? null : access.scopes.read.fieldIds,
+        ],
+      );
+      return {
+        total: rows[0].total,
+        items: rows[0].items.slice(0, 20),
+        nextCursor: rows[0].items.length > 20 ? String(cursor + 20) : null,
+      };
+    });
+  }
+  private async definitionHeads(
+    client: PoolClient,
+    spaceId: string,
+    workspace = false,
+  ): Promise<BlockDefinition[]> {
     return (
       await client.query(
-        'SELECT v.* FROM definitions d JOIN definition_versions v ON v.definition_id=d.id AND v.version=d.current_version WHERE d.space_id=$1 ORDER BY d.name',
-        [spaceId],
+        `SELECT v.*,d.parent_definition_id FROM definitions d JOIN definition_versions v ON v.definition_id=d.id AND v.version=d.current_version
+          WHERE d.space_id=$1 AND (NOT $2::boolean OR d.id IN (
+            SELECT (entry->>'id')::uuid FROM jsonb_array_elements((SELECT definitions FROM schema_migrations WHERE space_id=$1 ORDER BY version DESC LIMIT 1)) entry
+          )) ORDER BY d.name`,
+        [spaceId, workspace],
       )
     ).rows.map(definitionRow);
   }
@@ -1865,8 +2012,10 @@ export class StorypaneStore {
     actor: Actor,
     value: unknown,
     baseVersion?: number,
+    parentDefinitionId: string | null = null,
   ): Promise<BlockDefinition> {
     const input = parseInput(definitionInputSchema, value);
+    const parent = parseInput(z.uuid().nullable(), parentDefinitionId);
     return this.tx(
       actor,
       async (client) => {
@@ -1876,12 +2025,14 @@ export class StorypaneStore {
             'stale_revision',
             'A migration was deployed. Reload the schema workspace.',
           );
+        if (parent && !migration.definitions.some((item) => item.id === parent))
+          throw new StorypaneError('invalid', 'Choose a parent from the current block library');
         await this.validateDefinition(client, actor, input);
         const definitionId = (
-          await client.query('INSERT INTO definitions(space_id,name) VALUES($1,$2) RETURNING id', [
-            actor.spaceId,
-            input.name,
-          ])
+          await client.query(
+            'INSERT INTO definitions(space_id,name,parent_definition_id) VALUES($1,$2,$3) RETURNING id',
+            [actor.spaceId, input.name, parent],
+          )
         ).rows[0].id;
         const schema = await this.identifyFields(client, definitionId, input);
         const definition = definitionRow(
@@ -1896,7 +2047,7 @@ export class StorypaneStore {
           ...migration.definitions,
           definition,
         ]);
-        return definition;
+        return { ...definition, parentDefinitionId: parent };
       },
       'schemas:write',
     );
@@ -1927,7 +2078,14 @@ export class StorypaneStore {
           throw new StorypaneError('invalid', 'Definition API names cannot be renamed');
         const schema = await this.identifyFields(client, definitionId, input, previous);
         await this.validateDefinition(client, actor, schema);
-        if (canonicalJson(schema) === canonicalJson(definitionInput(previous))) return previous;
+        const parentRow = (
+          await client.query(
+            'SELECT parent_definition_id FROM definitions WHERE id=$1 AND space_id=$2',
+            [definitionId, actor.spaceId],
+          )
+        ).rows[0];
+        if (canonicalJson(schema) === canonicalJson(definitionInput(previous)))
+          return { ...previous, parentDefinitionId: parentRow.parent_definition_id };
         const definition = definitionRow(
           (
             await client.query(
@@ -1946,9 +2104,116 @@ export class StorypaneStore {
           migration,
           migration.definitions.map((item) => (item.id === definitionId ? definition : item)),
         );
-        return definition;
+        return { ...definition, parentDefinitionId: parentRow.parent_definition_id };
       },
       'schemas:write',
+    );
+  }
+  async moveDefinition(actor: Actor, definitionId: string, raw: unknown): Promise<BlockDefinition> {
+    const input = parseInput(definitionParentSchema, raw);
+    return this.tx(
+      actor,
+      async (client) => {
+        await client.query('SELECT id FROM spaces WHERE id=$1 FOR UPDATE', [actor.spaceId]);
+        const definitions = await this.definitionHeads(client, actor.spaceId, true);
+        const previous = definitions.find((item) => item.id === definitionId);
+        if (!previous) throw new StorypaneError('not_found', 'Definition not found');
+        if ((previous.parentDefinitionId ?? null) !== input.expectedParentDefinitionId)
+          throw new StorypaneError(
+            'stale_revision',
+            'The parent changed. Reload before moving this block.',
+          );
+        const moved = { ...previous, parentDefinitionId: input.parentDefinitionId };
+        validateDefinitionHierarchy(
+          definitions.map((item) => (item.id === definitionId ? moved : item)),
+        );
+        await client.query(
+          'UPDATE definitions SET parent_definition_id=$2 WHERE id=$1 AND space_id=$3',
+          [definitionId, input.parentDefinitionId, actor.spaceId],
+        );
+        return moved;
+      },
+      'schemas:write',
+    );
+  }
+  private async assertDefinitionUnused(
+    client: PoolClient,
+    actor: Actor,
+    definitionId: string,
+    definitions: BlockDefinition[],
+  ): Promise<void> {
+    const usage = await client.query(
+      `SELECT EXISTS(SELECT 1 FROM block_drafts b JOIN definition_versions v ON v.id=b.schema_version_id
+        JOIN story_locales l ON l.id=b.locale_id JOIN stories s ON s.id=l.story_id WHERE s.space_id=$1 AND v.definition_id=$2)
+        OR EXISTS(SELECT 1 FROM stories s JOIN story_locales l ON l.story_id=s.id JOIN publications p ON p.id=l.published_version_id
+        WHERE s.space_id=$1 AND p.snapshot->'blocks' @> $3::jsonb) AS used`,
+      [actor.spaceId, definitionId, JSON.stringify([{ definitionId }])],
+    );
+    if (usage.rows[0].used)
+      throw new StorypaneError(
+        'invalid',
+        'This block is still used by story content, including published or deleted stories. Remove those references before deleting it.',
+      );
+    for (const definition of definitions)
+      for (const field of definition.fields)
+        if (
+          definition.id !== definitionId &&
+          field.type === 'blocks' &&
+          field.allowedDefinitionIds?.includes(definitionId)
+        )
+          throw new StorypaneError(
+            'invalid',
+            `Remove this block from Allowed blocks in ${definition.displayName} / ${field.label} before deleting it.`,
+          );
+    const folder = (await this.folders(client, actor.spaceId)).find(
+      (item) =>
+        item.defaultDefinitionId === definitionId ||
+        item.allowedDefinitionIds.includes(definitionId),
+    );
+    if (folder)
+      throw new StorypaneError(
+        'invalid',
+        `Remove this block from the content type settings for folder “${folder.name}” before deleting it.`,
+      );
+  }
+  async deleteDefinition(actor: Actor, definitionId: string, raw: unknown): Promise<void> {
+    parseInput(z.uuid(), definitionId);
+    const input = parseInput(
+      z
+        .object({ expectedVersionId: z.uuid(), baseVersion: z.number().int().nonnegative() })
+        .strict(),
+      raw,
+    );
+    await this.tx(
+      actor,
+      async (client) => {
+        assertUnrestrictedRead(await this.contentAccess(client, actor));
+        const migration = await this.activeMigration(client, actor);
+        const previous = migration.definitions.find((item) => item.id === definitionId);
+        if (!previous) throw new StorypaneError('not_found', 'Definition not found');
+        if (
+          previous.versionId !== input.expectedVersionId ||
+          migration.baseVersion !== input.baseVersion
+        )
+          throw new StorypaneError(
+            'stale_revision',
+            'The schema changed. Reload and review before deleting this block.',
+          );
+        await this.assertDefinitionUnused(client, actor, definitionId, migration.definitions);
+        await this.saveMigrationDefinitions(
+          client,
+          actor,
+          migration,
+          migration.definitions.filter((item) => item.id !== definitionId),
+        );
+        // Keep immutable versions for history; only move the surviving organizational children.
+        await client.query(
+          'UPDATE definitions SET parent_definition_id=(SELECT parent_definition_id FROM definitions WHERE id=$1) WHERE space_id=$2 AND parent_definition_id=$1',
+          [definitionId, actor.spaceId],
+        );
+      },
+      'schemas:write',
+      true,
     );
   }
   private async currentDefinition(
@@ -1974,20 +2239,27 @@ export class StorypaneStore {
       ).rows.map(migrationRow);
     });
   }
-  async authenticateManagement(token: string, spaceId: string): Promise<Actor> {
+  async authenticateManagement(
+    token: string,
+    spaceId: string,
+    resource = 'migrations',
+  ): Promise<Actor> {
     parseInput(z.uuid(), spaceId);
     if (!/^sm_[\w-]{43}$/.test(token))
       throw new StorypaneError('unauthenticated', 'A schema management token is required');
     const row = (
       await this.pool.query(
-        'SELECT t.id,t.user_id,m.role FROM schema_management_tokens t JOIN memberships m ON m.space_id=t.space_id AND m.user_id=t.user_id WHERE t.token_hash=$1 AND t.space_id=$2 AND t.revoked_at IS NULL',
+        'SELECT t.id,t.user_id,t.scopes,m.role FROM schema_management_tokens t JOIN memberships m ON m.space_id=t.space_id AND m.user_id=t.user_id WHERE t.token_hash=$1 AND t.space_id=$2 AND t.revoked_at IS NULL',
         [tokenHash(token), spaceId],
       )
     ).rows[0];
     if (!row) throw new StorypaneError('unauthenticated', 'Invalid or revoked management token');
+    if (!row.scopes && resource !== 'migrations') {
+      throw new StorypaneError('forbidden', 'This token only allows schema migrations');
+    }
     return {
       userId: row.user_id,
-      sessionId: '',
+      sessionId: `management:${row.id}`,
       spaceId,
       role: row.role,
       managementTokenId: row.id,
@@ -1999,13 +2271,14 @@ export class StorypaneStore {
       async (client) =>
         (
           await client.query(
-            'SELECT id,name,capability,created_at FROM schema_management_tokens WHERE space_id=$1 AND revoked_at IS NULL ORDER BY created_at',
+            'SELECT id,name,capability,scopes,created_at FROM schema_management_tokens WHERE space_id=$1 AND revoked_at IS NULL ORDER BY created_at',
             [actor.spaceId],
           )
         ).rows.map((row) => ({
           id: row.id,
           name: row.name,
           capability: row.capability,
+          scopes: row.scopes,
           createdAt: iso(row.created_at),
         })),
       'admin',
@@ -2016,12 +2289,15 @@ export class StorypaneStore {
     raw: unknown,
   ): Promise<ManagementToken & { token: string }> {
     const input = parseInput(
-      z
-        .object({
-          name: z.string().trim().min(1).max(80),
-          capability: z.enum(['read', 'stage', 'deploy']),
-        })
-        .strict(),
+      z.union([
+        managementTokenInputSchema,
+        z
+          .object({
+            name: z.string().trim().min(1).max(80),
+            capability: z.enum(['read', 'stage', 'deploy']),
+          })
+          .strict(),
+      ]),
       raw,
     );
     if (actor.managementTokenId) throw new StorypaneError('forbidden', 'Sign in to manage tokens');
@@ -2031,14 +2307,22 @@ export class StorypaneStore {
         const token = secretToken('sm');
         const row = (
           await client.query(
-            'INSERT INTO schema_management_tokens(space_id,user_id,name,capability,token_hash) VALUES($1,$2,$3,$4,$5) RETURNING id,created_at',
-            [actor.spaceId, actor.userId, input.name, input.capability, tokenHash(token)],
+            'INSERT INTO schema_management_tokens(space_id,user_id,name,capability,token_hash,scopes) VALUES($1,$2,$3,$4,$5,$6) RETURNING id,created_at',
+            [
+              actor.spaceId,
+              actor.userId,
+              input.name,
+              'capability' in input ? input.capability : 'read',
+              tokenHash(token),
+              'scopes' in input ? input.scopes : null,
+            ],
           )
         ).rows[0];
         return {
           id: row.id,
           name: input.name,
-          capability: input.capability,
+          capability: 'capability' in input ? input.capability : 'read',
+          scopes: 'scopes' in input ? input.scopes : null,
           createdAt: iso(row.created_at),
           token,
         };
@@ -2128,7 +2412,7 @@ export class StorypaneStore {
         if (old.some((definition) => !input.definitions.some((item) => item.id === definition.id)))
           throw new StorypaneError(
             'invalid',
-            'Removing an entire block definition is not supported; remove its fields instead',
+            'Delete blocks from the CMS schema editor, then pull the updated migration',
           );
         // Create identities first so newly added definitions can reference one another.
         for (const item of input.definitions) {
@@ -2268,6 +2552,16 @@ export class StorypaneStore {
       changes = migrationChanges(base.definitions, migration.definitions);
     const plans: { draft: LocaleSnapshot; published?: LocaleSnapshot }[] = [],
       heads: unknown[] = [];
+    for (const removed of base.definitions.filter(
+      (item) => !migration.definitions.some((next) => next.id === item.id),
+    )) {
+      try {
+        await this.assertDefinitionUnused(client, actor, removed.id, migration.definitions);
+      } catch (error) {
+        if (!(error instanceof StorypaneError)) throw error;
+        blockers.push({ path: removed.name, message: error.message });
+      }
+    }
     for (const definition of migration.definitions) {
       try {
         await this.validateDefinition(client, actor, definition);
@@ -2275,6 +2569,17 @@ export class StorypaneStore {
         if (!(error instanceof StorypaneError)) throw error;
         blockers.push({ path: definition.name, message: error.message });
       }
+      for (const field of definition.fields)
+        if (
+          field.type === 'blocks' &&
+          field.allowedDefinitionIds?.some(
+            (id) => !migration.definitions.some((item) => item.id === id),
+          )
+        )
+          blockers.push({
+            path: `${definition.name}.${field.name}`,
+            message: 'Allowed blocks includes a deleted block. Update this field before deploying.',
+          });
     }
     const folders = await this.folders(client, actor.spaceId);
     for (const folder of folders)
@@ -2315,6 +2620,24 @@ export class StorypaneStore {
           client,
           target === 'draft' ? draft : publication.snapshot,
         );
+        const missing = source.blocks.find(
+          (block) =>
+            !migration.definitions.some((definition) => definition.id === block.definitionId),
+        );
+        if (missing) {
+          blockers.push({
+            path: `${draft.story.name}/${draft.locale.name}/${target}`,
+            message:
+              'This story still uses a block marked for deletion. Remove the block before deploying.',
+            storyId: draft.story.id,
+            storyName: draft.story.name,
+            localeSlug: draft.locale.slug,
+            localeName: draft.locale.name,
+            target,
+            blockId: missing.id,
+          });
+          continue;
+        }
         if (base.version === 0)
           for (const change of migrationChanges(
             source.definitions,
@@ -2574,7 +2897,7 @@ export class StorypaneStore {
       const access = await this.contentAccess(client, actor);
       const { rows } = await client.query<PageEditor & { storyId: string }>(
         `SELECT s.id AS "storyId",u.id AS "userId",u.name,u.avatar_url AS "avatarUrl",
-        array_agg(DISTINCT CASE WHEN l.slug='' THEN 'Default' ELSE l.name END ORDER BY CASE WHEN l.slug='' THEN 'Default' ELSE l.name END) AS locales
+        array_agg(DISTINCT l.name ORDER BY l.name) AS locales
         FROM edit_leases e JOIN story_locales l ON l.id=e.locale_id JOIN stories s ON s.id=l.story_id
         JOIN "user" u ON u.id=e.user_id JOIN cms_sessions se ON se.id=e.session_id AND se.user_id=e.user_id
         JOIN memberships m ON m.space_id=s.space_id AND m.user_id=e.user_id
@@ -2656,7 +2979,7 @@ export class StorypaneStore {
       )
         throw new StorypaneError(
           'invalid',
-          'Folder translations must use configured non-default locales from this space',
+          'Folder translations must use configured locales with a URL prefix from this space',
         );
       for (const id of [
         ...folder.allowedDefinitionIds,
@@ -2697,7 +3020,7 @@ export class StorypaneStore {
     ).rows;
     const stories = (
       await client.query(
-        "SELECT s.*,v.definition_id FROM stories s LEFT JOIN story_locales l ON l.story_id=s.id AND l.slug='' LEFT JOIN block_drafts b ON b.id=l.root_block_id LEFT JOIN definition_versions v ON v.id=b.schema_version_id WHERE s.space_id=$1",
+        'SELECT s.*,v.definition_id FROM stories s LEFT JOIN LATERAL (SELECT l.* FROM story_locales l JOIN space_locales c ON c.id=l.space_locale_id WHERE l.story_id=s.id ORDER BY c.is_default DESC,l.id LIMIT 1) l ON true LEFT JOIN block_drafts b ON b.id=l.root_block_id AND b.locale_id=l.id LEFT JOIN definition_versions v ON v.id=b.schema_version_id WHERE s.space_id=$1',
         [actor.spaceId],
       )
     ).rows;
@@ -2912,6 +3235,7 @@ export class StorypaneStore {
       return (
         await client.query(
           `SELECT s.*,f.form_only,u.name AS editor_name,v.definition_id AS content_type_id,v.schema->>'displayName' AS content_type_name,
+      '/' || concat_ws('/',nullif(base.slug,''),base.url_slug) AS path,
       EXISTS(SELECT 1 FROM story_pins pin WHERE pin.story_id=s.id AND pin.user_id=$2) AS pinned,
       coalesce((SELECT jsonb_agg(to_jsonb(job)) FROM (SELECT sch.*,cp.revision AS checkpoint_revision FROM publication_schedules sch JOIN checkpoints cp ON cp.id=sch.checkpoint_id WHERE sch.story_id=s.id AND sch.locale_id=ANY($3::uuid[]) AND sch.status IN ('pending','failed') ORDER BY sch.created_at DESC) job),'[]') AS schedules,
       count(l.id)::integer AS locale_count,count(p.id)::integer AS published_count,
@@ -2919,15 +3243,16 @@ export class StorypaneStore {
       coalesce(jsonb_agg(jsonb_build_object('id',l.id,'name',l.name,'slug',l.slug) ORDER BY (l.slug='') DESC,l.name) FILTER (WHERE l.id IS NOT NULL AND (${pendingLocaleSql})),'[]'::jsonb) AS pending_locales
       FROM stories s LEFT JOIN story_locales l ON l.story_id=s.id LEFT JOIN checkpoints c ON c.id=l.checkpoint_id
       LEFT JOIN publications p ON p.id=l.published_version_id LEFT JOIN "user" u ON u.id=s.updated_by
-      LEFT JOIN story_locales base ON base.story_id=s.id AND base.slug=''
+      LEFT JOIN LATERAL (SELECT l.* FROM story_locales l JOIN space_locales c ON c.id=l.space_locale_id WHERE l.story_id=s.id AND l.id=ANY($3::uuid[]) ORDER BY c.is_default DESC,(l.slug='') DESC,l.id LIMIT 1) base ON true
       LEFT JOIN block_drafts root ON root.id=base.root_block_id AND root.locale_id=base.id
       LEFT JOIN definition_versions v ON v.id=root.schema_version_id
       LEFT JOIN content_folders f ON f.id=s.folder_id
-      WHERE s.space_id=$1 AND (s.deleted_at IS NOT NULL)=$4 AND l.id=ANY($3::uuid[]) GROUP BY s.id,u.id,v.id,f.id ORDER BY pinned DESC,s.updated_at DESC,s.id`,
+      WHERE s.space_id=$1 AND (s.deleted_at IS NOT NULL)=$4 AND l.id=ANY($3::uuid[]) GROUP BY s.id,u.id,v.id,f.id,base.slug,base.url_slug ORDER BY pinned DESC,s.updated_at DESC,s.id`,
           [actor.spaceId, actor.userId, access.locales.map((locale) => locale.id), deleted],
         )
       ).rows.map((row) => ({
         ...storyRow(row),
+        path: row.path,
         pinned: row.pinned,
         schedules: row.schedules.map(scheduleRow),
         localeCount: row.locale_count,
@@ -3011,9 +3336,17 @@ export class StorypaneStore {
         [actor.spaceId, input.name, path, input.slug, input.folderId],
       );
       const rootId = randomUUID();
+      const configured = (
+        await client.query('SELECT id FROM space_locales WHERE space_id=$1 AND is_default', [
+          actor.spaceId,
+        ])
+      ).rows[0];
+      const localePath = joinPath(folderPath(folders, input.folderId, configured.id), input.slug);
+      if (localePath.length > 2048)
+        throw new StorypaneError('invalid', 'Page paths cannot exceed 2,048 characters');
       const locale = await client.query(
-        "INSERT INTO story_locales(story_id,slug,name,url_slug,slug_segment,root_block_id,space_locale_id) SELECT $1,c.slug,c.name,$2,$5,$3,c.id FROM space_locales c WHERE c.space_id=$4 AND c.slug='' RETURNING id",
-        [story.rows[0].id, path, rootId, actor.spaceId, input.slug],
+        'INSERT INTO story_locales(story_id,slug,name,url_slug,slug_segment,root_block_id,space_locale_id) SELECT $1,c.slug,c.name,$2,$5,$3,c.id FROM space_locales c WHERE c.space_id=$4 AND c.is_default RETURNING id',
+        [story.rows[0].id, localePath, rootId, actor.spaceId, input.slug],
       );
       await client.query(
         'INSERT INTO block_drafts(id,locale_id,schema_version_id,fields) VALUES($1,$2,$3,$4)',
@@ -3045,7 +3378,7 @@ export class StorypaneStore {
       if (!story.rowCount) throw new StorypaneError('not_found', 'Story not found');
       return (
         await client.query(
-          "SELECT * FROM story_locales WHERE story_id=$1 AND id=ANY($2::uuid[]) ORDER BY (slug='') DESC,name",
+          'SELECT l.* FROM story_locales l JOIN space_locales c ON c.id=l.space_locale_id WHERE l.story_id=$1 AND l.id=ANY($2::uuid[]) ORDER BY c.is_default DESC,l.name',
           [storyId, access.locales.map((locale) => locale.id)],
         )
       ).rows.map(localeRow);
@@ -3080,7 +3413,7 @@ export class StorypaneStore {
         return this.snapshot(client, actor, storyId, existing.rows[0].id);
       }
       const original = await client.query(
-        "SELECT l.*,s.folder_id,b.schema_version_id FROM story_locales l JOIN stories s ON s.id=l.story_id JOIN block_drafts b ON b.id=l.root_block_id AND b.locale_id=l.id WHERE s.id=$1 AND s.space_id=$2 AND s.deleted_at IS NULL AND l.slug=''",
+        'SELECT l.*,s.folder_id,b.schema_version_id FROM story_locales l JOIN space_locales c ON c.id=l.space_locale_id JOIN stories s ON s.id=l.story_id JOIN block_drafts b ON b.id=l.root_block_id AND b.locale_id=l.id WHERE s.id=$1 AND s.space_id=$2 AND s.deleted_at IS NULL ORDER BY c.is_default DESC,l.id LIMIT 1',
         [storyId, actor.spaceId],
       );
       if (!original.rowCount) throw new StorypaneError('not_found', 'Story not found');
@@ -3296,6 +3629,11 @@ export class StorypaneStore {
         'stale_revision',
         'This block changed; review the latest version before retrying',
       );
+    if (actor.managementTokenId) {
+      // Automation holds the locale transaction lock instead of a browser lease.
+      await this.noCompetingLeases(client, actor, localeId, [block.id]);
+      return;
+    }
     const token = command.leaseTokens[block.id];
     if (!token || !z.uuid().safeParse(token).success)
       throw new StorypaneError('locked', 'Acquire this block before editing');
@@ -3656,7 +3994,15 @@ export class StorypaneStore {
           );
         const parent = requireBlock(before, parentId);
         await requireOwned(parent);
+        const siblings = before.blocks
+          .filter((block) => block.parentId === parentId && block.parentField === parentField)
+          .sort((a, b) => a.position - b.position)
+          .map((block) => block.id);
+        const position = command.payload.position ?? siblings.length;
+        if (position > siblings.length)
+          throw new StorypaneError('invalid', 'Invalid insertion position');
         const ids = clipboard.blocks.map(() => randomUUID());
+        siblings.splice(position, 0, ids[0]!);
         const definitions = new Map(
           deployed.definitions.map((definition) => [definition.id, definition]),
         );
@@ -3673,12 +4019,7 @@ export class StorypaneStore {
             schemaVersionId: definition.versionId,
             parentId: block.parentIndex === null ? parentId : ids[block.parentIndex]!,
             parentField: block.parentIndex === null ? parentField : block.parentField,
-            position:
-              block.parentIndex === null
-                ? before.blocks.filter(
-                    (item) => item.parentId === parentId && item.parentField === parentField,
-                  ).length
-                : block.position,
+            position: block.parentIndex === null ? position : block.position,
             fields: block.fields,
             revision: 1,
           };
@@ -3717,7 +4058,7 @@ export class StorypaneStore {
           );
           changed.add(block.id);
         }
-        await this.normalizePositions(client, localeId, parentId, parentField);
+        await this.normalizePositions(client, localeId, parentId, parentField, siblings);
         changed.add(parentId);
       } else if (command.type === 'moveBlock') {
         const block = requireBlock(before, command.payload.blockId);
@@ -3794,12 +4135,23 @@ export class StorypaneStore {
       } else if (command.type === 'importBlocks') {
         const parent = requireBlock(before, command.payload.parentId);
         await requireOwned(parent);
-        if (command.payload.sourceLocaleId === localeId || before.locale.slug === '')
-          throw new StorypaneError('invalid', 'Import from Default into another locale');
+        const defaultLocale = (
+          await client.query('SELECT id FROM space_locales WHERE space_id=$1 AND is_default', [
+            actor.spaceId,
+          ])
+        ).rows[0];
+        if (
+          command.payload.sourceLocaleId === localeId ||
+          before.locale.spaceLocaleId === defaultLocale.id
+        )
+          throw new StorypaneError('invalid', 'Import from the default locale into another locale');
         await this.lockLocale(client, actor, storyId, command.payload.sourceLocaleId);
         const source = await this.snapshot(client, actor, storyId, command.payload.sourceLocaleId);
-        if (source.locale.slug !== '')
-          throw new StorypaneError('invalid', 'Only Default can be used as an import source');
+        if (source.locale.spaceLocaleId !== defaultLocale.id)
+          throw new StorypaneError(
+            'invalid',
+            'Only the default locale can be used as an import source',
+          );
         const selected = new Set(command.payload.blockIds);
         const roots = command.payload.blockIds.filter((id) => {
           let current = requireBlock(source, id);
@@ -4247,7 +4599,7 @@ export class StorypaneStore {
                FROM story_locales l JOIN stories s ON s.id=l.story_id
                JOIN checkpoints c ON c.id=l.checkpoint_id
                LEFT JOIN publications p ON p.id=l.published_version_id
-               WHERE s.id=$1 AND s.space_id=$2 AND s.deleted_at IS NULL AND l.slug IN ($3,'')
+               WHERE s.id=$1 AND s.space_id=$2 AND s.deleted_at IS NULL AND l.slug IN ($3,(SELECT slug FROM space_locales WHERE space_id=$2 AND is_default))
                ORDER BY (l.slug=$3) DESC`,
                 [storyId, actor.spaceId, snapshot.locale.slug],
               )
@@ -5271,6 +5623,7 @@ export class StorypaneStore {
       z
         .object({
           source: optionSourceSchema,
+          context: optionRequestContextSchema.optional(),
           locale: z.string().max(100).optional(),
           query: z.string().trim().max(200).optional(),
           values: z.array(z.string().max(500)).max(200).optional(),
@@ -5286,11 +5639,48 @@ export class StorypaneStore {
     const limit = input.values ? 200 : 50;
     const search = input.query?.toLocaleLowerCase() ?? '';
     if (input.source.type === 'external') {
-      await this.assertActor(actor);
-      const items = await fetchExternalOptions(
-        input.source.url,
-        this.options.externalOptionHosts ?? [],
-      );
+      let source = input.source;
+      const headers: Record<string, string> = { 'X-Storypane-Space-Id': actor.spaceId };
+      const context = input.context;
+      if (context) {
+        const resolved = await this.tx(actor, async (client) => {
+          await this.lockLocale(client, actor, context.storyId, context.localeId);
+          const snapshot = await this.snapshot(client, actor, context.storyId, context.localeId);
+          const block = requireBlock(snapshot, context.blockId);
+          const access = projectSnapshot(await this.contentAccess(client, actor), snapshot).access;
+          if (!access.blocks[block.id]?.fields[context.fieldName]?.read)
+            throw new StorypaneError('forbidden', 'Your role cannot read this field');
+          const definition = snapshot.definitions.find(
+            (item) => item.versionId === block.schemaVersionId,
+          )!;
+          const field = definition.fields.find((item) => item.name === context.fieldName);
+          if (
+            !field ||
+            !['option', 'options'].includes(field.type) ||
+            !('source' in field) ||
+            field.source.type !== 'external'
+          )
+            throw new StorypaneError('invalid', 'Choose an External JSON field');
+          return {
+            source: field.source,
+            headers: {
+              'X-Storypane-Story-Id': snapshot.story.id,
+              'X-Storypane-Story-Slug': encodeURIComponent(snapshot.locale.urlSlug),
+              'X-Storypane-Locale-Id': snapshot.locale.id,
+              'X-Storypane-Locale': encodeURIComponent(snapshot.locale.slug),
+              'X-Storypane-Block-Id': block.id,
+              'X-Storypane-Block-Type': definition.name,
+              'X-Storypane-Field': field.name,
+            },
+          };
+        });
+        source = resolved.source;
+        Object.assign(headers, resolved.headers);
+      } else await this.assertActor(actor);
+      const items = await fetchExternalOptions(source.url, this.options.externalOptionHosts ?? [], {
+        ...Object.fromEntries((source.headers ?? []).map(({ name, value }) => [name, value])),
+        ...headers,
+      });
       const filtered = items.filter((i) =>
         input.values
           ? input.values.includes(i.value)
@@ -5306,7 +5696,7 @@ export class StorypaneStore {
       if (input.source.type === 'stories') {
         const access = await this.contentAccess(client, actor);
         const result = await client.query(
-          `SELECT s.id AS value,s.name AS label,'/' || s.slug AS description FROM stories s WHERE s.space_id=$1 AND s.deleted_at IS NULL AND ($7::uuid[] IS NULL OR s.id=ANY($7)) AND ($2='' OR s.name ILIKE '%' || $2 || '%' OR ('/' || s.slug) ILIKE '%' || $2 || '%' OR s.id::text=$2) AND ($5::text[] IS NULL OR s.id::text=ANY($5)) AND ($3::uuid IS NULL OR EXISTS(SELECT 1 FROM story_locales l JOIN block_drafts b ON b.id=l.root_block_id AND b.locale_id=l.id JOIN definition_versions v ON v.id=b.schema_version_id WHERE l.story_id=s.id AND l.slug='' AND v.definition_id=$3)) ORDER BY s.name,s.id LIMIT $6 OFFSET $4`,
+          `SELECT s.id AS value,s.name AS label,'/' || s.slug AS description FROM stories s WHERE s.space_id=$1 AND s.deleted_at IS NULL AND ($7::uuid[] IS NULL OR s.id=ANY($7)) AND ($2='' OR s.name ILIKE '%' || $2 || '%' OR ('/' || s.slug) ILIKE '%' || $2 || '%' OR s.id::text=$2) AND ($5::text[] IS NULL OR s.id::text=ANY($5)) AND ($3::uuid IS NULL OR EXISTS(SELECT 1 FROM story_locales l JOIN block_drafts b ON b.id=l.root_block_id AND b.locale_id=l.id JOIN definition_versions v ON v.id=b.schema_version_id WHERE l.story_id=s.id AND v.definition_id=$3)) ORDER BY s.name,s.id LIMIT $6 OFFSET $4`,
           [
             actor.spaceId,
             search,
@@ -5327,12 +5717,13 @@ export class StorypaneStore {
               'localeName',l.name,'localeSlug',l.slug) END AS publication
            FROM story_locales l LEFT JOIN checkpoints c ON c.id=l.checkpoint_id
            LEFT JOIN publications p ON p.id=l.published_version_id
-           WHERE l.story_id=ANY($1::uuid[]) AND l.slug IN ($2,'')
-           ORDER BY l.story_id,(p.id IS NOT NULL) DESC,(l.slug=$2) DESC`,
+           WHERE l.story_id=ANY($1::uuid[]) AND l.slug IN (coalesce($2,(SELECT slug FROM space_locales WHERE space_id=$4 AND is_default)),(SELECT slug FROM space_locales WHERE space_id=$4 AND is_default))
+           ORDER BY l.story_id,(p.id IS NOT NULL) DESC,(l.slug=coalesce($2,(SELECT slug FROM space_locales WHERE space_id=$4 AND is_default))) DESC`,
           [
             items.map((item) => item.value),
-            input.locale ?? '',
+            input.locale ?? null,
             access.locales.map((locale) => locale.id),
+            actor.spaceId,
           ],
         );
         return {
@@ -5380,7 +5771,7 @@ export class StorypaneStore {
         'My space',
       ]);
       await client.query(
-        "INSERT INTO space_locales(space_id,name,slug) VALUES($1,'Default','') ON CONFLICT(space_id,slug) DO NOTHING",
+        "INSERT INTO space_locales(space_id,name,slug,is_default) SELECT $1,'Default','',true WHERE NOT EXISTS(SELECT 1 FROM space_locales WHERE space_id=$1)",
         [actor.spaceId],
       );
       await client.query(
@@ -5484,7 +5875,7 @@ export class StorypaneStore {
         );
         const root = randomUUID();
         const locale = await client.query(
-          "INSERT INTO story_locales(story_id,slug,name,url_slug,root_block_id,space_locale_id) SELECT $1,c.slug,c.name,'home',$2,c.id FROM space_locales c WHERE c.space_id=$3 AND c.slug='' RETURNING id",
+          "INSERT INTO story_locales(story_id,slug,name,url_slug,root_block_id,space_locale_id) SELECT $1,c.slug,c.name,'home',$2,c.id FROM space_locales c WHERE c.space_id=$3 AND c.is_default RETURNING id",
           [story.rows[0].id, root, actor.spaceId],
         );
         await client.query(

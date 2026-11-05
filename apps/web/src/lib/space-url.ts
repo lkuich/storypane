@@ -19,7 +19,7 @@ export function spaceUrl(path: string): string {
 export function storyUrl({
   spaceId,
   storyId,
-  localeSlug = '',
+  localeSlug,
   blockId,
 }: {
   spaceId: string;
@@ -28,14 +28,14 @@ export function storyUrl({
   blockId?: string;
 }): string {
   const params = new URLSearchParams({ space: spaceId, story: storyId });
-  if (localeSlug) params.set('locale', localeSlug);
+  if (localeSlug !== undefined) params.set('locale', localeSlug);
   if (blockId) params.set('block', blockId);
   return `/?${params}`;
 }
 
 export function setStoryLocation(
   storyId: string | null,
-  locale = '',
+  locale?: string,
   blockId?: string | null,
   historyMode: 'replace' | 'push' = 'replace',
 ) {
@@ -44,7 +44,7 @@ export function setStoryLocation(
     url.searchParams.set('story', storyId);
     url.searchParams.delete('view');
   } else url.searchParams.delete('story');
-  if (storyId && locale) url.searchParams.set('locale', locale);
+  if (storyId && locale !== undefined) url.searchParams.set('locale', locale);
   else url.searchParams.delete('locale');
   if (storyId && blockId) url.searchParams.set('block', blockId);
   else url.searchParams.delete('block');

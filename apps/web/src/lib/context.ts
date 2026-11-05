@@ -1,4 +1,4 @@
-import { env } from 'cloudflare:workers';
+import { env } from '#platform';
 import { Pool } from 'pg';
 import { StorypaneError, type Actor, type Space } from '@storypane/core';
 import { StorypaneStore } from '@storypane/db';

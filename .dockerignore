@@ -1,0 +1,14 @@
+.git
+node_modules
+**/node_modules
+**/dist
+**/.cloudflare
+**/.astro
+**/.next
+**/.vinext
+.env*
+**/.env*
+**/.dev.vars*
+**/test-results
+**/playwright-report
+**/.node

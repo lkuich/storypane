@@ -11,5 +11,6 @@
   },
   "scripts": {
     "lint": "pnpm --workspace-root exec eslint packages/ui --max-warnings 0 && pnpm --workspace-root exec prettier packages/ui --check"
-  }
+  },
+  "license": "MIT"
 }

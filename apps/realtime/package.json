@@ -3,7 +3,8 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./room": "./src/room.ts"
   },
   "dependencies": {
     "@storypane/core": "workspace:*",
@@ -16,5 +17,6 @@
   },
   "scripts": {
     "lint": "pnpm --workspace-root exec eslint apps/realtime --max-warnings 0 && pnpm --workspace-root exec prettier apps/realtime --check"
-  }
+  },
+  "license": "MIT"
 }

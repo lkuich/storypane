@@ -410,7 +410,6 @@ test('existing fields use the visual type picker without losing shared settings'
   await picker.getByRole('searchbox').fill('textarea');
   await page.keyboard.press('Enter');
   await expect(trigger).toHaveText('Textarea');
-  await expect(drawer.getByLabel('Text format', { exact: true })).toHaveValue('textarea');
   await expect(drawer.getByLabel('Maximum characters', { exact: true })).toHaveValue('120');
   await expect(drawer.getByLabel('Default value', { exact: true })).toHaveValue('');
 
@@ -450,7 +449,7 @@ test('existing fields use the visual type picker without losing shared settings'
   });
 });
 
-test('searches allowed blocks and persists tag rules through schema editing and story insertion', async ({
+test('searches allowed blocks and preserves explicit selections across tabs and story insertion', async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1440, height: 1000 });
@@ -497,35 +496,25 @@ test('searches allowed blocks and persists tag rules through schema editing and 
   await page.getByRole('button', { name: parentName, exact: true }).click();
   await drawer.getByRole('button', { name: 'Edit body', exact: true }).click();
   await expect(restrictions.getByRole('checkbox', { name: new RegExp(childName) })).toBeChecked();
-  await restrictions.getByRole('button', { name: 'Tags', exact: true }).click();
-  await search.fill(tag);
-  await restrictions.getByRole('checkbox').check();
-  await expect(restrictions.locator('.restriction-matches')).toContainText('1 matching block');
-  await expect(restrictions.locator('.restriction-matches')).toContainText(childName);
-  await restrictions.scrollIntoViewIfNeeded();
-  await page.screenshot({ path: '/tmp/storypane-tag-restrictions-desktop.png' });
+  await restrictions.getByRole('button', { name: 'Nested', exact: true }).click();
+  await expect(restrictions.getByRole('status')).toContainText('No nested blocks yet');
+  await expect(restrictions).toContainText('1 selected');
+  await restrictions.getByRole('button', { name: 'Blocks', exact: true }).click();
+  await search.fill(childName);
+  await expect(restrictions.getByRole('checkbox')).toBeChecked();
+  await expect(restrictions.getByRole('button', { name: 'Tags', exact: true })).toHaveCount(0);
   await page.setViewportSize({ width: 390, height: 844 });
   await restrictions.scrollIntoViewIfNeeded();
   await expect
     .poll(() => drawer.evaluate((element) => element.scrollWidth <= element.clientWidth))
     .toBe(true);
-  await page.screenshot({ path: '/tmp/storypane-tag-restrictions-mobile.png' });
-  await drawer.getByRole('button', { name: 'Save to migration', exact: true }).click();
-  await expect(drawer.getByText('Saved to active migration', { exact: true })).toBeVisible();
-  await drawer.getByRole('button', { name: 'Close dialog', exact: true }).click();
-  await page.getByRole('button', { name: parentName, exact: true }).click();
-  await drawer.getByRole('button', { name: 'Edit body', exact: true }).click();
-  await expect(restrictions.getByRole('button', { name: 'Tags', exact: true })).toHaveAttribute(
-    'aria-pressed',
-    'true',
-  );
-  await expect(restrictions.getByRole('checkbox', { name: new RegExp(tag) })).toBeChecked();
   const definitions = (await (
     await page.request.get('/api/cms/definitions')
   ).json()) as BlockDefinition[];
   const parent = definitions.find((item) => item.displayName === parentName)!;
-  expect(parent.fields[0]).toMatchObject({ allowedTags: [tag] });
-  expect(parent.fields[0]).not.toHaveProperty('allowedDefinitionIds');
+  const child = definitions.find((item) => item.displayName === childName)!;
+  expect(parent.fields[0]).toMatchObject({ allowedDefinitionIds: [child.id] });
+  expect(parent.fields[0]).not.toHaveProperty('allowedTags');
   await drawer.getByRole('button', { name: 'Close dialog', exact: true }).click();
   await deployPending(page);
   const response = await page.request.post('/api/cms/stories', {

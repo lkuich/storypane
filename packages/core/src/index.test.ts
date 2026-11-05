@@ -7,11 +7,72 @@ import {
   isBlockAllowed,
   jsonSchema,
   spaceLocaleInputSchema,
+  optionSourceSchema,
   validateFields,
+  validateDefinitionHierarchy,
   type DefinitionInput,
 } from './index.js';
 
 describe('schema and content validation', () => {
+  it('validates custom external headers without allowing duplicates, injection, or reserved headers', () => {
+    const source = { type: 'external', url: 'https://example.com/options' };
+    expect(optionSourceSchema.parse(source)).toEqual(source);
+    expect(
+      optionSourceSchema.safeParse({
+        ...source,
+        headers: [{ name: 'Authorization', value: 'Bearer token' }],
+      }).success,
+    ).toBe(true);
+    for (const headers of [
+      [
+        { name: 'X-Test', value: 'one' },
+        { name: 'x-test', value: 'two' },
+      ],
+      [{ name: 'x-storypane-story-id', value: 'forged' }],
+      [{ name: 'Host', value: 'other.example' }],
+      [{ name: 'Content-Length', value: '40' }],
+      [{ name: 'Connection', value: 'keep-alive' }],
+      [{ name: 'Invalid:Name', value: 'test' }],
+      [{ name: 'X-Test', value: 'one\r\nCookie: stolen' }],
+      [{ name: 'X-Test', value: 'nul\0' }],
+      Array.from({ length: 21 }, (_, i) => ({ name: `X-Test-${i}`, value: 'test' })),
+      Array.from({ length: 5 }, (_, i) => ({ name: `X-Test-${i}`, value: 'a'.repeat(2000) })),
+    ])
+      expect(
+        optionSourceSchema.safeParse({ ...source, headers }).success,
+        JSON.stringify(headers),
+      ).toBe(false);
+  });
+  it('validates multilevel definition parents without limiting content usage or recursion depth', () => {
+    const definitions = Array.from({ length: 10000 }, (_, index) => ({
+      id: String(index),
+      parentDefinitionId: index ? String(index - 1) : null,
+    }));
+    expect(() => validateDefinitionHierarchy(definitions.reverse())).not.toThrow();
+    expect(() => validateDefinitionHierarchy([{ id: 'a', parentDefinitionId: 'b' }])).toThrow(
+      'workspace',
+    );
+    expect(() => validateDefinitionHierarchy([{ id: 'a', parentDefinitionId: 'a' }])).toThrow(
+      'cycle',
+    );
+    expect(() =>
+      validateDefinitionHierarchy([
+        { id: 'a', parentDefinitionId: 'b' },
+        { id: 'b', parentDefinitionId: 'a' },
+      ]),
+    ).toThrow('cycle');
+    const input = { name: 'nested', displayName: 'Nested', kind: 'nestable', fields: [] };
+    expect(definitionInputSchema.parse(input)).not.toHaveProperty('parentDefinitionId');
+    expect(
+      definitionInputSchema.safeParse({ ...input, parentDefinitionId: 'invalid' }).success,
+    ).toBe(false);
+    expect(
+      isBlockAllowed(
+        { name: 'body', label: 'Body', type: 'blocks' },
+        { id: 'a', kind: 'nestable' },
+      ),
+    ).toBe(true);
+  });
   it('requires a configured default and validates named preview targets and fixed origins', () => {
     const id = '11111111-1111-4111-8111-111111111111';
     const target = { id, name: ' Production ', url: 'https://example.com/{locale}/{slug}' };
@@ -54,12 +115,13 @@ describe('schema and content validation', () => {
       }).success,
     ).toBe(true);
   });
-  it('validates locale URL prefixes and reserves the empty slug for Default', () => {
+  it('validates locale URL prefixes and allows an empty root prefix independently of the default', () => {
     expect(spaceLocaleInputSchema.parse({ name: ' French ', slug: 'fr-CA' })).toEqual({
       name: 'French',
       slug: 'fr-CA',
     });
-    for (const slug of ['', '/fr', 'fr ca', '../fr', 'fr?draft=1', 'fr#preview', 'a'.repeat(31)])
+    expect(spaceLocaleInputSchema.safeParse({ name: 'Root', slug: '' }).success).toBe(true);
+    for (const slug of ['/fr', 'fr ca', '../fr', 'fr?draft=1', 'fr#preview', 'a'.repeat(31)])
       expect(spaceLocaleInputSchema.safeParse({ name: 'French', slug }).success).toBe(false);
   });
   const schema: DefinitionInput = {

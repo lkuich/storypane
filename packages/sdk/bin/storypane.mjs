@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { runManagement, managementCommands, managementHelp } from './manage.mjs';
 import { parseArgs } from 'node:util';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
@@ -20,11 +21,18 @@ try {
       deploy: { type: 'boolean' },
       yes: { type: 'boolean' },
       help: { type: 'boolean', short: 'h' },
+      json: { type: 'boolean' },
+      mime: { type: 'string' },
+      offset: { type: 'string' },
+      limit: { type: 'string' },
+      cursor: { type: 'string' },
     },
   });
   const [command] = positionals;
   if (values.help) {
-    console.log(`storypane migrations pull [--out directory]
+    console.log(`${managementHelp}
+
+storypane migrations pull [--out directory]
 storypane migrations create "description"
 storypane migrations push [--deploy [--yes]]
 storypane generate-types [--input deployed-schema.json] --out src/types/storypane.ts
@@ -35,14 +43,25 @@ Local migrations live in storypane/migrations; commit them with your app.
 Default codegen uses the latest pulled deployed migration, never active.json.
 CI deployment requires --deploy --yes and a deploy-capable management token.
 Legacy pull-components uses STORYPANE_PREVIEW_TOKEN.`);
-  } else if (command === 'migrations') await runMigrations(positionals.slice(1), values, setting);
-  else {
+  } else if (managementCommands.has(command)) {
+    if (values.deploy) {
+      throw new Error('--deploy is only valid for migrations push');
+    }
+    const result = await runManagement(positionals, values, setting);
+    console.log(JSON.stringify(result ?? { ok: true }, null, values.json ? undefined : 2));
+  } else if (command === 'migrations') {
+    if (['json', 'mime', 'offset', 'limit', 'cursor'].some((flag) => values[flag] !== undefined)) {
+      throw new Error('These flags apply only to management commands');
+    }
+    await runMigrations(positionals.slice(1), values, setting);
+  } else {
     if (
       positionals.length !== 1 ||
       !['pull-components', 'generate-types'].includes(command) ||
       !values.out ||
       values.deploy ||
-      values.yes
+      values.yes ||
+      ['json', 'mime', 'offset', 'limit', 'cursor'].some((flag) => values[flag] !== undefined)
     )
       throw new Error('Use storypane --help for commands and required flags');
     let output;
@@ -67,6 +86,20 @@ Legacy pull-components uses STORYPANE_PREVIEW_TOKEN.`);
     console.log(`Wrote ${values.out}`);
   }
 } catch (error) {
-  console.error(error instanceof Error ? error.message : 'Storypane command failed');
+  if (process.argv.includes('--json')) {
+    console.error(
+      JSON.stringify({
+        error: {
+          message: error instanceof Error ? error.message : 'Storypane command failed',
+          code: error.code ?? 'cli_error',
+          status: error.status,
+          details: error.details,
+          uploadId: error.uploadId,
+        },
+      }),
+    );
+  } else {
+    console.error(error instanceof Error ? error.message : 'Storypane command failed');
+  }
   process.exitCode = 1;
 }

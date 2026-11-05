@@ -54,7 +54,11 @@ export default function PreviewShell({ cmsUrl, spaceId }: { cmsUrl: string; spac
         <div lang={story.locale || 'en'}>
           <Content
             block={story.content}
-            references={referencesFor(story.references ?? [], story.locale)}
+            references={referencesFor(
+              story.references ?? [],
+              story.locale,
+              story.references?.find((reference) => reference.locale !== story.locale)?.locale,
+            )}
             preview={{ cmsUrl, spaceId }}
           />
         </div>

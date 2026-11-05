@@ -78,6 +78,7 @@ export type ManagementToken = {
   id: string;
   name: string;
   capability: 'read' | 'stage' | 'deploy';
+  scopes?: import('./management.js').ManagementScope[] | null;
   createdAt: string;
 };
 
@@ -87,6 +88,7 @@ export function definitionInput(definition: BlockDefinition): DefinitionInput {
     versionId: _versionId,
     version: _version,
     createdAt: _createdAt,
+    parentDefinitionId: _parentDefinitionId,
     ...input
   } = definition;
   return input;
@@ -114,6 +116,9 @@ export function migrationChanges(
   after: BlockDefinition[],
 ): MigrationChange[] {
   const changes: MigrationChange[] = [];
+  for (const source of before)
+    if (!after.some((target) => target.id === source.id))
+      changes.push({ definition: source.name, kind: 'removed', before: definitionInput(source) });
   for (const target of after) {
     const source = before.find((item) => item.id === target.id);
     if (!source) {

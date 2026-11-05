@@ -9,11 +9,12 @@ export type SiteReferences = {
 export function referencesFor(
   stories: StorypaneStory<{ _uid: string; component: string }>[],
   locale: string,
+  defaultLocale = '',
 ): SiteReferences {
   const references: SiteReferences = { paths: {}, footers: {} };
-  // Prefer the current locale, with Default as the fallback for shared stories.
+  // Prefer the current locale, with the space's default as the fallback for shared stories.
   for (const story of [
-    ...stories.filter((item) => item.locale === ''),
+    ...stories.filter((item) => item.locale === defaultLocale),
     ...stories.filter((item) => item.locale === locale),
   ]) {
     references.paths[story.id] =

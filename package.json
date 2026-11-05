@@ -27,7 +27,9 @@
     "lint:fix": "pnpm lint:code --fix && pnpm format",
     "lint:code": "eslint . --max-warnings 0",
     "format": "prettier . --write",
-    "format:check": "prettier . --check"
+    "format:check": "prettier . --check",
+    "db:migrate:production": "node --env-file-if-exists=.env.production --import tsx scripts/migrate-production.ts",
+    "deploy:cloudflare": "node --import tsx scripts/deploy-cloudflare.ts"
   },
   "dependencies": {
     "@storypane/core": "workspace:*",
@@ -54,5 +56,6 @@
     "typescript-eslint": "^8.72.1",
     "vitest": "latest",
     "@typescript/native": "npm:typescript@^7.0.2"
-  }
+  },
+  "license": "MIT"
 }

@@ -58,7 +58,7 @@ export function PreviewPanel({
         .replaceAll('{slug}', snapshot.locale.urlSlug.split('/').map(encodeURIComponent).join('/'))
         .replaceAll('{locale}', encodeURIComponent(snapshot.locale.slug)),
     );
-    // Default locale has no path segment.
+    // The root locale has no path segment, independently of the default setting.
     url.pathname = url.pathname.replace(/\/{2,}/g, '/');
     url.searchParams.set(settings.previewParameter, '1');
   }
@@ -78,7 +78,7 @@ export function PreviewPanel({
       if (
         data?.type === 'storypane:ready' &&
         data.spaceId === spaceId &&
-        data.locale === current.locale.slug &&
+        (data.locale === undefined || data.locale === current.locale.slug) &&
         (data.id === current.story.id || data.slug === current.locale.urlSlug)
       ) {
         if (authorizing) return;

@@ -28,6 +28,10 @@
     "./rich-text": {
       "types": "./dist/rich-text.d.ts",
       "import": "./dist/rich-text.js"
+    },
+    "./management": {
+      "types": "./dist/management.d.ts",
+      "import": "./dist/management.js"
     }
   },
   "scripts": {
@@ -50,5 +54,6 @@
   },
   "engines": {
     "node": ">=18"
-  }
+  },
+  "license": "MIT"
 }

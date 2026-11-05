@@ -35,10 +35,21 @@ export async function generateMetadata({ params }: Props) {
 
 export default async function Page({ params }: Props) {
   const { path } = await params;
-  const [story, stories] = await Promise.all([getPage(path.join('/')), getPublishedStories()]);
+  const [story, stories, locales] = await Promise.all([
+    getPage(path.join('/')),
+    getPublishedStories(),
+    getLocales(),
+  ]);
   return (
     <div lang={story.locale || 'en'}>
-      <StoryContent story={story} references={referencesFor(stories, story.locale)} />
+      <StoryContent
+        story={story}
+        references={referencesFor(
+          stories,
+          story.locale,
+          locales.find((locale) => locale.isDefault)?.slug,
+        )}
+      />
     </div>
   );
 }

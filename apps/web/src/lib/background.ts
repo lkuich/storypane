@@ -5,7 +5,7 @@ import { dispatchWebhooks } from '@storypane/db';
 export async function runBackgroundTasks(options: {
   db: Pool;
   publish: () => Promise<Array<{ spaceId: string; storyId: string; localeId: string }>>;
-  rooms: Pick<DurableObjectNamespace, 'getByName'>;
+  rooms: { getByName(name: string): { fetch(request: Request): Promise<Response> } };
   webhookEncryptionKey?: string;
   webhookHosts: string[];
   dispatch?: typeof dispatchWebhooks;
