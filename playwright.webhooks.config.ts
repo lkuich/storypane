@@ -5,6 +5,7 @@ export default defineConfig({
     'webhooks.browser.e2e.ts',
     'permissions.browser.e2e.ts',
     'linked-story-status.browser.e2e.ts',
+    'rich-text.browser.e2e.ts',
   ],
   workers: 1,
   timeout: 30_000,

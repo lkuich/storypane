@@ -109,7 +109,8 @@ function RichTextInput({
     editor?.setEditable(!disabled);
   }, [disabled, editor]);
   useEffect(() => {
-    if (editor && value && JSON.stringify(value) !== JSON.stringify(editor.getJSON()))
+    // Autosave can reorder JSON keys; replacing an unchanged document resets its selection.
+    if (editor && value && !editor.state.doc.eq(editor.schema.nodeFromJSON(value)))
       editor.commands.setContent(value as JSONContent, { emitUpdate: false });
   }, [editor, value]);
   return (
