@@ -259,6 +259,8 @@ async function handle(request: Request, route: { params: Promise<{ path: string[
           cursor: new URL(request.url).searchParams.get('cursor') ?? 0,
         }),
       );
+    if (resource === 'delivery-settings' && id === 'personal-default' && !child && method === 'PUT')
+      return jsonResponse(await store.updatePersonalPreview(actor, await readJson(request)));
     if (resource === 'delivery-settings' && !id) {
       if (method === 'GET') return jsonResponse(await store.getDeliverySettings(actor));
       if (method === 'PUT')

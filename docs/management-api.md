@@ -356,6 +356,16 @@ Account-level space creation/cloning, sign-in, management token issuance/revocat
 interactive browser leases/preview sessions remain in the signed-in CMS. Database
 connection credentials are not exposed.
 
+### Preview defaults
+
+`GET /delivery-settings` includes `personalDefaultPreviewId` for the authenticated
+user alongside the shared `defaultPreviewId`. The personal field is read-only in
+this response; omit it when sending shared settings to `PUT /delivery-settings`.
+Changing shared URLs or the space default requires `settings:write` permission.
+Personal defaults are saved by signed-in users through CMS settings; management
+tokens cannot change them. Delivery-token preview sessions use the space default
+unless an explicit `previewId` is supplied.
+
 ## MCP adapter
 
 `storypane mcp` runs a stdio MCP server using the same management client and API.

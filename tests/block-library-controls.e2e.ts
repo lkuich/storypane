@@ -126,6 +126,7 @@ test('block columns, references and row actions work with nesting, permissions a
         previewUrls: [],
         defaultPreviewId: null,
         previewParameter: 'storypane_preview',
+        personalDefaultPreviewId: null,
       },
       '/webhooks': { configured: false, endpoints: [] },
       '/public-media': { enabled: false },

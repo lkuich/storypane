@@ -119,6 +119,8 @@ import {
   isBlockAllowed,
   type DeliveredStory,
   type DeliverySettings,
+  type UserDeliverySettings,
+  defaultPreview,
   type DeliveryToken,
   type PreviewSession,
 } from '@storypane/core';
@@ -1210,17 +1212,39 @@ export class StorypaneStore {
       )
     ).rows;
   }
-  async getDeliverySettings(actor: Actor): Promise<DeliverySettings> {
+  async getDeliverySettings(actor: Actor): Promise<UserDeliverySettings> {
     return this.tx(
       actor,
       async (client) =>
         (
           await client.query(
-            'SELECT preview_urls AS "previewUrls",default_preview_id AS "defaultPreviewId",preview_parameter AS "previewParameter" FROM spaces WHERE id=$1',
-            [actor.spaceId],
+            'SELECT s.preview_urls AS "previewUrls",s.default_preview_id AS "defaultPreviewId",s.preview_parameter AS "previewParameter",m.personal_default_preview_id AS "personalDefaultPreviewId" FROM spaces s JOIN memberships m ON m.space_id=s.id WHERE s.id=$1 AND m.user_id=$2',
+            [actor.spaceId, actor.userId],
           )
         ).rows[0],
     );
+  }
+  async updatePersonalPreview(actor: Actor, raw: unknown): Promise<{ previewId: string | null }> {
+    if (actor.managementTokenId)
+      throw new StorypaneError('forbidden', 'Sign in to choose your personal preview');
+    const input = parseInput(z.object({ previewId: z.uuid().nullable() }).strict(), raw);
+    return this.tx(actor, async (client) => {
+      const { rows } = await client.query('SELECT preview_urls FROM spaces WHERE id=$1 FOR SHARE', [
+        actor.spaceId,
+      ]);
+      if (
+        input.previewId !== null &&
+        !(rows[0].preview_urls as DeliverySettings['previewUrls']).some(
+          (item) => item.id === input.previewId,
+        )
+      )
+        throw new StorypaneError('invalid', 'Choose a configured preview URL');
+      await client.query(
+        'UPDATE memberships SET personal_default_preview_id=$3 WHERE space_id=$1 AND user_id=$2',
+        [actor.spaceId, actor.userId, input.previewId],
+      );
+      return input;
+    });
   }
   async updateDeliverySettings(actor: Actor, raw: unknown): Promise<DeliverySettings> {
     const input = parseInput(deliverySettingsSchema, raw);
@@ -1235,6 +1259,10 @@ export class StorypaneStore {
             input.defaultPreviewId,
             input.previewParameter,
           ],
+        );
+        await client.query(
+          'UPDATE memberships SET personal_default_preview_id=NULL WHERE space_id=$1 AND personal_default_preview_id <> ALL($2::uuid[])',
+          [actor.spaceId, input.previewUrls.map((item) => item.id)],
         );
         await client.query(
           'DELETE FROM preview_sessions WHERE space_id=$1 AND origin <> ALL($2::text[])',
@@ -1541,12 +1569,20 @@ export class StorypaneStore {
     previewId?: string,
   ): Promise<PreviewSession> {
     const { rows } = await client.query(
-      'SELECT s.preview_urls,s.default_preview_id,l.url_slug AS slug,l.slug AS locale FROM spaces s JOIN stories st ON st.space_id=s.id JOIN story_locales l ON l.story_id=st.id WHERE s.id=$1 AND st.id=$2 AND st.deleted_at IS NULL AND l.id=$3',
-      [spaceId, storyId, localeId],
+      'SELECT s.preview_urls,s.default_preview_id,m.personal_default_preview_id,l.url_slug AS slug,l.slug AS locale FROM spaces s JOIN stories st ON st.space_id=s.id JOIN story_locales l ON l.story_id=st.id LEFT JOIN memberships m ON m.space_id=s.id AND m.user_id=$4 WHERE s.id=$1 AND st.id=$2 AND st.deleted_at IS NULL AND l.id=$3',
+      [spaceId, storyId, localeId, owner.userId ?? null],
     );
-    const target = (rows[0]?.preview_urls as DeliverySettings['previewUrls'] | undefined)?.find(
-      (item) => item.id === (previewId ?? rows[0].default_preview_id),
-    );
+    const settings: Pick<
+      UserDeliverySettings,
+      'previewUrls' | 'defaultPreviewId' | 'personalDefaultPreviewId'
+    > = {
+      previewUrls: rows[0]?.preview_urls ?? [],
+      defaultPreviewId: rows[0]?.default_preview_id ?? null,
+      personalDefaultPreviewId: rows[0]?.personal_default_preview_id ?? null,
+    };
+    const target = previewId
+      ? settings.previewUrls.find((item) => item.id === previewId)
+      : defaultPreview(settings);
     if (!target)
       throw new StorypaneError('invalid', 'Choose a configured preview URL in Space settings');
     const origin = new URL(target.url).origin;

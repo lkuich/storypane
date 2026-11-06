@@ -1,7 +1,10 @@
-import type { DeliverySettings } from '@storypane/core';
+import { defaultPreview, type UserDeliverySettings } from '@storypane/core';
 
-export function storyPageUrl(settings: DeliverySettings | null, path: string): string | undefined {
-  const target = settings?.previewUrls.find((item) => item.id === settings.defaultPreviewId);
+export function storyPageUrl(
+  settings: UserDeliverySettings | null,
+  path: string,
+): string | undefined {
+  const target = settings ? defaultPreview(settings) : undefined;
   if (!target) return;
   // Preview routes can be /preview?slug=…; page links use the app origin and actual content path.
   const origin = new URL(target.url).origin;

@@ -131,6 +131,7 @@ test('search spans folders and paths can be copied or opened on the configured a
         ],
         defaultPreviewId: 'local',
         previewParameter: 'review',
+        personalDefaultPreviewId: null,
       },
     }),
   );

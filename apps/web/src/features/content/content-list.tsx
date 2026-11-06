@@ -35,7 +35,7 @@ import {
   folderPath,
   type BlockDefinition,
   type ContentFolder,
-  type DeliverySettings,
+  type UserDeliverySettings,
   type SpaceLocale,
   type Story,
   type StorySummary,
@@ -72,7 +72,7 @@ export function ContentList({
   const [definitions, setDefinitions] = useState<BlockDefinition[]>([]);
   const [folders, setFolders] = useState<ContentFolder[]>([]);
   const [locales, setLocales] = useState<SpaceLocale[]>([]);
-  const [deliverySettings, setDeliverySettings] = useState<DeliverySettings | null>(null);
+  const [deliverySettings, setDeliverySettings] = useState<UserDeliverySettings | null>(null);
   const [folderHistory, setFolderHistory] = useState(() => ({
     entries: [
       typeof window === 'undefined'
@@ -109,7 +109,7 @@ export function ContentList({
           api<BlockDefinition[]>('/definitions?deployed=true'),
           api<ContentFolder[]>('/folders'),
           api<SpaceLocale[]>('/locales'),
-          api<DeliverySettings>('/delivery-settings'),
+          api<UserDeliverySettings>('/delivery-settings'),
         ]);
         setStories(content);
         setDefinitions(schemas);

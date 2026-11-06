@@ -2,7 +2,14 @@ import { expect, test } from '@playwright/test';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { parseEnv } from 'node:util';
 import { Pool } from 'pg';
-import type { DeliverySettings, Lease, LocaleSnapshot, Story, StoryLocale } from '@storypane/core';
+import type {
+  DeliverySettings,
+  UserDeliverySettings,
+  Lease,
+  LocaleSnapshot,
+  Story,
+  StoryLocale,
+} from '@storypane/core';
 import type { PreviewSession, StorypaneStory } from '../packages/sdk/src/types';
 import type { StorypaneContentType } from '../apps/example-astro/src/types/storypane';
 import { signInPage } from './auth';
@@ -235,10 +242,10 @@ test('Astro editor integration updates drafts, selects nested blocks, and previe
       original.definitions.find((definition) => definition.versionId === block.schemaVersionId)
         ?.name === 'hero',
   )!;
-  const settings = (await (
+  const { personalDefaultPreviewId, ...settings } = (await (
     await page.request.get('/api/cms/delivery-settings', { headers })
-  ).json()) as DeliverySettings;
-  const previewId = settings.defaultPreviewId ?? crypto.randomUUID();
+  ).json()) as UserDeliverySettings;
+  const previewId = personalDefaultPreviewId ?? settings.defaultPreviewId ?? crypto.randomUUID();
   const previewSettings = (url: string) => ({
     ...settings,
     defaultPreviewId: previewId,

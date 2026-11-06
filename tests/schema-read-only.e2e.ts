@@ -99,6 +99,7 @@ test('read-only schemas explain protection and permissions, with accessible dev 
         previewUrls: [],
         defaultPreviewId: null,
         previewParameter: 'storypane_preview',
+        personalDefaultPreviewId: null,
       },
       '/delivery-tokens': [],
       '/management-tokens': [],

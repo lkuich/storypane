@@ -43,7 +43,8 @@ assert(
 );
 
 {
-  const settings = deliverySettingsSchema.parse(await request());
+  const { personalDefaultPreviewId: _personal, ...shared } = await request();
+  const settings = deliverySettingsSchema.parse(shared);
   const url = 'http://127.0.0.1:3133/preview?slug={slug}&locale={locale}';
   const target = settings.previewUrls.find((target) => target.url === url) ?? {
     id: crypto.randomUUID(),

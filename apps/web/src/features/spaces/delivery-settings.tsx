@@ -1,7 +1,11 @@
 'use client';
 import { useCallback, useEffect, useState } from 'react';
 import { Code2, KeyRound, Plus, Trash2 } from 'lucide-react';
-import type { DeliverySettings as Settings, DeliveryToken } from '@storypane/core';
+import type {
+  DeliverySettings as Settings,
+  UserDeliverySettings,
+  DeliveryToken,
+} from '@storypane/core';
 import { Button, ErrorNotice, Loading } from '@storypane/ui';
 import { api, errorMessage, jsonRequest } from '../editor/api';
 import { PublicMediaSettings } from './public-media-settings';
@@ -17,9 +21,10 @@ export function DeliverySettings({
   onDirty: (value: boolean) => void;
   onBusy: (value: boolean) => void;
 }) {
-  const [settings, setSettings] = useState<Settings | null>(null),
+  const [settings, setSettings] = useState<UserDeliverySettings | null>(null),
     [previewUrls, setPreviewUrls] = useState<Settings['previewUrls']>([]),
     [defaultPreviewId, setDefaultPreviewId] = useState<string | null>(null),
+    [personalDefaultPreviewId, setPersonalDefaultPreviewId] = useState<string | null>(null),
     [parameter, setParameter] = useState('storypane_preview');
   const [tokens, setTokens] = useState<DeliveryToken[]>([]),
     [tokenName, setTokenName] = useState(''),
@@ -30,16 +35,21 @@ export function DeliverySettings({
     [saved, setSaved] = useState(false);
   const [mediaDirty, setMediaDirty] = useState(false),
     [mediaBusy, setMediaBusy] = useState(false);
-  const dirty =
-    mediaDirty ||
-    (!!settings &&
-      (JSON.stringify(previewUrls) !== JSON.stringify(settings.previewUrls) ||
-        defaultPreviewId !== settings.defaultPreviewId ||
-        parameter !== settings.previewParameter));
+  const sharedDirty =
+    !!settings &&
+    (JSON.stringify(previewUrls) !== JSON.stringify(settings.previewUrls) ||
+      defaultPreviewId !== settings.defaultPreviewId ||
+      parameter !== settings.previewParameter);
+  const previewDirty =
+    sharedDirty || (!!settings && personalDefaultPreviewId !== settings.personalDefaultPreviewId);
+  const dirty = mediaDirty || previewDirty;
   function changeUrls(next: Settings['previewUrls']) {
     setPreviewUrls(next);
     setDefaultPreviewId((current) =>
       next.some((item) => item.id === current) ? current : (next[0]?.id ?? null),
+    );
+    setPersonalDefaultPreviewId((current) =>
+      next.some((item) => item.id === current) ? current : null,
     );
     setSaved(false);
   }
@@ -47,12 +57,13 @@ export function DeliverySettings({
     setError('');
     try {
       const [value, keys] = await Promise.all([
-        api<Settings>('/delivery-settings'),
+        api<UserDeliverySettings>('/delivery-settings'),
         canManage ? api<DeliveryToken[]>('/delivery-tokens') : Promise.resolve([]),
       ]);
       setSettings(value);
       setPreviewUrls(value.previewUrls);
       setDefaultPreviewId(value.defaultPreviewId);
+      setPersonalDefaultPreviewId(value.personalDefaultPreviewId);
       setParameter(value.previewParameter);
       setTokens(keys);
     } catch (cause) {
@@ -99,18 +110,36 @@ export function DeliverySettings({
               onSubmit={(event) => {
                 event.preventDefault();
                 void action(async () => {
-                  const value = await api<Settings>(
-                    '/delivery-settings',
-                    jsonRequest('PUT', {
-                      previewUrls,
-                      defaultPreviewId,
-                      previewParameter: parameter,
-                    }),
-                  );
-                  setSettings(value);
-                  setPreviewUrls(value.previewUrls);
-                  setDefaultPreviewId(value.defaultPreviewId);
-                  setParameter(value.previewParameter);
+                  let value = settings;
+                  if (sharedDirty) {
+                    const shared = await api<Settings>(
+                      '/delivery-settings',
+                      jsonRequest('PUT', {
+                        previewUrls,
+                        defaultPreviewId,
+                        previewParameter: parameter,
+                      }),
+                    );
+                    value = {
+                      ...shared,
+                      personalDefaultPreviewId: shared.previewUrls.some(
+                        (item) => item.id === value.personalDefaultPreviewId,
+                      )
+                        ? value.personalDefaultPreviewId
+                        : null,
+                    };
+                    setSettings(value);
+                    setPreviewUrls(value.previewUrls);
+                    setDefaultPreviewId(value.defaultPreviewId);
+                    setParameter(value.previewParameter);
+                  }
+                  if (personalDefaultPreviewId !== value.personalDefaultPreviewId) {
+                    const personal = await api<{ previewId: string | null }>(
+                      '/delivery-settings/personal-default',
+                      jsonRequest('PUT', { previewId: personalDefaultPreviewId }),
+                    );
+                    setSettings({ ...value, personalDefaultPreviewId: personal.previewId });
+                  }
                   setSaved(true);
                 });
               }}
@@ -120,7 +149,8 @@ export function DeliverySettings({
                   <div>
                     <h3>Preview URLs</h3>
                     <p className="field-hint">
-                      Open each story with the default, then switch apps in the preview editor.
+                      The space default applies to everyone without a personal default. You can
+                      switch apps in the preview editor.
                     </p>
                   </div>
                   {canManage && (
@@ -151,14 +181,16 @@ export function DeliverySettings({
                           <input
                             type="radio"
                             name="default-preview"
-                            aria-label={`Use preview ${index + 1} as default`}
+                            aria-label={`Use preview ${index + 1} as space default`}
                             checked={defaultPreviewId === target.id}
                             onChange={() => {
                               setDefaultPreviewId(target.id);
                               setSaved(false);
                             }}
                           />
-                          {defaultPreviewId === target.id ? 'Default preview' : 'Set as default'}
+                          {defaultPreviewId === target.id
+                            ? 'Space default'
+                            : 'Set as space default'}
                         </label>
                         {canManage && (
                           <Button
@@ -232,14 +264,35 @@ export function DeliverySettings({
                   </span>
                 </label>
               </fieldset>
-              {canManage && (
-                <div className="space-settings-actions">
-                  <span role="status">{saved ? 'Preview settings saved' : ''}</span>
-                  <Button type="submit" disabled={!dirty || busy}>
-                    Save preview settings
-                  </Button>
-                </div>
-              )}
+              <label className="field">
+                My default preview
+                <select
+                  aria-label="My default preview"
+                  aria-describedby="personal-preview-hint"
+                  value={personalDefaultPreviewId ?? ''}
+                  disabled={busy || !previewUrls.length}
+                  onChange={(event) => {
+                    setPersonalDefaultPreviewId(event.target.value || null);
+                    setSaved(false);
+                  }}
+                >
+                  <option value="">Use space default</option>
+                  {previewUrls.map((target, index) => (
+                    <option key={target.id} value={target.id}>
+                      {target.name || `Preview ${index + 1}`}
+                    </option>
+                  ))}
+                </select>
+                <span className="field-hint" id="personal-preview-hint">
+                  Only affects you in this space, on every browser you sign in with.
+                </span>
+              </label>
+              <div className="space-settings-actions">
+                <span role="status">{saved ? 'Preview settings saved' : ''}</span>
+                <Button type="submit" disabled={!previewDirty || busy}>
+                  Save preview settings
+                </Button>
+              </div>
             </form>
             <PublicMediaSettings
               canManage={isAdmin}

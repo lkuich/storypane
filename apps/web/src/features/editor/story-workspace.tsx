@@ -38,7 +38,7 @@ import {
 import type {
   BlockDefinition,
   BlockDraft,
-  DeliverySettings,
+  UserDeliverySettings,
   Datasource,
   Checkpoint,
   PublicationReview,
@@ -111,7 +111,7 @@ export function StoryWorkspace({
   const [definitions, setDefinitions] = useState<BlockDefinition[]>([]);
   const [initialSnapshot, setInitialSnapshot] = useState<LocaleSnapshot | null>(null);
   const [previewOpen, setPreviewOpen] = useState(true);
-  const [previewSettings, setPreviewSettings] = useState<DeliverySettings | null>(null);
+  const [previewSettings, setPreviewSettings] = useState<UserDeliverySettings | null>(null);
   const [previewId, setPreviewId] = useState<string | null>(null);
   const [loadAttempt, setLoadAttempt] = useState(0);
   const switching = useRef(false);
@@ -301,8 +301,8 @@ function LocaleEditor({
   onOpen: (story: Story, locale?: string) => Promise<void>;
   previewOpen: boolean;
   onPreview: () => void;
-  previewSettings: DeliverySettings | null;
-  onPreviewSettings: (settings: DeliverySettings) => void;
+  previewSettings: UserDeliverySettings | null;
+  onPreviewSettings: (settings: UserDeliverySettings) => void;
   previewId: string | null;
   onPreviewId: (id: string) => void;
   locales: StoryLocale[];

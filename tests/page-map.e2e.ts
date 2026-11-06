@@ -158,6 +158,7 @@ async function mockEditor(page: Page) {
       '/delivery-settings': {
         defaultPreviewId: 'app',
         previewParameter: 'preview',
+        personalDefaultPreviewId: null,
         previewUrls: [{ id: 'app', name: 'App', url: 'http://preview.test/{slug}' }],
       },
       '/assets/uploads': { items: [] },

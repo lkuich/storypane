@@ -2,7 +2,13 @@
 import { useEffect, useRef, useState } from 'react';
 import { ExternalLink, Monitor, RefreshCw, Smartphone, Tablet } from 'lucide-react';
 import { Button, ErrorNotice, Loading } from '@storypane/ui';
-import type { DeliverySettings, Json, LocaleSnapshot, PreviewSession } from '@storypane/core';
+import {
+  defaultPreview,
+  type UserDeliverySettings,
+  type Json,
+  type LocaleSnapshot,
+  type PreviewSession,
+} from '@storypane/core';
 import { api, errorMessage, jsonRequest } from './api';
 
 export type ComponentPreview = { blockId: string } | { block: Record<string, Json> };
@@ -24,8 +30,8 @@ export function PreviewPanel({
   onSelect,
   component,
 }: {
-  settings: DeliverySettings | null;
-  onSettings: (settings: DeliverySettings) => void;
+  settings: UserDeliverySettings | null;
+  onSettings: (settings: UserDeliverySettings) => void;
   previewId: string | null;
   onPreviewId: (id: string) => void;
   snapshot: LocaleSnapshot;
@@ -53,7 +59,7 @@ export function PreviewPanel({
   useEffect(() => {
     if (settings) return;
     let stopped = false;
-    void api<DeliverySettings>('/delivery-settings')
+    void api<UserDeliverySettings>('/delivery-settings')
       .then((value) => {
         if (!stopped) onSettings(value);
       })
@@ -66,7 +72,7 @@ export function PreviewPanel({
   }, [settings, onSettings]);
   const target =
     settings?.previewUrls.find((item) => item.id === previewId) ??
-    settings?.previewUrls.find((item) => item.id === settings.defaultPreviewId);
+    (settings ? defaultPreview(settings) : undefined);
   let url: URL | undefined;
   if (settings && target) {
     url = new URL(
@@ -242,7 +248,11 @@ export function PreviewPanel({
                 {settings!.previewUrls.map((item) => (
                   <option key={item.id} value={item.id}>
                     {item.name}
-                    {item.id === settings!.defaultPreviewId ? ' (default)' : ''}
+                    {item.id === settings!.personalDefaultPreviewId
+                      ? ' (my default)'
+                      : item.id === settings!.defaultPreviewId
+                        ? ' (space default)'
+                        : ''}
                   </option>
                 ))}
               </select>

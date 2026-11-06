@@ -243,9 +243,17 @@ Once your application's preview route is ready:
 3. Set **Application preview URL** to your app's route, for example
    `https://your-site.example/preview?slug={slug}&locale={locale}`. Replace the
    example host with your running app's actual origin.
-4. Mark it as the default preview and choose **Save preview settings**.
+4. Mark it as the **Space default** and choose **Save preview settings**.
 5. Return to Home and choose **Preview**. Edit Hero and wait for autosave to see
    the draft update in the connected application.
+
+The **Space default** is shared and can be changed by an admin or someone with
+space settings permission. Every member can set **My default preview** and save
+their own choice in **Settings → API & preview**. It applies only to that user in
+that space and follows them across browsers. Choose **Use space default** to
+follow the shared default again. Removing a URL clears personal defaults that
+used it. A manual choice in the editor's Preview dropdown lasts for that editing
+session; it doesn't change either saved default.
 
 Use the **Mobile**, **Tablet**, and **Desktop** toggle buttons to the right of the
 Preview dropdown to check responsive layouts. Desktop is the default and fills

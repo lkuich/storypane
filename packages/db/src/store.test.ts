@@ -1402,7 +1402,7 @@ describe('Postgres collaboration and immutable history', () => {
       code: 'unauthenticated',
     });
   });
-  it('preserves legacy preview URLs and scopes selected preview sessions to configured targets', async () => {
+  it('preserves preview URLs, isolates personal defaults, and scopes sessions to configured targets', async () => {
     const legacy = (
       await pool.query(
         "SELECT preview_urls,default_preview_id FROM spaces WHERE name='Before upgrade'",
@@ -1415,6 +1415,7 @@ describe('Postgres collaboration and immutable history', () => {
       previewUrls: [],
       defaultPreviewId: null,
       previewParameter: 'storypane_preview',
+      personalDefaultPreviewId: null,
     });
     const local = { id: randomUUID(), name: 'Local', url: 'http://localhost:3131/{locale}/{slug}' };
     const staging = {
@@ -1431,7 +1432,53 @@ describe('Postgres collaboration and immutable history', () => {
       code: 'forbidden',
     });
     expect(await store.updateDeliverySettings(alice, settings)).toEqual(settings);
-    expect(await store.getDeliverySettings(bob)).toEqual(settings);
+    expect(await store.getDeliverySettings(bob)).toEqual({
+      ...settings,
+      personalDefaultPreviewId: null,
+    });
+    await store.updatePersonalPreview(bob, { previewId: local.id });
+    expect((await store.getDeliverySettings(bob)).personalDefaultPreviewId).toBe(local.id);
+    expect((await store.getDeliverySettings(alice)).personalDefaultPreviewId).toBeNull();
+    const otherSpace = await store.createSpace(bob, { name: 'Other preview space' });
+    const otherActor = { ...bob, spaceId: otherSpace.id };
+    expect((await store.getDeliverySettings(otherActor)).personalDefaultPreviewId).toBeNull();
+    await expect(
+      store.updatePersonalPreview(otherActor, { previewId: local.id }),
+    ).rejects.toMatchObject({ code: 'invalid' });
+    await expect(
+      store.updatePersonalPreview(bob, { previewId: randomUUID() }),
+    ).rejects.toMatchObject({ code: 'invalid' });
+    await expect(
+      store.updatePersonalPreview(bob, { previewId: local.id, userId: alice.userId }),
+    ).rejects.toMatchObject({ code: 'invalid' });
+    await expect(
+      store.updatePersonalPreview({ ...bob, spaceId: randomUUID() }, { previewId: null }),
+    ).rejects.toMatchObject({ code: 'forbidden' });
+    await expect(
+      store.updatePersonalPreview({ ...bob, sessionId: 'expired' }, { previewId: null }),
+    ).rejects.toMatchObject({ code: 'unauthenticated' });
+    await expect(
+      store.updatePersonalPreview({ ...bob, managementTokenId: randomUUID() }, { previewId: null }),
+    ).rejects.toMatchObject({ code: 'forbidden' });
+    const personalSession = await store.createEditorPreview(
+      bob,
+      snapshot.story.id,
+      snapshot.locale.id,
+    );
+    await expect(
+      store.authenticatePreview(personalSession.token, 'http://localhost:3131'),
+    ).resolves.toBeDefined();
+    const selectedSession = await store.createEditorPreview(
+      bob,
+      snapshot.story.id,
+      snapshot.locale.id,
+      { previewId: staging.id },
+    );
+    await expect(
+      store.authenticatePreview(selectedSession.token, 'https://staging.example.com'),
+    ).resolves.toBeDefined();
+    await store.updatePersonalPreview(bob, { previewId: null });
+    expect((await store.getDeliverySettings(bob)).personalDefaultPreviewId).toBeNull();
     const defaultSession = await store.createEditorPreview(
       bob,
       snapshot.story.id,
@@ -1455,6 +1502,13 @@ describe('Postgres collaboration and immutable history', () => {
       }),
     ).rejects.toMatchObject({ code: 'invalid' });
     const token = await store.createDeliveryToken(alice, { name: 'Standalone', scope: 'preview' });
+    await store.updatePersonalPreview(alice, { previewId: local.id });
+    const tokenDefault = await store.createTokenPreview(token.token, alice.spaceId, {
+      slug: 'home',
+    });
+    await expect(
+      store.authenticatePreview(tokenDefault.token, 'https://staging.example.com'),
+    ).resolves.toBeDefined();
     const standalone = await store.createTokenPreview(token.token, alice.spaceId, {
       slug: 'home',
       previewId: local.id,
@@ -1468,11 +1522,22 @@ describe('Postgres collaboration and immutable history', () => {
         previewId: randomUUID(),
       }),
     ).rejects.toMatchObject({ code: 'invalid' });
+    await store.updatePersonalPreview(bob, { previewId: staging.id });
     await store.updateDeliverySettings(alice, {
       ...settings,
       previewUrls: [local],
       defaultPreviewId: local.id,
     });
+    expect((await store.getDeliverySettings(bob)).personalDefaultPreviewId).toBeNull();
+    expect((await store.getDeliverySettings(alice)).personalDefaultPreviewId).toBe(local.id);
+    const fallbackSession = await store.createEditorPreview(
+      bob,
+      snapshot.story.id,
+      snapshot.locale.id,
+    );
+    await expect(
+      store.authenticatePreview(fallbackSession.token, 'http://localhost:3131'),
+    ).resolves.toBeDefined();
     await expect(
       store.authenticatePreview(defaultSession.token, 'https://staging.example.com'),
     ).rejects.toMatchObject({ code: 'unauthenticated' });

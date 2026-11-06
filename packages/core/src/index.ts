@@ -253,6 +253,18 @@ export const deliverySettingsSchema = z
       });
   });
 export type DeliverySettings = z.infer<typeof deliverySettingsSchema>;
+export type UserDeliverySettings = DeliverySettings & { personalDefaultPreviewId: string | null };
+
+export function defaultPreview(
+  settings: Pick<DeliverySettings, 'previewUrls' | 'defaultPreviewId'> & {
+    personalDefaultPreviewId?: string | null;
+  },
+) {
+  return (
+    settings.previewUrls.find((item) => item.id === settings.personalDefaultPreviewId) ??
+    settings.previewUrls.find((item) => item.id === settings.defaultPreviewId)
+  );
+}
 export type ErrorCode =
   | 'unauthenticated'
   | 'forbidden'

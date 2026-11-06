@@ -3,7 +3,13 @@ import { createServer, type Server, type IncomingMessage, type ServerResponse } 
 import { readFile } from 'node:fs/promises';
 import { Pool } from 'pg';
 import { getInstallation } from '@storypane/db/installation';
-import type { Actor, DeliverySettings, LocaleSnapshot, Story, StoryLocale } from '@storypane/core';
+import type {
+  Actor,
+  UserDeliverySettings,
+  LocaleSnapshot,
+  Story,
+  StoryLocale,
+} from '@storypane/core';
 import { createStorypaneClient } from '../packages/sdk/src/index';
 import { signInPage } from './auth';
 
@@ -100,14 +106,18 @@ test('a static app receives live drafts, selects blocks in the editor, and leave
       .fill(`${siteUrl}/{slug}?locale={locale}`);
     await localRow.getByRole('radio').check();
     await page.getByLabel('Preview URL parameter', { exact: true }).fill('review');
+    const personalDefault = page.getByRole('combobox', { name: 'My default preview', exact: true });
+    await personalDefault.selectOption({ label: 'Staging' });
     await page.getByRole('button', { name: 'Save preview settings' }).click();
     await expect(page.getByText('Preview settings saved', { exact: true })).toBeVisible();
     const settings = (await (
       await page.request.get('/api/cms/delivery-settings', { headers })
-    ).json()) as DeliverySettings;
+    ).json()) as UserDeliverySettings;
     expect(settings.defaultPreviewId).toBe(settings.previewUrls[1].id);
+    expect(settings.personalDefaultPreviewId).toBe(settings.previewUrls[0].id);
     await page.reload();
     await expect(localRow.getByRole('radio')).toBeChecked();
+    await expect(personalDefault).toHaveValue(settings.personalDefaultPreviewId!);
     await page
       .locator('.delivery-settings')
       .screenshot({ path: '/tmp/storypane-preview-urls-settings.png' });
@@ -227,7 +237,13 @@ test('a static app receives live drafts, selects blocks in the editor, and leave
     await expect(page.getByRole('button', { name: 'Hide preview', exact: true })).toBeVisible();
     const frame = page.frameLocator('iframe[title="Live application preview"]');
     const switcher = page.getByRole('combobox', { name: 'Preview URL', exact: true });
-    await expect(switcher).toHaveValue(settings.defaultPreviewId!);
+    await expect(switcher).toHaveValue(settings.personalDefaultPreviewId!);
+    await expect(page.locator('iframe[title="Live application preview"]')).toHaveAttribute(
+      'src',
+      'http://127.0.0.1:3153/home?locale=&review=1',
+    );
+    await expect(frame.locator('#status')).toHaveText('connected');
+    await switcher.selectOption(settings.defaultPreviewId!);
     await expect(page.locator('iframe[title="Live application preview"]')).toHaveAttribute(
       'src',
       `${siteUrl}/home?locale=&review=1`,
@@ -408,7 +424,7 @@ test('a static app receives live drafts, selects blocks in the editor, and leave
       'data-storypane-selected',
       '',
     );
-    await switcher.selectOption({ label: 'Staging' });
+    await switcher.selectOption(settings.previewUrls[0].id);
     await expect(frame.locator('#status')).toHaveText('connected');
     await expect(page.locator('iframe[title="Live application preview"]')).toHaveAttribute(
       'src',

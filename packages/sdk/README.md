@@ -51,6 +51,12 @@ The root locale contributes an empty path segment; the editor removes doubled
 slashes. `{slug}` is the selected locale's URL slug. Query placeholders also work:
 `https://site.example/preview?slug={slug}&locale={locale}`.
 
+Admins set the **Space default** preview URL. Each member can save **My default
+preview** in the same settings screen, or choose **Use space default**. This
+preference follows the user across browsers in that space. Editor and component
+previews use it unless another URL is selected in the editor. Server-created
+preview sessions continue to use the space default unless `previewId` is provided.
+
 The default preview parameter is `storypane_preview=1`. You can change its name in
 settings; use the same name in your SDK options. Your app must permit the CMS
 origin in its CSP `frame-ancestors` policy and must not send a conflicting
