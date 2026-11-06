@@ -5,6 +5,33 @@ source-development workflow when you want to change the application. The CMS
 runtime is Node.js: the Cloudflare Worker deployment in the previous release is
 not compatible with the current installation and per-space database layout.
 
+<aside class="agent-instructions" aria-labelledby="set-up-with-an-agent">
+
+<div class="agent-instructions-top"><span class="eyebrow">For coding agents</span></div>
+
+## Set up with an agent
+
+Open the cloned repository in your coding agent. Ask it to read `AGENTS.md` and
+this guide first, or give it the maintained
+[Storypane deploy skill](https://storypane.dev/docs/agents/). Copy this prompt:
+
+```text
+In the Storypane checkout, read AGENTS.md and docs/getting-started.md,
+then set up a fresh local Storypane installation.
+Check Node and Docker prerequisites, run node scripts/setup-env.mjs, and
+start the bundled Compose services. Keep secrets in the ignored env file;
+never print them or replace existing configuration, keys, or volumes.
+Check readiness, then give me the administrator bootstrap command to run
+in my own terminal so I can enter my password privately.
+```
+
+For source development, tell your agent to use `node scripts/setup-env.mjs --local`
+and the source workflow below. An agent can prepare the installation; review its
+changes and enter passwords locally. The setup script does not create accounts,
+start services, or verify a fresh deployment by itself.
+
+</aside>
+
 ## Run a fresh installation
 
 For a Docker installation, you need Docker Compose and Node 24.22+ within v24
@@ -80,26 +107,6 @@ Open `http://127.0.0.1:3130` and sign in with the administrator created by the
 CLI. The legacy `pnpm db:setup` command is for local fixture databases only; never
 use it for an installation or production database. See the
 [operator guide](self-hosting.md#operator-commands).
-
-## Set up with an agent
-
-Open the cloned repository in your coding agent. Ask it to read `AGENTS.md` and
-this guide first, or give it the maintained
-[Storypane deploy skill](https://storypane.dev/docs/agents/). Copy this prompt:
-
-```text
-Set up a fresh local Storypane installation using docs/getting-started.md.
-Check Node and Docker prerequisites, run node scripts/setup-env.mjs, and
-start the bundled Compose services. Keep secrets in the ignored env file;
-never print them or replace existing configuration, keys, or volumes.
-Check readiness, then give me the administrator bootstrap command to run
-in my own terminal so I can enter my password privately.
-```
-
-For source development, tell your agent to use `node scripts/setup-env.mjs --local`
-and the source workflow above. An agent can prepare the installation; review its
-changes and enter passwords locally. The setup script does not create accounts,
-start services, or verify a fresh deployment by itself.
 
 ## Build a website
 

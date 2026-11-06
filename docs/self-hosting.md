@@ -5,6 +5,31 @@ Built-in email/password authentication is the default. No Clerk keys or SMTP
 server are required. Run one Node application replica: it serves HTTP, in-memory
 collaboration rooms, and the minute publication/webhook scheduler.
 
+<aside class="agent-instructions" aria-labelledby="work-with-an-agent">
+
+<div class="agent-instructions-top"><span class="eyebrow">For coding agents</span></div>
+
+## Work with an agent
+
+Use the [getting-started agent prompt](getting-started.md#set-up-with-an-agent)
+for a first installation. For an upgrade, give your agent this task:
+
+```text
+Read AGENTS.md and docs/self-hosting.md before upgrading this installation.
+Identify the existing databases, media, configuration, and encryption keys;
+keep all values intact and verify backups before applying migrations.
+Use the transactional operator migration runner. Never rerun fresh setup
+over an existing env file or delete volumes to fix a failed upgrade.
+Report the changed files and verification results without printing secrets.
+```
+
+For external Postgres, storage, SMTP, or Clerk, configure credentials through your
+local secret manager or terminal; do not paste them into an agent conversation.
+The setup script configures bundled local services and cannot provision external
+provider credentials.
+
+</aside>
+
 ## Fresh Docker installation
 
 Run `node scripts/setup-env.mjs` from the repository root using Node 24.22+
@@ -205,22 +230,3 @@ does not deploy to Workers. A previous Worker installation can be retired after
 its content, database, private media and encryption keys have been migrated or
 backed up, and the replacement has passed the relevant acceptance checks. See the
 [Cloudflare guide](deploy-cloudflare.md) before removing legacy resources.
-
-## Work with an agent
-
-Use the [getting-started agent prompt](getting-started.md#set-up-with-an-agent)
-for a first installation. For an upgrade, give your agent this task:
-
-```text
-Read AGENTS.md and docs/self-hosting.md before upgrading this installation.
-Identify the existing databases, media, configuration, and encryption keys;
-keep all values intact and verify backups before applying migrations.
-Use the transactional operator migration runner. Never rerun fresh setup
-over an existing env file or delete volumes to fix a failed upgrade.
-Report the changed files and verification results without printing secrets.
-```
-
-For external Postgres, storage, SMTP, or Clerk, configure credentials through your
-local secret manager or terminal; do not paste them into an agent conversation.
-The setup script configures bundled local services and cannot provision external
-provider credentials.
