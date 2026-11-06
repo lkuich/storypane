@@ -245,7 +245,8 @@ Inside the CMS iframe, the SDK requests a session from its parent with
 uses its authenticated session to grant five minutes of read-only access to one
 story locale. The SDK renews that grant while the editor remains authorized.
 Third-party cookies are not needed in the iframe, and credentials are not added
-to the iframe URL. The browser subscribes directly to the story's Durable Object.
+to the iframe URL. The browser receives the story's authorized preview over a
+WebSocket.
 
 Outside the iframe, provide `getSession`. Your app's authenticated server endpoint
 must verify the visitor may preview before using a **Preview · server only** token:
@@ -361,8 +362,11 @@ instead of running `create`. Migration files target exactly one space. Commit th
 immutable deployed history; `active.json` is the editable target schema. New
 fields and definitions may omit their IDs; push assigns and persists IDs before
 sending them. Existing IDs preserve renames, including nested blocks. Field order
-in the array controls editor order. Definition API names cannot be renamed, and
-removing an entire definition is not supported.
+in the array controls editor order. Definition API names cannot be renamed. Version 2 migration files also carry
+`parentDefinitionId` beside each definition’s `schema`; preserve these IDs to keep
+the library hierarchy. Version 1 files remain supported and omitted parent metadata
+preserves the current parent. Removing a definition is allowed only when the
+existing content, folder, and schema-reference checks permit it.
 
 Local edits and deployed history are never silently overwritten. A stale push or
 divergent pull fails with a conflict. Use `storypane migrations pull --out
@@ -386,6 +390,78 @@ standard deployment and does not automatically select this destructive mode.
 Drafts and live publications migrate separately in one transaction, so deploying
 schemas never publishes unfinished edits. Old values remain in history. Restores
 apply intervening migrations; restore an older checkpoint before publishing it.
+
+### Linked development and production spaces
+
+An installation admin can clone a space, or choose a base when creating one.
+Choose **Dev** for a developer workspace or **Prod** for production. One production
+space can have multiple linked dev spaces. Starting in dev is supported: creating
+production from an unlinked dev space establishes the link. New production spaces
+created with an explicit environment start with **Schema read-only** enabled;
+existing spaces retain their previous editing behavior.
+
+Cloning takes deployed schemas, block-library nesting, nested-block restrictions,
+locales, and required datasource option lists. It excludes bulk content and media,
+but reviews and copies the stories and original media required by schema defaults,
+including their transitive dependencies (up to 100 stories). Required stories use
+published content where available, otherwise their drafts; copies are always
+unpublished. Memberships, tokens, integrations, and external option request headers
+are not copied. Configure external credentials separately.
+
+In **Settings → General**, admins can make schemas read-only. This blocks local
+schema edits, block moves, CLI pushes, and direct deployment. Schema and migration
+history stay visible. Reviewed promotion from a linked dev space is still allowed.
+
+Keep `STORYPANE_SPACE_ID` and `STORYPANE_MANAGEMENT_TOKEN` pointed at dev. Set
+`STORYPANE_PRODUCTION_MANAGEMENT_TOKEN` to a separate production token. Sync and
+promotion require a deploy-capable dev token; production needs read access for
+sync and deploy access for promotion. Scoped tokens need `read` and `admin`, with
+`schemas:write` as well for local migration authoring. Both issuers’ current
+membership and permissions are checked. Production is resolved from the link,
+within the same installation.
+
+```sh
+storypane migrations pull
+storypane migrations create "Add hero caption"
+# Edit storypane/migrations/active.json.
+storypane migrations push --deploy
+# Test the deployed schema in dev, then review actual production impacts.
+storypane migrations status
+storypane migrations promote
+```
+
+Promotion preserves the order of deployed dev migrations and applies the reviewed
+batch in one production transaction. It can copy missing required dependencies as
+unpublished drafts; existing production stories and media are never overwritten.
+A required datasource with different option values blocks the transfer until its
+configuration is reconciled explicitly. Active schema drafts are not promoted.
+
+Other dev spaces show **Behind production**. Use **Sync from production** in the
+Blocks screen or `storypane migrations sync`. Sync preserves deployed history,
+replays incoming production transformations, and reconciles local changes by block
+and field ID. The UI offers a choice for each conflict. The CLI prints conflict
+paths; put the choices in a JSON object mapping each path to `"dev"` or `"prod"`,
+then run `storypane migrations sync --input resolutions.json`. Review data loss
+before applying. Unresolved conflicts and stale reviews block application.
+
+`--yes` accepts the current review for CI, including reported data loss. The CLI
+keeps an interrupted operation in `storypane/migrations/.transfer.json`; rerun the
+same command to resume it safely. Do not commit this temporary file. A stale
+review is discarded so the next invocation can obtain a new review. Pull dev
+migrations after sync; divergent local active files must still be reconciled using
+a separate `--out` directory.
+
+Production and dev migration numbers can differ. Generate production application
+types from production, keeping its files separate from dev:
+
+```sh
+STORYPANE_SPACE_ID="$PRODUCTION_SPACE_ID" \
+STORYPANE_MANAGEMENT_TOKEN="$STORYPANE_PRODUCTION_MANAGEMENT_TOKEN" \
+  storypane migrations pull --out storypane/production-migrations
+# Substitute the deployed production version shown by migrations status.
+storypane generate-types --input storypane/production-migrations/3.json \
+  --out src/types/storypane.ts
+```
 
 ### CI/CD
 
@@ -472,10 +548,10 @@ static exporters can rebuild. Transformed animations use a still frame; original
 preserve animation. Images larger than 20 MiB, unsupported inputs, or unavailable
 image processing return an error rather than substituting the original.
 
-Public responses use `Cache-Control: no-store`. The Worker caches transformed bytes
-internally, checks live eligibility before serving each request, and changes variant
-identity after a metadata revision. Disabling the setting or removing the last live
-reference returns 404 on the next request, including cached and conditional requests.
+Public responses use `Cache-Control: no-store`. The CMS checks live eligibility
+before serving each request. The Node runtime computes image variants on demand.
+Disabling the setting or removing the last live reference returns 404 on the next
+request, including cached and conditional requests.
 Previously downloaded files and static copies cannot be recalled. Keep the existing
 authenticated `getAsset` integration for static export when public media is disabled.
 

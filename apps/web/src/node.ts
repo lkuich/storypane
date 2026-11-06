@@ -6,7 +6,7 @@ validateEnvironment();
 const { server } = await startProdServer({
   port: Number(process.env.PORT || 3000),
   host: process.env.HOST || '0.0.0.0',
-  outDir: new URL('../.node/dist', import.meta.url).pathname,
+  outDir: new URL('../dist', import.meta.url).pathname,
 });
 const stop = attachNodeServices(server);
 async function shutdown() {

@@ -1,6 +1,7 @@
 import { env } from '#platform';
 import { authenticateSession, createServices } from '../../../lib/context';
 import { assertOrigin, errorResponse, jsonResponse, readJson } from '../../../lib/http';
+import { copySchemaAsset } from '@storypane/assets';
 import type { Space } from '@storypane/core';
 
 async function handle(request: Request) {
@@ -17,7 +18,10 @@ async function handle(request: Request) {
     }
     if (request.method === 'POST') {
       assertOrigin(request, env.APP_URL);
-      const result = await installation.provision(session.user.id, await readJson(request));
+      const result = await installation.provision(session.user.id, await readJson(request), {
+        actor,
+        copyAsset: (asset, key) => copySchemaAsset(env.MEDIA, asset, key),
+      });
       await services.selectSpace(result.id);
       return jsonResponse(
         {
@@ -55,6 +59,8 @@ async function handle(request: Request) {
             memberCount: 0,
             provisioningStatus: row.status,
             provisioningMode: row.mode,
+            environment: row.environment,
+            cloneSourceSpaceId: row.clone_source_id,
           });
       }
     return jsonResponse(spaces.sort((a, b) => a.createdAt.localeCompare(b.createdAt)));

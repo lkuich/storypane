@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Pool } from 'pg';
 import { readFile } from 'node:fs/promises';
-import { handleAssets, handlePublicMedia, PART_BYTES } from './index';
+import { handleAssets, handlePublicMedia, copySchemaAsset, PART_BYTES } from './index';
 import type {
   AssetBucket,
   AssetContext,
@@ -774,4 +774,23 @@ it('allows read-only browsing but denies every asset mutation without write perm
   expect(
     (await call('POST', '/folders', { name: `Custom role ${crypto.randomUUID()}` })).status,
   ).toBe(201);
+});
+
+it('copies original media to an independent space key and resumes completed copies', async () => {
+  const bucket = new MemoryBucket();
+  const bytes = new Uint8Array(PART_BYTES + 17).fill(123);
+  bucket.objects.set('source/original', { bytes, mime: 'image/png' });
+  const asset = {
+    object_key: 'source/original',
+    id: crypto.randomUUID(),
+    byte_size: String(bytes.length),
+    mime_type: 'image/png',
+  };
+  await copySchemaAsset(bucket, asset, 'target/original');
+  await copySchemaAsset(bucket, asset, 'target/original');
+  expect(bucket.completeCalls).toBe(1);
+  expect(bucket.objects.get('target/original')?.bytes).toEqual(bytes);
+  bucket.objects.delete('source/original');
+  expect(bucket.objects.get('target/original')?.bytes.length).toBe(bytes.length);
+  await expect(copySchemaAsset(bucket, asset, 'another/original')).rejects.toThrow('unavailable');
 });

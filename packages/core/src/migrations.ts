@@ -24,13 +24,13 @@ export type SchemaMigration = {
   destructive?: boolean;
 };
 export type MigrationFile = {
-  formatVersion: 1;
+  formatVersion: 1 | 2;
   id: string;
   spaceId: string;
   version: number;
   baseVersion: number;
   name: string;
-  definitions: { id: string; schema: DefinitionInput }[];
+  definitions: { id: string; parentDefinitionId?: string | null; schema: DefinitionInput }[];
   remoteRevision: number | null;
   sourceHash: string | null;
   status: 'active' | 'deployed';
@@ -125,6 +125,13 @@ export function migrationChanges(
       changes.push({ definition: target.name, kind: 'added', after: definitionInput(target) });
       continue;
     }
+    if ((source.parentDefinitionId ?? null) !== (target.parentDefinitionId ?? null))
+      changes.push({
+        definition: target.name,
+        kind: 'changed',
+        before: { parentDefinitionId: source.parentDefinitionId ?? null },
+        after: { parentDefinitionId: target.parentDefinitionId ?? null },
+      });
     for (const old of source.fields) {
       const field = target.fields.find((item) => item.id === old.id);
       if (!field)

@@ -243,9 +243,21 @@ it('counts removed blocks separately from value resets inside those blocks', () 
   expect(result).toMatchObject({ deletedBlocks: 1, resetValues: 1, deletedValues: 0 });
 });
 
-it('excludes organizational parents from migration inputs and changes, including old snapshots', () => {
+it('keeps parent metadata separate from field schemas and includes moves in migration changes', () => {
   const nested = { ...definition, parentDefinitionId: 'parent' };
   expect(definitionInput(nested)).toEqual(definitionInput(definition));
-  expect(migrationChanges([definition], [nested])).toEqual([]);
-  expect(migrationChanges([nested], [definition])).toEqual([]);
+  expect(migrationChanges([definition], [nested])).toMatchObject([
+    {
+      kind: 'changed',
+      before: { parentDefinitionId: null },
+      after: { parentDefinitionId: 'parent' },
+    },
+  ]);
+  expect(migrationChanges([nested], [definition])).toMatchObject([
+    {
+      kind: 'changed',
+      before: { parentDefinitionId: 'parent' },
+      after: { parentDefinitionId: null },
+    },
+  ]);
 });

@@ -11,7 +11,10 @@ test('Next.js renders publications and authenticates live previews, including un
   page,
   context,
 }) => {
-  test.skip(!configured, 'Run pnpm example:setup:next and pnpm build:example:next first.');
+  test.skip(
+    !configured,
+    'Run pnpm --filter @storypane/example-next setup and pnpm --filter @storypane/example-next build first.',
+  );
   test.setTimeout(90000);
   const env = parseEnv(readFileSync('apps/example-next/.env', 'utf8'));
   expect(

@@ -45,6 +45,7 @@ it.skipIf(!url)(
       const store = new StorypaneStore(source);
       const ids = [randomUUID(), randomUUID()];
       const tokens: string[] = [];
+      const transfers: string[] = [];
       for (const spaceId of ids) {
         const actor = {
           spaceId,
@@ -89,6 +90,20 @@ it.skipIf(!url)(
           "INSERT INTO publication_schedules(space_id,story_id,locale_id,checkpoint_id,schema_version,creator_id,due_at,timezone,next_attempt_at) VALUES($1,$2,$3,$4,1,'legacy-admin',now()+interval '1 day','UTC',now()+interval '1 day')",
           [spaceId, story.id, locale.id, snapshot.checkpointId],
         );
+        const transferId = randomUUID();
+        transfers.push(transferId);
+        await source.query(
+          'INSERT INTO schema_transfers(id,source_space_id,source_head,review_token,result) VALUES($1,$2,$3,$4,$5),($6,$2,$3,$4,$7)',
+          [
+            spaceId,
+            ids.find((id) => id !== spaceId),
+            randomUUID(),
+            'retained-review-token',
+            JSON.stringify({ sourceVersion: 1, definitions: [] }),
+            transferId,
+            JSON.stringify({ action: 'promote', targetSpaceId: spaceId, steps: [] }),
+          ],
+        );
       }
       installation = new Installation({
         connectionString: urls[1],
@@ -114,6 +129,9 @@ it.skipIf(!url)(
         const selected = await installation.acquire(id);
         try {
           expect((await selected.db.query('SELECT id FROM spaces')).rows).toEqual([{ id }]);
+          expect(
+            (await selected.db.query('SELECT id FROM schema_transfers ORDER BY id')).rows,
+          ).toEqual([id, transfers[index]].sort().map((id) => ({ id })));
           expect(
             (
               await selected.db.query(

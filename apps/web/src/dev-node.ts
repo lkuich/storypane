@@ -6,7 +6,7 @@ import { attachNodeServices } from './node-services';
 validateEnvironment();
 let stop: (() => Promise<void>) | undefined;
 const vite = await createServer({
-  configFile: new URL('../vite.node.config.ts', import.meta.url).pathname,
+  configFile: new URL('../vite.config.ts', import.meta.url).pathname,
   plugins: [
     {
       name: 'storypane-node-services',

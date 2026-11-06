@@ -16,10 +16,7 @@ describe('minute background runner', () => {
       expect(request.headers.has('x-storypane-actor')).toBe(false);
       return new Response(null, { status: 204 });
     });
-    const rooms = { getByName: vi.fn(() => ({ fetch: roomFetch })) } as unknown as Pick<
-      DurableObjectNamespace,
-      'getByName'
-    >;
+    const rooms = { getByName: vi.fn(() => ({ fetch: roomFetch })) };
     const db = {} as Pool;
     const dispatch = vi.fn(async () => {
       calls.push('dispatch');
@@ -51,7 +48,7 @@ describe('minute background runner', () => {
         publish: async () => {
           throw new Error('publication error');
         },
-        rooms: {} as DurableObjectNamespace,
+        rooms: { getByName: vi.fn() },
         webhookHosts: [],
         dispatch,
       }),
@@ -62,7 +59,7 @@ describe('minute background runner', () => {
     const dispatch = vi.fn(async () => ({ attempted: 0 }));
     const rooms = {
       getByName: () => ({ fetch: async () => new Response(null, { status: 503 }) }),
-    } as unknown as DurableObjectNamespace;
+    };
     await expect(
       runBackgroundTasks({
         db: {} as Pool,

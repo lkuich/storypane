@@ -17,7 +17,7 @@ Start with [Getting started](getting-started.md) to run a fresh local installati
 - [SDK guide](../packages/sdk/README.md): delivery, preview, media, migrations,
   generated types, and management clients.
 
-`work-breakdown.md`, `issues/`, and `tag-restriction-cleanup.md` contain historical
+`work-breakdown.md` and `tag-restriction-cleanup.md` contain historical
 plans or implementation records. They are not installation instructions or a source
 of current product behavior.
 

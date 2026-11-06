@@ -48,11 +48,8 @@ export function releaseRoom(name: string) {
 }
 let bucket: S3Bucket | undefined;
 export const env = {
-  get HYPERDRIVE() {
-    return { connectionString: required('DATABASE_URL') };
-  },
   get APP_URL() {
-    return process.env.STORYPANE_APP_URL || `https://${required('RAILWAY_PUBLIC_DOMAIN')}`;
+    return required('STORYPANE_APP_URL');
   },
   get CLERK_SECRET_KEY() {
     return required('CLERK_SECRET_KEY');

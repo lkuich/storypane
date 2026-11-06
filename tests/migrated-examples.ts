@@ -70,7 +70,6 @@ export async function verifyMigratedExamples(options: {
   }
   try {
     const server = start(process.execPath, [
-      '--conditions=storypane-node',
       '--import',
       createRequire(import.meta.url).resolve('tsx'),
       'apps/web/src/node.ts',

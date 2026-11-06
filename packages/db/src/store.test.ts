@@ -3399,6 +3399,12 @@ describe('shared schema migrations', () => {
     const review = await store.reviewMigration(alice, active.id);
     expect(review.changes).toEqual([
       { definition: 'unused', kind: 'removed', before: definitionInput(unused) },
+      {
+        definition: 'child',
+        kind: 'changed',
+        before: { parentDefinitionId: unused.id },
+        after: { parentDefinitionId: root.id },
+      },
     ]);
     expect(review.blockers).toEqual([]);
     await deployActive();
@@ -3549,7 +3555,7 @@ describe('shared schema migrations', () => {
       ),
     ).toBe(true);
   });
-  it('saves parents immediately without creating migrations, schema versions, or content changes', async () => {
+  it('stages parent moves without changing deployed schema versions or content', async () => {
     const definitions = await store.listDefinitions(alice);
     const root = definitions.find((item) => item.name === 'page')!;
     const child = definitions.find((item) => item.name === 'hero')!;
@@ -3598,7 +3604,14 @@ describe('shared schema migrations', () => {
     expect(
       (await store.listDefinitions(alice)).find((item) => item.id === leaf.id)?.parentDefinitionId,
     ).toBe(child.id);
-    expect(await store.listMigrations(alice)).toEqual(before);
+    expect((await store.listMigrations(alice)).filter((m) => m.status === 'deployed')).toEqual(
+      before,
+    );
+    expect(
+      (await store.listMigrations(alice))
+        .find((m) => m.status === 'active')
+        ?.definitions.find((d) => d.id === leaf.id)?.parentDefinitionId,
+    ).toBe(child.id);
     expect(await store.getSnapshot(alice, snapshot.story.id, snapshot.locale.id)).toEqual(content);
     const token = await store.createDeliveryToken(alice, { name: 'Tree schema', scope: 'preview' });
     expect(
@@ -3607,7 +3620,7 @@ describe('shared schema migrations', () => {
       ),
     ).not.toHaveProperty('parentDefinitionId');
   });
-  it('keeps parent moves independent of staged schema changes and deployment', async () => {
+  it('includes parent moves in review revisions and preserves them through legacy CLI pushes', async () => {
     const root = (await store.listDefinitions(alice)).find((item) => item.name === 'page')!;
     const child = await store.createDefinition(
       alice,
@@ -3618,16 +3631,19 @@ describe('shared schema migrations', () => {
     expect(child.parentDefinitionId).toBe(root.id);
     const migrations = await store.listMigrations(alice);
     const active = migrations.find((item) => item.status === 'active')!;
-    expect(active.definitions.find((item) => item.id === child.id)).not.toHaveProperty(
-      'parentDefinitionId',
+    expect(active.definitions.find((item) => item.id === child.id)?.parentDefinitionId).toBe(
+      root.id,
     );
     const review = await store.reviewMigration(alice, active.id);
     await store.moveDefinition(alice, child.id, {
       parentDefinitionId: null,
       expectedParentDefinitionId: root.id,
     });
-    expect(await store.listMigrations(alice)).toEqual(migrations);
-    await store.deployMigration(alice, active.id, review.token);
+    await expect(store.deployMigration(alice, active.id, review.token)).rejects.toMatchObject({
+      code: 'stale_revision',
+    });
+    const revised = await store.reviewMigration(alice, active.id);
+    await store.deployMigration(alice, active.id, revised.token);
     expect(
       (await store.listDefinitions(alice)).find((item) => item.id === child.id)?.parentDefinitionId,
     ).toBeNull();
@@ -3661,8 +3677,8 @@ describe('shared schema migrations', () => {
         },
       })),
     });
-    expect(pushed.definitions.find((item) => item.id === child.id)).not.toHaveProperty(
-      'parentDefinitionId',
+    expect(pushed.definitions.find((item) => item.id === child.id)?.parentDefinitionId).toBe(
+      root.id,
     );
     await deployActive();
     expect(

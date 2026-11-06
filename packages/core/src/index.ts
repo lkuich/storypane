@@ -22,8 +22,12 @@ export const spaceInputSchema = z
   })
   .strict();
 export type Space = {
+  environment?: 'prod' | 'dev';
+  schemaReadOnly?: boolean;
+  productionSpaceId?: string | null;
   provisioningStatus?: 'provisioning' | 'ready' | 'failed';
   provisioningMode?: 'create' | 'attach' | 'import';
+  cloneSourceSpaceId?: string | null;
   id: string;
   name: string;
   description: string;
@@ -95,9 +99,14 @@ export const roleInputSchema = z
     contentScopes: value.contentScopes ?? contentScopesSchema.parse({}),
   }));
 export function can(
-  space: { permissions: readonly Permission[]; contentScopes?: ContentScopes },
+  space: {
+    permissions: readonly Permission[];
+    contentScopes?: ContentScopes;
+    schemaReadOnly?: boolean;
+  },
   permission: Permission,
 ) {
+  if (permission === 'schemas:write' && space.schemaReadOnly) return false;
   if (
     space.contentScopes &&
     ['content:edit', 'content:publish', 'schemas:write', 'settings:write'].includes(permission) &&
@@ -1196,6 +1205,7 @@ export function validateFields(
 }
 
 export * from './migrations.js';
+export * from './environments.js';
 export * from './block-clipboard.js';
 export * from './webhooks.js';
 

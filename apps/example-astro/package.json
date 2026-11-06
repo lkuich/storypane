@@ -3,6 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "setup": "cd ../.. && node --env-file-if-exists=.env --import tsx scripts/setup-astro-example.ts && pnpm --filter @storypane/sdk build && pnpm --filter @storypane/example-astro storypane:generate",
     "lint": "pnpm --workspace-root exec eslint apps/example-astro --max-warnings 0 && pnpm --workspace-root exec prettier apps/example-astro --check",
     "dev": "astro dev --host 127.0.0.1 --port 3132",
     "build": "astro check && astro build",

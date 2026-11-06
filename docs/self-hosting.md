@@ -75,7 +75,7 @@ pnpm admin migrate
 pnpm admin bootstrap
 pnpm build
 # With the same variables exported, or using Node's --env-file option:
-node --env-file=.env.production --conditions=storypane-node --import tsx apps/web/src/node.ts
+node --env-file=.env.production --import tsx apps/web/src/node.ts
 ```
 
 ## Invitations and recovery
@@ -177,7 +177,7 @@ ignored `.env` with matching credentials and local backing-service URLs.
 host ports. Migrate and bootstrap with
 `node --env-file=.env --import tsx scripts/admin.ts`, then run `pnpm dev`.
 Development and production both attach collaboration sockets and the scheduler.
-`pnpm build && pnpm start:node` serves a production build with `.env`.
+`pnpm build && pnpm start` serves a production build with `.env`.
 Existing legacy `compose.yaml` and `db:setup` remain local fixture tools; invoke
 `docker compose -f compose.yaml up -d` explicitly for those tests.
 Use private `STORYPANE_SESSION_COOKIE` for example setup in local auth mode;

@@ -16,9 +16,27 @@ account or service is required for this runtime.
 Create a Railway project with an application from this repository, Railway
 Postgres, and a private Storage Bucket. Name the supporting services `Postgres`
 and `Bucket` when using these references. Keep **one application replica** and
-**sleeping disabled**. `railway.json` selects the Dockerfile, pre-deploy migration,
-readiness endpoint and these runtime settings. Do not scale replicas without a
-shared room transport; in-memory recipients would otherwise miss notifications.
+**sleeping disabled**. Configure the application service in Railway's dashboard;
+provider settings are not part of the application's default build configuration.
+Do not scale replicas without a shared room transport; in-memory recipients would
+otherwise miss notifications.
+
+| Service setting                  | Value                                             |
+| -------------------------------- | ------------------------------------------------- |
+| Root directory                   | Repository root                                   |
+| Builder                          | Dockerfile                                        |
+| Dockerfile path                  | `Dockerfile`                                      |
+| Pre-deploy command               | `node --import tsx scripts/migrate-production.ts` |
+| Start command                    | Use the Docker image's default command            |
+| Healthcheck path / timeout       | `/api/ready` / 120 seconds                        |
+| Restart policy / maximum retries | On failure / 10                                   |
+| Replicas                         | 1                                                 |
+| Sleeping                         | Disabled                                          |
+
+For existing deployments, save these settings in the dashboard and clear any
+custom config file path before upgrading. This repository no longer supplies
+`railway.json`. Railway has [deprecated that configuration format](https://docs.railway.com/config-as-code);
+new installations should use the service settings above.
 
 Set application variables using Railway's reference syntax:
 
@@ -46,10 +64,11 @@ on upgrades and keep backups. Clerk keys are required only when selecting
 an interactive Railway service shell; it reads the password without echo.
 Optional `WEBHOOK_HOSTS` and `EXTERNAL_OPTION_HOSTS` are exact approved hostnames.
 
-Generate the application's Railway public domain. The application defaults to
-`https://RAILWAY_PUBLIC_DOMAIN`; set `STORYPANE_APP_URL` only for a different HTTPS
-origin, without a trailing slash. In Clerk mode, configure that origin in Clerk. New Railway
-buckets use virtual-hosted addressing; older buckets may require
+Generate the application's Railway public domain and set `STORYPANE_APP_URL`
+to its full HTTPS origin, without a trailing slash. You can reference it as
+`https://${{RAILWAY_PUBLIC_DOMAIN}}`, or use your custom domain. The application
+requires this explicit origin on every host. In Clerk mode, configure that origin
+in Clerk. New Railway buckets use virtual-hosted addressing; older buckets may require
 `S3_FORCE_PATH_STYLE=true`, as indicated in their Credentials tab.
 
 ## Build and operate
@@ -57,14 +76,14 @@ buckets use virtual-hosted addressing; older buckets may require
 ```sh
 pnpm install --frozen-lockfile
 pnpm --filter @storypane/sdk build
-pnpm --filter @storypane/web build:node
+pnpm --filter @storypane/web build
 # With runtime variables provided:
-pnpm --filter @storypane/web start:node
+pnpm --filter @storypane/web start
 # Or build the same container Railway uses:
 docker build -t storypane .
 ```
 
-`railway.json` runs `scripts/migrate-production.ts` before deployment. The runner
+The pre-deploy command runs `scripts/migrate-production.ts`. The runner
 uses separate transactional migration histories and visits every registered space.
 `/api/ready` reports installation readiness and degraded space availability;
 it does not prove sign-in, media or background publishing. Follow acceptance before

@@ -46,8 +46,8 @@ and [cf prebuilt deployment](https://developers.cloudflare.com/cf/projects/#depl
 ## Retire a previous CMS installation
 
 The old `storypane-web` and `storypane-realtime` Workers serve the previous CMS,
-not the marketing website. The CMS repository's `deploy:cloudflare` command rejects
-this release; the website command above runs from a different repository.
+not the marketing website. This CMS release contains no Workers deployment target;
+the website command above runs from a different repository.
 
 Inventory the actual account and verify the new website before moving the domain.
 Remove the old web Worker first so its scheduled jobs stop and its reference to

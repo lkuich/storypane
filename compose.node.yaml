@@ -67,7 +67,7 @@ services:
       [
         'sh',
         '-ec',
-        'node --import tsx scripts/migrate-production.ts && exec node --conditions=storypane-node --import tsx apps/web/src/node.ts',
+        'node --import tsx scripts/migrate-production.ts && exec node --import tsx apps/web/src/node.ts',
       ]
 volumes:
   installation_postgres:

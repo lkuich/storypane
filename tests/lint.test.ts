@@ -10,7 +10,7 @@ it('checks TypeScript, React hooks, Astro templates, CLI JavaScript and Next.js 
       "import { useState } from 'react'; export function useExample(flag:boolean) { if(flag) useState(0); }",
       'react-hooks/rules-of-hooks',
     ],
-    ['apps/realtime/src/index.ts', 'const unused = 1;', '@typescript-eslint/no-unused-vars'],
+    ['apps/realtime/src/room.ts', 'const unused = 1;', '@typescript-eslint/no-unused-vars'],
     ['packages/core/src/index.ts', 'const unused = 1;', '@typescript-eslint/no-unused-vars'],
     ['scripts/setup.ts', 'const unused = 1;', '@typescript-eslint/no-unused-vars'],
     ['tests/auth.ts', 'const unused = 1;', '@typescript-eslint/no-unused-vars'],
@@ -43,7 +43,7 @@ it('checks TypeScript, React hooks, Astro templates, CLI JavaScript and Next.js 
 it('excludes generated output without excluding either example’s source', async () => {
   for (const path of [
     'apps/example-next/.next/server/app/page.js',
-    'apps/web/.cloudflare/types/index.d.ts',
+    'apps/web/dist/server/index.js',
     'apps/example-astro/dist/index.html',
     'apps/example-astro/src/types/storypane.ts',
     'apps/example-next/src/types/storypane.ts',

@@ -6,7 +6,9 @@ export const cmsUrl = import.meta.env.STORYPANE_URL || 'http://127.0.0.1:3130';
 export const spaceId = import.meta.env.STORYPANE_SPACE_ID;
 export function deliveryClient() {
   if (!spaceId || !import.meta.env.STORYPANE_DELIVERY_TOKEN) {
-    throw new Error('Configure apps/example-astro/.env or run pnpm example:setup first.');
+    throw new Error(
+      'Configure apps/example-astro/.env or run pnpm --filter @storypane/example-astro setup first.',
+    );
   }
   return createStorypaneClient({
     url: cmsUrl,

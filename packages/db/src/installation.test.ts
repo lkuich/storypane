@@ -527,6 +527,198 @@ describe.skipIf(!url)('installation and actual PostgreSQL space isolation', () =
     ).toBe(200);
     expect(await smtp.api.getSession({ headers })).toBeNull();
   });
+  it('clones deployed hierarchy and only required content/media, with retryable private copies', async () => {
+    const selected = await installation.acquire(spaces[0]);
+    const sourceActor = { ...actor, spaceId: spaces[0], role: 'admin' };
+    const cloneId = randomUUID();
+    try {
+      const source = selected.store;
+      const story = (
+        await selected.db.query('SELECT id FROM stories WHERE space_id=$1 LIMIT 1', [spaces[0]])
+      ).rows[0];
+      const locale = (
+        await selected.db.query('SELECT id FROM story_locales WHERE story_id=$1 LIMIT 1', [
+          story.id,
+        ])
+      ).rows[0];
+      const snapshot = await source.getSnapshot(sourceActor, story.id, locale.id);
+      await source.command(sourceActor, story.id, locale.id, {
+        mutationId: randomUUID(),
+        expectedRevisions: {},
+        leaseTokens: {},
+        type: 'publishCheckpoint',
+        payload: { checkpointId: snapshot.checkpointId! },
+      });
+      const definitions = await source.listDefinitions(sourceActor);
+      const page = definitions.find((d) => d.name === 'page')!;
+      const hero = definitions.find((d) => d.name === 'hero')!;
+      await source.moveDefinition(sourceActor, hero.id, {
+        parentDefinitionId: page.id,
+        expectedParentDefinitionId: null,
+      });
+      const assetId = randomUUID();
+      await selected.db.query(
+        "INSERT INTO assets(id,space_id,object_key,filename,mime_type,byte_size,title) VALUES($1,$2,$3,'required.png','image/png',16,'Required image')",
+        [assetId, spaces[0], `${spaces[0]}/original/${assetId}`],
+      );
+      const datasource = await source.saveDatasource(sourceActor, {
+        name: 'Choices',
+        slug: 'choices',
+        items: [{ value: 'one', label: 'One' }],
+      });
+      await source.createDefinition(
+        sourceActor,
+        {
+          name: 'defaults',
+          displayName: 'Defaults',
+          kind: 'nestable',
+          fields: [
+            {
+              name: 'page',
+              label: 'Page',
+              type: 'link',
+              defaultValue: { type: 'story', storyId: story.id },
+            },
+            { name: 'image', label: 'Image', type: 'asset', defaultValue: { assetId } },
+            {
+              name: 'choice',
+              label: 'Choice',
+              type: 'option',
+              source: { type: 'datasource', datasourceId: datasource.id },
+              defaultValue: 'one',
+            },
+            {
+              name: 'body',
+              label: 'Body',
+              type: 'blocks',
+              allowedDefinitionIds: [hero.id],
+              maxItems: 3,
+            },
+          ],
+        },
+        undefined,
+        hero.id,
+      );
+      const migration = (await source.listMigrations(sourceActor)).find(
+        (m) => m.status === 'active',
+      )!;
+      const review = await source.reviewMigration(sourceActor, migration.id);
+      await source.deployMigration(sourceActor, migration.id, review.token);
+      await selected.db.query(
+        "UPDATE block_drafts SET fields=jsonb_set(fields,'{title}',$2::jsonb) WHERE id=$1",
+        [snapshot.locale.rootBlockId, JSON.stringify('Unfinished title')],
+      );
+      const cloneReview = await installation.reviewClone(actor, {
+        id: cloneId,
+        baseSpaceId: spaces[0],
+        environment: 'dev',
+      });
+      expect(cloneReview.dependencies.stories).toEqual([{ id: story.id, name: 'Home' }]);
+      expect(cloneReview.dependencies.assets).toHaveLength(1);
+      const input = {
+        id: cloneId,
+        name: 'Linked dev',
+        mode: 'create',
+        baseSpaceId: spaces[0],
+        environment: 'dev',
+        reviewToken: cloneReview.token,
+      };
+      await expect(
+        installation.provision(user.id, input, {
+          actor,
+          copyAsset: async () => {
+            throw new Error('Interrupted media copy');
+          },
+        }),
+      ).rejects.toThrow('Interrupted media copy');
+      await expect(installation.acquire(cloneId)).rejects.toThrow('not ready');
+      const copy = vi.fn(async () => undefined);
+      await installation.provision(user.id, input, { actor, copyAsset: copy });
+      await installation.provision(user.id, input, { actor, copyAsset: copy });
+      expect(copy).toHaveBeenCalledTimes(1);
+      expect(copy.mock.calls[0]).toMatchObject([{ id: assetId }, `${cloneId}/schema/${assetId}`]);
+      const target = await installation.acquire(cloneId);
+      try {
+        const targetActor = { ...actor, spaceId: cloneId, role: 'admin' };
+        const space = await target.store.getSpace(targetActor);
+        expect(space).toMatchObject({
+          environment: 'dev',
+          productionSpaceId: spaces[0],
+          schemaReadOnly: false,
+          storyCount: 1,
+        });
+        const schema = await target.store.listDefinitions(targetActor, true);
+        expect(schema.find((d) => d.id === hero.id)?.parentDefinitionId).toBe(page.id);
+        expect(schema.find((d) => d.name === 'defaults')?.parentDefinitionId).toBe(hero.id);
+        expect(schema.find((d) => d.name === 'defaults')?.fields.at(-1)).toMatchObject({
+          allowedDefinitionIds: [hero.id],
+          maxItems: 3,
+        });
+        const copied = await target.store.getSnapshot(targetActor, story.id, locale.id);
+        expect(copied.locale.publishedVersionId).toBeNull();
+        expect(copied.blocks.find((b) => b.id === copied.locale.rootBlockId)?.fields.title).toBe(
+          'Home',
+        );
+        expect(copied.blocks).toHaveLength(snapshot.blocks.length);
+        expect(
+          (await target.db.query('SELECT object_key FROM assets WHERE id=$1', [assetId])).rows[0]
+            .object_key,
+        ).toBe(`${cloneId}/schema/${assetId}`);
+        expect((await target.store.listDatasources(targetActor))[0].items).toEqual([
+          { value: 'one', label: 'One' },
+        ]);
+        expect(await target.store.listManagementTokens(targetActor)).toEqual([]);
+      } finally {
+        await target.close();
+      }
+    } finally {
+      await selected.close();
+    }
+  });
+  it('starts in dev, creates protected production, and links the original dev baseline', async () => {
+    const devId = randomUUID(),
+      prodId = randomUUID();
+    await installation.provision(user.id, {
+      id: devId,
+      name: 'Dev first',
+      mode: 'create',
+      environment: 'dev',
+    });
+    const reviewed = await installation.reviewClone(actor, {
+      id: prodId,
+      baseSpaceId: devId,
+      environment: 'prod',
+    });
+    await installation.provision(
+      user.id,
+      {
+        id: prodId,
+        name: 'Production from dev',
+        mode: 'create',
+        environment: 'prod',
+        baseSpaceId: devId,
+        reviewToken: reviewed.token,
+      },
+      { actor },
+    );
+    const dev = await installation.acquire(devId),
+      prod = await installation.acquire(prodId);
+    try {
+      expect(await dev.store.getSpace({ ...actor, spaceId: devId, role: 'admin' })).toMatchObject({
+        environment: 'dev',
+        productionSpaceId: prodId,
+      });
+      expect(await prod.store.getSpace({ ...actor, spaceId: prodId, role: 'admin' })).toMatchObject(
+        { environment: 'prod', schemaReadOnly: true },
+      );
+      expect((await dev.db.query('SELECT production_head FROM schema_branches')).rows).toHaveLength(
+        1,
+      );
+    } finally {
+      await dev.close();
+      await prod.close();
+    }
+  });
   it('denies public signup and bad origins; recovery revokes all sessions', async () => {
     const signup = await auth.handler(
       new Request('http://localhost:3130/api/auth/sign-up/email', {

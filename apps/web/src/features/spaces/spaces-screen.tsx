@@ -12,7 +12,8 @@ import {
   Settings2,
   Users,
 } from 'lucide-react';
-import type { Space } from '@storypane/core';
+import { DependencySummary } from '../schema/environment-panel';
+import type { Space, SchemaTransferReview } from '@storypane/core';
 import { Button, EmptyState, ErrorNotice, Loading, Modal } from '@storypane/ui';
 import { errorMessage, jsonRequest, requestJson } from '../editor/api';
 import './spaces.css';
@@ -20,6 +21,9 @@ import { ThemePicker } from '../../components/theme-picker';
 
 export function SpacesScreen({ installationAdmin = false }: { installationAdmin?: boolean }) {
   const [mode, setMode] = useState('create');
+  const [environment, setEnvironment] = useState<'prod' | 'dev'>('prod');
+  const [baseSpaceId, setBaseSpaceId] = useState('');
+  const [cloneReview, setCloneReview] = useState<SchemaTransferReview | null>(null);
   const [connectionString, setConnectionString] = useState('');
   const [operationId, setOperationId] = useState('');
   const [spaces, setSpaces] = useState<Space[]>([]);
@@ -84,6 +88,9 @@ export function SpacesScreen({ installationAdmin = false }: { installationAdmin?
               onClick={() => {
                 setOperationId(crypto.randomUUID());
                 setConnectionString('');
+                setBaseSpaceId('');
+                setCloneReview(null);
+                setEnvironment('prod');
                 setName('');
                 setDescription('');
                 setFormError('');
@@ -123,7 +130,9 @@ export function SpacesScreen({ installationAdmin = false }: { installationAdmin?
                     <span className="space-emblem">
                       <Building2 aria-hidden="true" />
                     </span>
-                    <span className="pill pill--outline">{space.roleName}</span>
+                    <span className="pill pill--outline">
+                      {space.environment === 'dev' ? 'Dev' : 'Prod'} · {space.roleName}
+                    </span>
                   </div>
                   <h2>
                     {space.role ? <a href={`/?space=${space.id}`}>{space.name}</a> : space.name}
@@ -143,6 +152,25 @@ export function SpacesScreen({ installationAdmin = false }: { installationAdmin?
                   </div>
                   {space.role ? (
                     <footer>
+                      {installationAdmin && (
+                        <Button
+                          variant="ghost"
+                          onClick={() => {
+                            setOperationId(crypto.randomUUID());
+                            setMode('create');
+                            setConnectionString('');
+                            setBaseSpaceId(space.id);
+                            setEnvironment('dev');
+                            setCloneReview(null);
+                            setName(`${space.name} dev`);
+                            setDescription('');
+                            setFormError('');
+                            setCreating(true);
+                          }}
+                        >
+                          Clone space
+                        </Button>
+                      )}
                       <a
                         className="button button--ghost button--small"
                         href={`/?space=${space.id}&view=settings`}
@@ -172,6 +200,10 @@ export function SpacesScreen({ installationAdmin = false }: { installationAdmin?
                       onClick={() => {
                         setMode(space.provisioningMode === 'attach' ? 'attach' : 'create');
                         setOperationId(space.id);
+                        setEnvironment(space.environment ?? 'prod');
+                        setBaseSpaceId(space.cloneSourceSpaceId ?? '');
+                        setCloneReview(null);
+                        setFormError('');
                         setName(space.name);
                         setDescription(space.description);
                         setCreating(true);
@@ -208,6 +240,15 @@ export function SpacesScreen({ installationAdmin = false }: { installationAdmin?
             setSubmitting(true);
             setFormError('');
             try {
+              if (baseSpaceId && !cloneReview) {
+                setCloneReview(
+                  await requestJson<SchemaTransferReview>(
+                    '/api/spaces/clone-review',
+                    jsonRequest('POST', { id: operationId, baseSpaceId, environment }),
+                  ),
+                );
+                return;
+              }
               await requestJson(
                 '/api/spaces',
                 jsonRequest('POST', {
@@ -215,6 +256,8 @@ export function SpacesScreen({ installationAdmin = false }: { installationAdmin?
                   name,
                   description,
                   mode,
+                  environment,
+                  ...(baseSpaceId ? { baseSpaceId, reviewToken: cloneReview?.token } : {}),
                   ...(mode === 'attach' && connectionString ? { connectionString } : {}),
                 }),
               );
@@ -223,6 +266,7 @@ export function SpacesScreen({ installationAdmin = false }: { installationAdmin?
               setCreating(false);
             } catch (cause) {
               setFormError(errorMessage(cause));
+              setCloneReview(null);
             } finally {
               setSubmitting(false);
             }
@@ -250,6 +294,39 @@ export function SpacesScreen({ installationAdmin = false }: { installationAdmin?
             />
           </label>
           <label className="field">
+            Environment
+            <select
+              value={environment}
+              onChange={(event) => {
+                setEnvironment(event.target.value as 'prod' | 'dev');
+                setCloneReview(null);
+              }}
+            >
+              <option value="prod">Production</option>
+              <option value="dev">Development</option>
+            </select>
+          </label>
+          <label className="field">
+            Base space
+            <select
+              value={baseSpaceId}
+              onChange={(event) => {
+                setBaseSpaceId(event.target.value);
+                setCloneReview(null);
+              }}
+            >
+              <option value="">Empty space</option>
+              {spaces
+                .filter((s) => s.role && s.provisioningStatus === 'ready')
+                .map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.name} ({s.environment === 'dev' ? 'Dev' : 'Prod'})
+                  </option>
+                ))}
+            </select>
+          </label>
+          {cloneReview && <DependencySummary review={cloneReview} />}
+          <label className="field">
             Database
             <select value={mode} onChange={(event) => setMode(event.target.value)}>
               <option value="create">Create a database</option>
@@ -275,7 +352,11 @@ export function SpacesScreen({ installationAdmin = false }: { installationAdmin?
               Cancel
             </Button>
             <Button variant="primary" type="submit" disabled={submitting || !name.trim()}>
-              {submitting ? 'Saving…' : 'Create space'}
+              {submitting
+                ? 'Saving…'
+                : baseSpaceId && !cloneReview
+                  ? 'Review clone'
+                  : 'Create space'}
             </Button>
           </div>
         </form>

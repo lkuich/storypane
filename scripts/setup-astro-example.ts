@@ -311,6 +311,6 @@ if (existsSync(envPath)) {
     { mode: 0o600, flag: 'wx' },
   );
   console.log(
-    `Created Fieldwork example space. Open ${url}/?space=${spaceId}\nCredentials saved privately to ${envPath}. Run pnpm dev:example.`,
+    `Created Fieldwork example space. Open ${url}/?space=${spaceId}\nCredentials saved privately to ${envPath}. Run pnpm --filter @storypane/example-astro dev.`,
   );
 }

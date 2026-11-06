@@ -9,6 +9,8 @@ const directories: string[] = [];
 afterEach(async () => {
   await Promise.all(directories.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
 });
 async function fixture() {
   const dir = await mkdtemp(join(tmpdir(), 'storypane-migrations-'));
@@ -86,7 +88,7 @@ async function fixture() {
   await cli.pullMigrations(request, dir);
   return { dir, base, remote, request };
 }
-it('excludes library organization from migration files and delivery schemas', async () => {
+it('round trips library organization in v2 migration files while keeping delivery schemas unchanged', async () => {
   const { base } = await fixture();
   const child = {
     ...base.definitions[0],
@@ -95,6 +97,9 @@ it('excludes library organization from migration files and delivery schemas', as
     parentDefinitionId: base.definitions[0].id,
   };
   const file = cli.migrationFile({ ...base, definitions: [...base.definitions, child] });
+  expect(file.formatVersion).toBe(2);
+  expect(file.definitions[1].parentDefinitionId).toBe(base.definitions[0].id);
+  expect(cli.validateMigration(JSON.parse(JSON.stringify(file)))).toEqual(file);
   expect(file.definitions[1].schema).not.toHaveProperty('parentDefinitionId');
   expect(cli.schemaFromMigration(file).components[1]).not.toHaveProperty('parentDefinitionId');
 });
@@ -198,4 +203,52 @@ it('preserves local edits made while a push is in flight', async () => {
     'Edited during push',
   );
   expect(remote[1].status).toBe('active');
+});
+
+it('resumes a reviewed promotion after a lost response using the same operation ID', async () => {
+  vi.spyOn(console, 'log').mockImplementation(() => {});
+  const { dir, base } = await fixture();
+  vi.stubEnv('STORYPANE_PRODUCTION_MANAGEMENT_TOKEN', 'prod-secret');
+  const review = {
+    id: randomUUID(),
+    token: 'a'.repeat(64),
+    action: 'promote',
+    sourceSpaceId: base.spaceId,
+    targetSpaceId: randomUUID(),
+    conflicts: [],
+    resolutions: {},
+    dependencies: { stories: [], assets: [], datasources: [] },
+    steps: [],
+    confirmation: null,
+  };
+  let calls = 0;
+  const applied: string[] = [];
+  const fetcher = vi.fn<typeof fetch>(async (url, init) => {
+    expect(new Headers(init?.headers).get('x-storypane-production-token')).toBe('prod-secret');
+    if (String(url).endsWith('/transfer-review')) return Response.json(review);
+    applied.push(JSON.parse(init!.body as string).id);
+    if (++calls === 1) throw new Error('Lost response');
+    return Response.json(review);
+  });
+  vi.stubGlobal('fetch', fetcher);
+  const settings: Record<string, string> = {
+    URL: 'https://cms.test',
+    SPACE_ID: base.spaceId,
+    MANAGEMENT_TOKEN: 'dev-secret',
+  };
+  await expect(
+    cli.runEnvironmentMigration('promote', { yes: true }, (name: string) => settings[name], dir),
+  ).rejects.toThrow('Lost response');
+  expect(JSON.parse(await readFile(join(dir, '.transfer.json'), 'utf8')).review.id).toBe(review.id);
+  await cli.runEnvironmentMigration(
+    'promote',
+    { yes: true },
+    (name: string) => settings[name],
+    dir,
+  );
+  expect(applied).toEqual([review.id, review.id]);
+  expect(
+    fetcher.mock.calls.filter(([url]) => String(url).endsWith('/transfer-review')),
+  ).toHaveLength(1);
+  await expect(readFile(join(dir, '.transfer.json'))).rejects.toMatchObject({ code: 'ENOENT' });
 });

@@ -1,4 +1,4 @@
-# Host access for pnpm dev/start:node; Docker services remain private to this machine.
+# Host access for pnpm dev/start; Docker services remain private to this machine.
 services:
   postgres:
     ports: ['127.0.0.1:55450:5432']

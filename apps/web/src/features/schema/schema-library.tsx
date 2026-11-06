@@ -11,6 +11,7 @@ import {
 import { Button, EmptyState, ErrorNotice, Loading } from '@storypane/ui';
 import { api, dateLabel, errorMessage, jsonRequest } from '../editor/api';
 import type { RegisterGuard } from '../editor/navigation';
+import { EnvironmentPanel } from './environment-panel';
 import { MigrationPanel } from './migration-panel';
 import { SchemaDrawer } from './schema-drawer';
 import { definitionDescendants, definitionTreeRows } from './definition-tree';
@@ -82,7 +83,13 @@ export function SchemaLibrary({
   }, [load]);
   const rows = definitionTreeRows(definitions, collapsed, search);
   const publishedInputs = new Map(
-    deployed.map((item) => [item.id, canonicalJson(definitionInput(item))]),
+    deployed.map((item) => [
+      item.id,
+      canonicalJson({
+        schema: definitionInput(item),
+        parentDefinitionId: item.parentDefinitionId ?? null,
+      }),
+    ]),
   );
   const excluded = dragging ? definitionDescendants(definitions, dragging) : new Set<string>();
   const source = definitions.find((item) => item.id === dragging);
@@ -141,7 +148,8 @@ export function SchemaLibrary({
           </Button>
         )}
       </div>
-      <MigrationPanel canDeploy={canDeploy} onDeploy={load} />
+      <EnvironmentPanel canDeploy={canDeploy} onApply={load} />
+      <MigrationPanel canDeploy={canDeploy && canManage} onDeploy={load} />
       <ErrorNotice
         message={moveError ?? error}
         retry={() => {
@@ -285,9 +293,10 @@ export function SchemaLibrary({
                         </button>
                         <div>
                           {publishedInputs.get(item.id) !==
-                            canonicalJson(definitionInput(item)) && (
-                            <span className="pill pill--outline">Pending migration</span>
-                          )}
+                            canonicalJson({
+                              schema: definitionInput(item),
+                              parentDefinitionId: item.parentDefinitionId ?? null,
+                            }) && <span className="pill pill--outline">Pending migration</span>}
                         </div>
                         <div className="entity-subtitle mono">{item.name}</div>
                       </div>

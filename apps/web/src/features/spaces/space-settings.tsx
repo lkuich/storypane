@@ -55,13 +55,18 @@ export function SpaceSettings({
   });
   const [space, setSpace] = useState<SpaceDetails | null>(null),
     [loading, setLoading] = useState(true);
+  const [schemaReadOnly, setSchemaReadOnly] = useState(false);
   const [name, setName] = useState(''),
     [description, setDescription] = useState('');
   const [error, setError] = useState(''),
     [saving, setSaving] = useState(false),
     [saved, setSaved] = useState(false),
     [copied, setCopied] = useState(false);
-  const dirty = !!space && (name !== space.name || description !== space.description);
+  const dirty =
+    !!space &&
+    (name !== space.name ||
+      description !== space.description ||
+      schemaReadOnly !== !!space.schemaReadOnly);
   const [deliveryDirty, setDeliveryDirty] = useState(false),
     [deliveryBusy, setDeliveryBusy] = useState(false);
   const [roles, setRoles] = useState<SpaceRole[]>([]);
@@ -82,6 +87,7 @@ export function SpaceSettings({
     try {
       const value = await api<SpaceDetails>('/space');
       setSpace(value);
+      setSchemaReadOnly(!!value.schemaReadOnly);
       setName(value.name);
       setDescription(value.description);
       await loadRoles();
@@ -234,9 +240,14 @@ export function SpaceSettings({
                         try {
                           const updated = await api<Space>(
                             '/space',
-                            jsonRequest('PUT', { name, description }),
+                            jsonRequest('PUT', {
+                              name,
+                              description,
+                              ...(space.role === 'admin' ? { schemaReadOnly } : {}),
+                            }),
                           );
                           setSpace({ ...space, ...updated });
+                          setSchemaReadOnly(!!updated.schemaReadOnly);
                           setName(updated.name);
                           setDescription(updated.description);
                           onUpdate(updated);
@@ -282,6 +293,27 @@ export function SpaceSettings({
                           </span>
                         </label>
                       </fieldset>
+                      <p>{space.environment === 'dev' ? 'Development' : 'Production'} space</p>
+                      {space.role === 'admin' && (
+                        <label className="field">
+                          <span>
+                            <input
+                              type="checkbox"
+                              checked={schemaReadOnly}
+                              disabled={saving}
+                              onChange={(event) => {
+                                setSchemaReadOnly(event.target.checked);
+                                setSaved(false);
+                              }}
+                            />{' '}
+                            Schema read-only
+                          </span>
+                          <span className="field-hint">
+                            Disable local schema edits and migration deployment. Reviewed transfers
+                            from linked spaces remain available.
+                          </span>
+                        </label>
+                      )}
                       {can(space, 'settings:write') && (
                         <div className="space-settings-actions">
                           <span role="status">

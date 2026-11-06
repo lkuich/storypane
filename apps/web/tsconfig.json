@@ -4,6 +4,6 @@
     "types": ["vinext/types", "node"],
     "paths": { "@/*": ["./src/*"] }
   },
-  "include": ["src", "*.ts", ".cloudflare/types"],
+  "include": ["src", "*.ts"],
   "exclude": ["node_modules", "dist"]
 }

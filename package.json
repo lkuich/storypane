@@ -7,17 +7,9 @@
     "node": ">=24.22.0 <25"
   },
   "scripts": {
-    "dev": "pnpm dev:node",
-    "dev:example": "pnpm --filter @storypane/sdk build && pnpm --filter @storypane/example-astro dev",
-    "dev:example:next": "pnpm --filter @storypane/sdk build && pnpm --filter @storypane/example-next dev",
-    "example:setup:next": "node --env-file-if-exists=.env --import tsx scripts/setup-next-example.ts",
-    "lint:example": "eslint apps/example-astro apps/example-next --max-warnings 0 && prettier apps/example-astro apps/example-next --check",
-    "build:example:next": "pnpm --filter @storypane/sdk build && pnpm --filter @storypane/example-next build",
-    "example:setup": "node --env-file-if-exists=.env --import tsx scripts/setup-astro-example.ts && pnpm --filter @storypane/sdk build && pnpm --filter @storypane/example-astro storypane:generate",
-    "build:example": "pnpm --filter @storypane/sdk build && pnpm --filter @storypane/example-astro build",
-    "build": "pnpm --filter @storypane/sdk build && pnpm --filter @storypane/web build:node",
-    "types": "pnpm --filter @storypane/web exec cf workers types",
-    "typecheck": "pnpm --filter @storypane/sdk build && tsc --noEmit && pnpm --filter @storypane/example-astro typecheck && pnpm --filter @storypane/example-next typecheck",
+    "dev": "pnpm --filter @storypane/web dev",
+    "build": "pnpm --filter @storypane/sdk build && pnpm --filter @storypane/web build",
+    "typecheck": "pnpm --filter @storypane/sdk build && tsc --noEmit && pnpm --filter './apps/example-*' typecheck",
     "test": "pnpm test:setup && vitest run",
     "test:setup": "node --test scripts/setup-env.test.mjs",
     "test:e2e": "playwright test",
@@ -30,10 +22,8 @@
     "format": "prettier . --write",
     "format:check": "prettier . --check",
     "db:migrate:production": "node --env-file-if-exists=.env.production --import tsx scripts/migrate-production.ts",
-    "deploy:cloudflare": "node --import tsx scripts/deploy-cloudflare.ts",
     "admin": "node --env-file-if-exists=.env.production --import tsx scripts/admin.ts",
-    "dev:node": "node --env-file-if-exists=.env --conditions=storypane-node --import tsx apps/web/src/dev-node.ts",
-    "start:node": "node --env-file-if-exists=.env --conditions=storypane-node --import tsx apps/web/src/node.ts"
+    "start": "pnpm --filter @storypane/web start"
   },
   "dependencies": {
     "@storypane/core": "workspace:*",
@@ -41,7 +31,6 @@
     "pg": "^8.16.3"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "latest",
     "@eslint/js": "^10.0.1",
     "@next/eslint-plugin-next": "^16.4.5",
     "@playwright/test": "latest",

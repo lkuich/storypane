@@ -4,11 +4,10 @@ import {
   type CommitResult,
   type LocaleSnapshot,
 } from '@storypane/core';
-import { StorypaneStore } from '@storypane/db';
+import type { StorypaneStore } from '@storypane/db';
 
 export interface Env {
-  HYPERDRIVE?: { connectionString: string };
-  withStore?: <T>(run: (store: StorypaneStore) => Promise<T>) => Promise<T>;
+  withStore: <T>(run: (store: StorypaneStore) => Promise<T>) => Promise<T>;
 }
 export type Connection = {
   actor: Actor;
@@ -40,15 +39,6 @@ export class Room {
     private env: Env,
   ) {}
 
-  private async withStore<T>(run: (store: StorypaneStore) => Promise<T>): Promise<T> {
-    if (this.env.withStore) return this.env.withStore(run);
-    const store = new StorypaneStore(this.env.HYPERDRIVE!.connectionString);
-    try {
-      return await run(store);
-    } finally {
-      await store.pool.end();
-    }
-  }
   private connection(request: Request): Connection {
     let actor: Actor;
     try {
@@ -80,7 +70,7 @@ export class Room {
     connection: { actor: Pick<Actor, 'spaceId'>; storyId: string; localeId: string },
     message: unknown,
   ): Promise<void> {
-    await this.withStore(async (store) => {
+    await this.env.withStore(async (store) => {
       await Promise.all(
         this.ctx.getWebSockets().map(async (socket) => {
           const current = socket.deserializeAttachment() as Connection | undefined;
@@ -145,7 +135,7 @@ export class Room {
   ): Promise<void> {
     const connection = this.connection(request);
     if (new URL(request.url).pathname === '/preview-live' && connection.previewSessionId) {
-      const story = await this.withStore((store) =>
+      const story = await this.env.withStore((store) =>
         store.previewStory(connection.previewSessionId!),
       );
       if (story.id !== connection.storyId || story.localeId !== connection.localeId)
@@ -155,7 +145,7 @@ export class Room {
     }
     if (new URL(request.url).pathname !== '/live' || connection.previewSessionId)
       throw new StorypaneError('invalid', 'Invalid collaboration endpoint');
-    const snapshot = await this.withStore((store) =>
+    const snapshot = await this.env.withStore((store) =>
       store.getSnapshot(connection.actor, connection.storyId, connection.localeId),
     );
     this.send(accept(connection), { type: 'snapshot', snapshot });
@@ -175,7 +165,7 @@ export class Room {
       }
       const connection = this.connection(request);
       if (url.pathname === '/notify' && request.method === 'POST') {
-        const snapshot = await this.withStore((store) =>
+        const snapshot = await this.env.withStore((store) =>
           store.getSnapshot(connection.actor, connection.storyId, connection.localeId),
         );
         const body = (await request.json()) as CommitResult | { type: 'leases' };
@@ -232,7 +222,7 @@ export class Room {
       if (!['heartbeat', 'sync'].includes(message.type))
         throw new StorypaneError('invalid', 'Unsupported collaboration message');
       if (connection.previewSessionId) {
-        const story = await this.withStore((store) =>
+        const story = await this.env.withStore((store) =>
           store.previewStory(connection.previewSessionId!),
         );
         this.send(
@@ -245,7 +235,7 @@ export class Room {
         );
         return;
       }
-      const snapshot = await this.withStore((store) =>
+      const snapshot = await this.env.withStore((store) =>
         store.getSnapshot(connection.actor, connection.storyId, connection.localeId),
       );
       // A role can change without a content revision; always refresh the projected view.

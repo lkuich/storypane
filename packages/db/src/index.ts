@@ -9,3 +9,6 @@ export {
 export { recordWebhookEvent, dispatchWebhooks } from './webhooks.js';
 export { verifyWebhookSignature } from './webhook-transport.js';
 export { isPublishedAsset } from './media.js';
+
+export { captureSchema, schemaStatus, transferSchema } from './schema-environments.js';
+export type { CopySchemaAsset } from './schema-dependencies.js';

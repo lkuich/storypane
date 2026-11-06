@@ -19,3 +19,5 @@ playwright-report/
 *.tsbuildinfo
 
 .node/
+
+**/storypane/migrations/.transfer.json

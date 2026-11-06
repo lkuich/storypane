@@ -1,7 +1,8 @@
 import { env, openCache } from '#platform';
 import { StorypaneError, definitionSaveSchema, parseInput } from '@storypane/core';
 import { emailInvitation } from '@storypane/db/local-auth';
-import { handleAssets } from '@storypane/assets';
+import { handleAssets, copySchemaAsset } from '@storypane/assets';
+import { schemaStatus, transferSchema } from '@storypane/db';
 import { authenticate, createServices, requestedSpace } from '../../../../lib/context';
 import { assertOrigin, errorResponse, jsonResponse, readJson } from '../../../../lib/http';
 
@@ -72,6 +73,52 @@ async function handle(request: Request, route: { params: Promise<{ path: string[
       ) {
         await store.retryWebhook(actor, id, localeId);
         return jsonResponse({ ok: true }, 202);
+      }
+    }
+    if (
+      resource === 'migrations' &&
+      ['environment', 'transfer-review', 'transfer-apply'].includes(id)
+    ) {
+      if ((id === 'environment' && method !== 'GET') || (id !== 'environment' && method !== 'POST'))
+        throw new StorypaneError('not_found', 'Unknown schema operation');
+      const space = await store.getSpace(actor);
+      if (!space.productionSpaceId) {
+        if (id !== 'environment')
+          throw new StorypaneError('invalid', 'This space is not linked to production');
+        return jsonResponse(await schemaStatus(store, actor));
+      }
+      const production = await services.installation.acquire(
+        space.productionSpaceId,
+        services.clerkChecks,
+      );
+      try {
+        const productionActor = managementToken
+          ? await production.store.authenticateManagement(
+              request.headers.get('x-storypane-production-token') ?? '',
+              space.productionSpaceId,
+              'migrations',
+            )
+          : { ...actor, spaceId: space.productionSpaceId, role: '' };
+        if (!managementToken) await services.installation.syncProfile(production.db, actor.userId);
+        if (id === 'environment')
+          return jsonResponse(await schemaStatus(store, actor, production.store, productionActor));
+        const input = (await readJson(request)) as Record<string, unknown>;
+        if (id === 'transfer-review' && input.reviewToken)
+          throw new StorypaneError('invalid', 'Use transfer-apply to apply a reviewed migration');
+        if (id === 'transfer-apply' && !input.reviewToken)
+          throw new StorypaneError('invalid', 'Review this transfer before applying');
+        return jsonResponse(
+          await transferSchema(
+            store,
+            actor,
+            production.store,
+            productionActor,
+            input,
+            (asset, key) => copySchemaAsset(env.MEDIA, asset, key),
+          ),
+        );
+      } finally {
+        await production.close();
       }
     }
     if (resource === 'migrations') {

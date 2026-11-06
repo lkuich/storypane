@@ -36,10 +36,14 @@ storypane mcp
 storypane migrations pull [--out directory]
 storypane migrations create "description"
 storypane migrations push [--deploy [--yes]]
+storypane migrations status
+storypane migrations sync [--input resolutions.json] [--yes]
+storypane migrations promote [--yes]
 storypane generate-types [--input deployed-schema.json] --out src/types/storypane.ts
 storypane pull-components --out storypane/components.json
 
 Migrations use STORYPANE_URL, STORYPANE_SPACE_ID, STORYPANE_MANAGEMENT_TOKEN.
+Linked operations also use STORYPANE_PRODUCTION_MANAGEMENT_TOKEN.
 Local migrations live in storypane/migrations; commit them with your app.
 Default codegen uses the latest pulled deployed migration, never active.json.
 CI deployment requires --deploy --yes and a deploy-capable management token.
@@ -86,7 +90,9 @@ Legacy pull-components uses STORYPANE_PREVIEW_TOKEN.`);
         ? JSON.parse(await readFile(values.input, 'utf8'))
         : (await localMigrations()).deployed.at(-1);
       if (!value) throw new Error('Run storypane migrations pull before generating types');
-      output = generateTypes(value.formatVersion === 1 ? schemaFromMigration(value) : value);
+      output = generateTypes(
+        [1, 2].includes(value.formatVersion) ? schemaFromMigration(value) : value,
+      );
     }
     await writeAtomic(values.out, output);
     console.log(`Wrote ${values.out}`);

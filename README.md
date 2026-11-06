@@ -1,322 +1,211 @@
 # Storypane
 
-A collaborative headless CMS: independent locale pages, automatic saving, exclusive
-block editing, versioned publishing, and a media library adapted from UGC Scout.
+**A collaborative, open-source CMS for the websites you build.**
 
-This release runs on **Node/Docker** with built-in email/password
-sign-in and a PostgreSQL database per space. One installation database owns
-identities, sessions and encrypted connections. Clerk is an optional explicit
-installation provider; no Clerk keys or SMTP server are needed for local auth.
+Give editors a place to compose pages, preview changes, and publish together.
+Keep your frontend, your components, and your content on infrastructure you control.
 
-## Start here
+[Website](https://storypane.dev) · [Documentation](docs/README.md) ·
+[Get started](#get-started) · [SDK](packages/sdk/README.md) · [MIT license](LICENSE)
 
-For a fresh installation, see the [getting started guide](docs/getting-started.md).
-The maintained guides are also published at [storypane.dev/docs](https://storypane.dev/docs).
-For local source development, the guide lists the setup and commands. This release
-runs on Node **24.22+ within v24** and pnpm **12.4.2**. Follow the [Node installation guide](docs/self-hosting.md) to configure secrets, start the private
-Postgres/object store services and create the first administrator through the CLI.
-There are no default accounts or public bootstrap endpoint. For source development,
-configure runtime settings in `.env`, migrate/bootstrap with the operator CLI, then
-run `pnpm dev`.
+## Content you can work on together
 
-Existing shared-database installations need the documented maintenance-window
-[legacy split and rollback](docs/self-hosting.md#legacy-migration-and-rollback).
-Cloudflare Workers Static Assets hosts the static marketing site. The current CMS runtime is Node;
-existing Worker installs require an explicit data and resource migration plan.
-See [Cloudflare status](docs/deploy-cloudflare.md).
+Storypane is a headless CMS built around structured blocks. Developers define
+content types and render them in their own applications; editors assemble pages
+and see their changes in a live website preview.
 
-The monorepo includes a working Astro website. With the CMS running, use
-`STORYPANE_SESSION_COOKIE=<private session cookie> pnpm example:setup` then `pnpm dev:example`, and open **http://127.0.0.1:3132/home**.
-Setup creates a separate Fieldwork example space with published Default/French
-content and an unpublished page. See [the Astro example guide](apps/example-astro/README.md)
-for static builds, visual preview, and schema-to-TypeScript generation.
+- **Edit together.** Work on different blocks of the same page at the same time,
+  with presence indicators, automatic saving, and block locks that prevent
+  conflicting edits.
+- **Preview in your website.** Use your own components for live draft previews,
+  including unpublished pages. Select a block in the preview to edit its fields.
+- **Publish deliberately.** Review a fixed checkpoint, publish linked content
+  together, or schedule publication. Later edits stay in the draft, and history
+  lets you restore earlier content.
+- **Make room for every locale.** Give each locale its own page structure and URL.
+  Copy content between locales as a starting point without keeping them coupled.
+- **Model content that fits.** Combine reusable blocks, rich text, media, links,
+  and data sources. Review schema migrations and generate TypeScript types for
+  your frontend.
+- **Control access.** Organize work into spaces with separate PostgreSQL databases.
+  Assign roles and scope reading, editing, and publishing down to individual fields.
+- **Manage media in one place.** Upload files with pause and resume, organize
+  assets, set image focal points, and see where files are used. Original files
+  stay private; public delivery of published media is optional.
+- **Connect your workflow.** Fetch published content with the SDK, automate through
+  the management API, CLI, and MCP, and trigger builds or integrations with signed
+  webhooks.
 
-For the same site in Next.js, run `pnpm example:setup:next` followed by
-`pnpm dev:example:next`, then open **http://127.0.0.1:3133/home**. Setup adds
-**Local Next.js** as an optional application in Storypane's preview selector and
-preserves the Astro default. The Next.js example has its own server client, typed
-block components, schema snapshot, and preview route. See [the Next.js integration guide](apps/example-next/README.md).
-Run `pnpm lint:example` to lint and check formatting in both examples.
+## Get started
 
-The legacy `compose.yaml`/`db:setup` commands remain local fixture tools for the
-shared schema. New installations use `compose.node.yaml` and `pnpm admin migrate`.
-Keep all existing database/media volumes and encryption keys when upgrading.
+The current CMS runs on **Node.js and Docker**, backed by PostgreSQL and private
+S3-compatible storage. The Docker setup includes all three services. Built-in
+email/password sign-in is the default; Clerk and SMTP are optional.
 
-Use `STORYPANE_*` environment variables (`PUBLIC_STORYPANE_*` for Astro browser
-flags) and the `storypane` CLI. Rebuild preview applications with the current SDK
-when updating the CMS; preview messages and editable attributes use Storypane names.
-Database setup preserves migration history, and the browser migrates saved drafts
-and theme preferences automatically.
+You need Git, Docker with Compose, and OpenSSL to generate secrets.
 
-For an existing Node installation, retain its database URLs, Docker volumes,
-private object storage, and encryption/authentication keys when upgrading. Do not
-reuse the legacy Cloudflare Worker deployment settings for this runtime. See the
-[Cloudflare guide](docs/deploy-cloudflare.md) before retiring an older Worker
-installation; confirm its data and media have been migrated or backed up first.
-
-## What works
-
-- Content search combines publication status, modification date, last modifier, and
-  content type, with date/name sorting and removable filter chips. Filters stay in
-  the URL when opening a story or refreshing. Date ranges use the browser's local time.
-- Personal page pins are saved per user. Matching pinned stories appear first in
-  Content; pinning never changes content, publication status, or another user's list.
-- Content folders support nesting, translated slug prefixes (using configured locale
-  IDs), allowed/default content types, and form-only editing. Blank folder translations
-  fall back to the default segment. The story list and search stay in the current
-  folder; Back/Forward retrace folder visits, and changing folders clears selection.
-  Use a page's location button to move it or edit
-  its per-locale slug. Folder moves and URL changes create draft checkpoints; existing
-  published URLs remain live until each affected locale is republished. Static sites
-  still need a rebuild after publication. No automatic redirects are created.
-- Active editor avatars appear in Content, page-reference search results, and the
-  page editor. Hover for names and locales. Indicators follow active block leases,
-  not merely open tabs; they refresh every 10 seconds and on local lock changes.
-  Clerk profile photos fall back to initials when unavailable. Expired sessions,
-  removed members, and users who lose editing permission are excluded.
-  Pages are not exclusively locked: different blocks and locales can be edited
-  concurrently. An abandoned block lock expires after 45 seconds.
-
-- Central Spaces screen with search, creation, story/member counts, and per-space
-  settings. New spaces start empty and their creator becomes an administrator.
-- Settings → Roles includes fixed Admin, Editor, and read-only Viewer roles, plus
-  custom space-specific roles. Scope reading, editing, and publishing by folder subtree
-  or story, locale, block type, and field. Configure assets, schemas, datasources,
-  and settings independently. Hidden fields are omitted from HTTP and live snapshots;
-  partial editors use the form view, and saves preserve protected fields.
-  Only Admins manage roles and memberships; built-in roles cannot be modified.
-  Assigned roles cannot be deleted until members are reassigned and invitations revoked.
-  Permissions are checked from Postgres on each operation, including lease renewal
-  and publishing. Existing Admin/Editor memberships keep their access.
-- Settings → Members lets admins invite by email, assign roles, remove
-  members, and revoke pending invitations. Share the single-use invitation link
-  manually, or configure SMTP for email delivery. Invitations expire in 7 days.
-  Existing accounts must sign in before accepting; new local accounts stay unverified. Existing roles are never
-  overwritten by an invitation. The last admin cannot be removed or demoted.
-  Removing a member preserves content/history and releases their editing locks.
-- Space, story, and locale selection stays in the page URL, so refresh and shared
-  links reopen the same content. API calls, live editing, uploads, and asset previews
-  all use the selected space. Locale changes retain the current form while loading
-  the destination and keep application preview open.
-- Content selection supports reviewed bulk publish/unpublish/move/delete, draft-only
-  duplication, and soft-delete recovery. History is preserved; live references and
-  editing leases are checked before destructive actions. Bulk review groups locales
-  under expandable stories, keeps actions visible while scrolling, and separates
-  completed stories from failures with editor links. Re-review targets only failed
-  stories; interrupted requests retain their original request IDs for safe retries.
-- Publish review asks whether to publish each linked draft or story with unpublished changes too or omit
-  its reference from the live copy. Omission preserves drafts and cannot bypass required
-  fields. Selected revisions publish together atomically, including scheduled and bulk
-  publication. Unchanged live references keep their published versions. Changed links
-  require a choice, use the preview locale (with Default fallback), and check the
-  reviewed publication before replacing it so another editor's publication is not overwritten.
-- Schedule a reviewed locale checkpoint with an explicit timezone. Later edits remain
-  drafts; a minute cron checks current permissions, schema, and URL conflicts before
-  publication. Pending/failed schedules appear in the list and editor.
-- Admin-managed [signed webhooks](docs/webhooks.md) use a transactional outbox,
-  bounded retries, delivery logs, and an allowlist of HTTPS destinations.
-- Admins can opt a space into public media URLs for current published assets.
-  Images support bounded variants and focal points; asset details list draft/live
-  usage filtered by the viewer's content permissions. Public media defaults off.
-- Delivery SDK with Postgres-backed published reads, read-only live draft preview,
-  configurable preview triggers, and React/Next.js/Astro integration recipes.
-- Working Astro example with a typed React block registry, published static pages,
-  unpublished-story preview shell, and `storypane:pull` / `storypane:types` / `storypane:generate` commands.
-- Application iframe preview and click-to-edit block selection. Configure named preview
-  URLs and a default in **Settings → API & preview**, then switch apps in the preview panel.
-  URLs support `{slug}` and `{locale}`. Existing single URLs are migrated to a default entry.
-  This settings area also manages published and server preview tokens. Server-side
-  `createPreviewSession({ slug, previewId })` can select a configured URL; omitting
-  `previewId` uses the default. Sessions are bound to the selected app's origin.
-- Story editing uses a compact navigation rail (hover, focus, or tap to expand; pin
-  to keep it open). Preview opens by default and shares two columns with the fields. Use the block breadcrumb
-  to return to a parent, its field menus to switch siblings, or **Outline** for the
-  full tree. Add and reorder blocks in their parent fields or the outline drawer.
-- Versioned JSON schemas with Nestable, Content type, and Universal blocks.
-  Edit definitions in a tall drawer with Fields / Config tabs, a searchable icon
-  picker, draggable fields, and a fixed save footer (⌘ / Ctrl S).
-- Text, textarea, richtext, markdown, number, date/time, boolean, single/multiple
-  options, assets, links, and nested blocks.
-- Inline choices, managed KV datasources, other-story references, and external
-  JSON sources. External sources require an exact public HTTPS hostname in
-  `EXTERNAL_OPTION_HOSTS` and return `{ "items": [{ "value": "key", "label": "Label" }] }`.
-  External JSON fields support up to 20 custom request headers (8 KB total). Headers are
-  sent by the CMS server; values are part of the versioned block schema and visible to
-  schema readers. They are not a secret store and are excluded from delivery schemas/content.
-  Editor requests automatically include `X-Storypane-Space-Id`, `X-Storypane-Story-Id`,
-  `X-Storypane-Story-Slug`, `X-Storypane-Locale-Id`, `X-Storypane-Locale`,
-  `X-Storypane-Block-Id`, `X-Storypane-Block-Type`, and `X-Storypane-Field`.
-  Story slug is the selected locale's URL slug; Locale is its URL prefix (empty for root).
-  Decode percent-encoded slug/prefix values at the endpoint. Context is checked against
-  the requesting user's access and saved field configuration; custom headers cannot
-  override context or transport headers. Requests never forward the editor's session
-  credentials or follow redirects.
-- Independent locale structures. Importing from the configured default locale
-  makes one-time subtree copies with fresh IDs.
-- **Space settings → Locales** manages shared locale names and URL prefixes.
-  Set any locale as the default without changing URL prefixes or copying content.
-  New stories and delivery requests that omit `locale` use that default; explicit
-  `locale: ''` selects the root locale. The former default, including root, can be
-  deleted once every affected story has another locale. The current default cannot be deleted.
-  Configured locales appear on every story; opening a new locale creates its
-  independent page. Removing a locale lists affected stories with links to their locale
-  editors and requires explicit confirmation to delete its content and history.
-  Deletion checks content permissions and active editors, rejects stale reviews,
-  removes publications, and cancels schedules. Other locales remain intact.
-  Renaming retains content/history; Default cannot be removed.
-- Block leases, autosave, live updates, conflict detection, and preserved unsent
-  input when disconnected. Continued editing requires a connection.
-- Page/block restoration into new history and publication of a fixed reviewed
-  checkpoint. Subsequent edits stay in the draft.
-- Multi-file drops anywhere in the asset library, with a floating upload queue
-  that continues across workspace navigation and supports pause/resume.
-- Resumable R2 uploads, folders, metadata, asset selection, and archive.
-  Archiving preserves referenced files and their bytes. Image previews use
-  resized WebP thumbnails; downloading an original preserves its bytes.
-
-## Storage and workspace
-
-Postgres is authoritative for draft JSONB, schemas, leases, immutable checkpoints,
-and publications. Each block has its own revision. Brief locale transactions
-produce a consistent history without rejecting unrelated block edits. Durable
-Objects deliver presence and committed updates; they do not hold the only copy
-of a draft. This avoids a second draft database and a cross-database publish step.
-
-| Path                 | Responsibility                                                          |
-| -------------------- | ----------------------------------------------------------------------- |
-| `apps/web`           | vinext UI/API, local and Clerk authentication, Node entrypoint          |
-| `apps/realtime`      | Durable Object rooms and WebSockets                                     |
-| `apps/example-astro` | Static example website, generated block props, live preview             |
-| `apps/example-next`  | Self-contained Next.js integration with Server Components and preview   |
-| `packages/core`      | Content contracts and validation                                        |
-| `packages/db`        | Postgres migrations, transactions, history, publishing                  |
-| `packages/assets`    | Asset metadata and R2 upload/delivery service                           |
-| `packages/ui`        | Shared controls                                                         |
-| `packages/sdk`       | Published delivery, browser preview bridge, React hook, schema/type CLI |
-
-Schema edits accumulate in one shared active migration per space. Review the diff
-in **Blocks → Schema migrations**, then deploy as an admin. Deployment migrates
-existing drafts and live publications separately without publishing unfinished
-content. Renames preserve data; removed fields and incompatible types delete/reset
-active values. Reviews link directly to affected story blocks. Any data loss needs
-typed confirmation. **Preview destructive deployment** also removes disallowed
-nested blocks (including descendants), keeps the earliest allowed blocks up to
-new limits, and resets invalid values to defaults or clears them. It still blocks
-on missing required content or invalid schemas; it does not unpublish pages.
-Draft and published issues are reviewed separately. Fix a published issue by
-publishing the corrected draft, adjusting the schema, or reviewing the destructive
-option. History remains
-readable; restoring it applies intervening migrations. Database upgrade `013`
-retains legacy content until an admin deploys the initial migration.
-
-
-Select a block to include its ID in the editor URL, then copy the URL to share it.
-Links use `/?space=<id>&story=<id>&locale=<slug>&block=<id>` (omit `locale` for
-Default). A deleted or published-only block shows a notice when absent from the draft.
-
-Use **Copy block** in a block's toolbar (or its list-row copy icon), then
-**Paste block** to append to a destination block list, or **Paste here** above a
-block to insert at that position. Paste actions appear when a valid copied block
-matches the destination's space, schema and allowed types, and the list has room.
-Copies include nested blocks and
-visible unsaved field values; pasting creates independent block IDs, including
-across pages and locales in the same space. Asset and story references keep their
-existing targets. Pasting follows the destination's schema, limits and editing
-locks, and does not publish content. Copy again after a schema migration. If the
-browser blocks clipboard access, the editor provides manual copy/paste fields.
-
-The SDK CLI supports `migrations pull`, `migrations create "description"`,
-`migrations push`, and `migrations push --deploy --yes` for CI/CD. Generate types
-from the latest deployed migration with `generate-types --out src/types/storypane.ts`.
-Admin-issued migration tokens are available in the migration panel. General management
-API tokens are available in Space settings → API & preview. The versioned HTTP API,
-`@storypane/sdk/management`, resource CLI commands, and the `storypane mcp` stdio
-adapter cover drafts, assets, and space configuration; see the [management API guide](docs/management-api.md). See the
-[SDK migration guide](packages/sdk/README.md#schema-migrations-and-generated-types)
-for credentials, files, conflicts, and pipeline usage. Outdated SDK consumers
-continue receiving content with advisory version warnings.
-Block Config supports comma-separated tags. Blocks fields can restrict nesting by
-specific blocks or by any matching tag, with searchable selectors. Empty selections
-allow all nestable/universal blocks. Tags are versioned with schemas; imports and new content use deployed tags.
-Generated SDK types also use deployed tags.
-
-Locale settings are shared by a space; the locale prefix (`fr-CA`) is separate
-from each story's page slug (`home`). Existing story locales are registered by
-migration `004_space_locales` without replacing content or history. Changing a
-locale prefix changes delivery lookups and preview URLs immediately; rebuild
-static sites and update links to the old prefix. Redirects are not generated.
-
-## Verify
-
-Appearance follows the system by default. Use the header's **Appearance** selector
-to choose System, Light, or Dark; the choice is saved in this browser and shared
-across tabs. Preview apps keep their own styling.
+### 1. Get the source
 
 ```sh
-pnpm db:test
+git clone https://github.com/lkuich/storypane.git
+cd storypane
+cp .env.production.example .env.production
+chmod 600 .env.production
+```
+
+### 2. Configure your installation
+
+Edit `.env.production`. For a local installation, set the following values.
+Run each generation command separately for **each variable**, then paste its
+output into the file.
+
+| Variable                                                                      | Value                                        |
+| ----------------------------------------------------------------------------- | -------------------------------------------- |
+| `STORYPANE_APP_URL`                                                           | `http://localhost:3130`                      |
+| `INSTALLATION_ENCRYPTION_KEY`, `BETTER_AUTH_SECRET`, `WEBHOOK_ENCRYPTION_KEY` | Generate each with `openssl rand -base64 32` |
+| `PROVISIONING_DB_PASSWORD`, `INSTALLATION_DB_PASSWORD`                        | Generate each with `openssl rand -hex 32`    |
+| `S3_ACCESS_KEY_ID`                                                            | Generate with `openssl rand -hex 8`          |
+| `S3_SECRET_ACCESS_KEY`                                                        | Generate with `openssl rand -hex 32`         |
+
+Compose supplies the database and storage connection settings. Keep
+`.env.production` private and retain its keys and the Docker volumes on upgrades.
+
+### 3. Start Storypane
+
+```sh
+docker compose --env-file .env.production -f compose.node.yaml up --build -d
+docker compose --env-file .env.production -f compose.node.yaml exec web \
+  node --import tsx scripts/admin.ts bootstrap
+```
+
+The bootstrap command prompts for the first administrator's name, email, and
+password. Open **[localhost:3130](http://localhost:3130)**, sign in, and create a
+space. Define your blocks, deploy the initial schema migration, and start writing.
+
+For an external database or object store, HTTPS, invitations, backups, and upgrades,
+follow the [self-hosting guide](docs/self-hosting.md). Existing shared-database
+installations should follow the [migration and rollback guide](docs/self-hosting.md#legacy-migration-and-rollback).
+
+## Bring your frontend
+
+Storypane delivers content as structured data. You own the markup, routing, and
+rendering, whether you build a static site or fetch content at request time.
+
+Create a **Published content** token in **Space settings → API & preview**. Use
+the SDK from your application's server code, with types generated from your
+deployed schema:
+
+```ts
+import { createStorypaneClient } from '@storypane/sdk';
+import { storypaneMigrationVersion, type StorypaneContentType } from './types/storypane';
+
+const storypane = createStorypaneClient<StorypaneContentType>({
+  url: process.env.STORYPANE_URL!,
+  spaceId: process.env.STORYPANE_SPACE_ID!,
+  token: process.env.STORYPANE_DELIVERY_TOKEN!,
+  migrationVersion: storypaneMigrationVersion,
+});
+
+const page = await storypane.getStory({ slug: 'home' });
+// Render page.content with your components.
+```
+
+Published reads return publication snapshots. Draft preview uses a separate,
+authenticated connection. Keep delivery and preview tokens on the server; rebuild
+or revalidate static pages when content is published.
+
+The SDK is available in this workspace. Until an npm release, build and link it
+or install a packed archive using the [SDK guide](packages/sdk/README.md).
+
+Explore a complete integration:
+
+| Example                                | What it demonstrates                                                 |
+| -------------------------------------- | -------------------------------------------------------------------- |
+| [Astro](apps/example-astro/README.md)  | Static pages, typed React blocks, and an interactive preview island. |
+| [Next.js](apps/example-next/README.md) | App Router, Server Components, and a separate live preview route.    |
+
+Both examples include localized pages, media delivery, generated types, and
+click-to-edit preview. Your application can use the SDK without adopting either
+example's design or routing.
+
+## Develop from source
+
+Use **Node.js 24.22+ within v24**, **pnpm 12.4.2**, and Docker Compose.
+
+Copy `.env.example` to `.env`, then configure the Node development variables using
+the [local development instructions](docs/self-hosting.md#backups-upgrades-and-health).
+They use separate installation and space databases; the fixture defaults at the
+top of `.env.example` are for legacy tests.
+
+```sh
+pnpm install --frozen-lockfile
+pnpm db:start
+node --env-file=.env --import tsx scripts/admin.ts migrate
+node --env-file=.env --import tsx scripts/admin.ts bootstrap
+pnpm dev
+```
+
+The editor runs at **http://127.0.0.1:3130**. Set `STORYPANE_APP_URL` to that same
+origin in `.env`.
+
+### Repository layout
+
+```text
+apps/web              Editor, authentication, HTTP API, and Node server
+apps/realtime         Shared collaboration rooms and WebSocket handling
+apps/example-astro    Astro integration
+apps/example-next     Next.js integration
+packages/core         Content contracts and validation
+packages/db           Permissions, migrations, history, and publishing
+packages/assets       Asset metadata, uploads, and delivery
+packages/runtime-node Node adapters for storage, images, rooms, and background jobs
+packages/sdk          Delivery, preview, management API, and CLI
+packages/ui           Shared UI controls
+```
+
+PostgreSQL is authoritative for content, permissions, history, and publications.
+The Node server handles HTTP, collaboration sockets, and background jobs in one
+process. Run **one application replica** until a shared room transport is available.
+
+### Checks and contributions
+
+[Bug reports](https://github.com/lkuich/storypane/issues) and focused pull requests
+are welcome. Include steps to reproduce a bug and tests for changes in behavior.
+
+```sh
 pnpm lint
 pnpm test
 pnpm typecheck
 pnpm build
-# With pnpm dev running and Google Chrome installed:
-pnpm test:e2e
 ```
 
-Unit/integration tests use isolated schemas in the local `storypane_test` database.
-Browser tests require authenticated admin/editor storage states via `STORYPANE_TEST_ADMIN_STATE` and `STORYPANE_TEST_EDITOR_STATE`. They create test content in the app. Never commit storage states.
-If `apps/example-astro/.env` exists, run `pnpm build:example` before the browser
-suite; Playwright starts its built preview server on port 3132. Without that
-configuration the Astro-specific test is skipped.
-They exercise two editors, locks, offline recovery, locales, history, publishing,
-schema fields, datasources, real local R2 uploads/downloads, space switching,
-settings persistence, administrator access boundaries, and live preview of an
-app served as static HTML on a separate origin, plus the real Astro island,
-unpublished preview shell, and generated schema contracts. `pnpm types`
-regenerates binding declarations; typecheck also runs it automatically.
+Database tests need the dedicated local test database: start the fixture Postgres
+with `docker compose -f compose.yaml up -d`, then run `pnpm db:test` before
+`pnpm test`. `pnpm db:setup` is a local fixture tool, not an installation command.
+Browser tests use `pnpm test:e2e` with the CMS running and Google Chrome installed.
+Authenticated suites use `STORYPANE_TEST_ADMIN_STATE` and
+`STORYPANE_TEST_EDITOR_STATE` session files. Build any configured example sites
+first using their integration guides above. Never commit session files or credentials.
 
-`pnpm lint` checks source across every app, package, script, and test, then checks
-formatting with Prettier. `pnpm lint:fix` applies automatic lint fixes and formats
-the repository; `pnpm format` only formats. Each workspace also has a `lint`
-script for checking that app or package. Generated types, schema snapshots,
-lockfiles, and build outputs are excluded from formatting; generated types remain
-covered by type checking.
+## Documentation
 
-The root installs TypeScript 7's compiler as `@typescript/native` and the compatible
-TypeScript 6 JavaScript API as `typescript` for ESLint. Keep both aliases when
-updating dependencies so linting and the `tsc` command continue to work together.
+- [Getting started](docs/getting-started.md) — installation and first steps.
+- [Self-hosting](docs/self-hosting.md) — configuration, authentication, operations,
+  backups, and upgrades.
+- [SDK](packages/sdk/README.md) — delivery, live preview, media, and generated types.
+- [Management API, CLI, and MCP](docs/management-api.md) — automate content and
+  configuration changes.
+- [Webhooks](docs/webhooks.md) — signed events, delivery, and retries.
+- [Railway](docs/deploy-railway.md) and [Cloudflare](docs/deploy-cloudflare.md) —
+  provider-specific setup and current support status.
+- [Deployment verification](docs/deployment-verification.md) — recorded checks,
+  outstanding verification, and the installation acceptance checklist.
 
-## Self-hosting
-
-Use the [Node/Docker setup](docs/self-hosting.md). Railway is documented but
-remains unverified for a fresh hosted installation. Cloudflare hosts the static
-marketing website, not the current CMS runtime. Complete the [verification checklist](docs/deployment-verification.md)
-before rollout. Production configuration stays in ignored `.env.production`.
-
-See [the SDK integration guide](packages/sdk/README.md) for static Next.js/Astro
-pages, preview authentication, client rendering requirements, and SDK limitations.
-Draft JSON remains in each space database; collaboration rooms stream committed checkpoints.
-
-Design review is pending. Offline merging, asset garbage collection,
-and history retention are deferred. Full
-snapshots per autosave favor recovery simplicity; storage will grow until a
-retention policy is added. CMS reads follow each member’s content scopes. Published and server-preview delivery
-tokens remain space-wide service credentials; scoped readers cannot mint them.
-Public content and opted-in public media are unaffected by private CMS read scopes.
-
-See [docs/README.md](docs/README.md) for the maintained guide index. Historical
-implementation plans and issue notes under `docs/work-breakdown.md` and
-`docs/issues/` are design records, not current product instructions.
-
-Rich text preserves text colors and inline images imported from other CMSs. Inline
-images carry a space-scoped asset ID and an HTTP(S) source; publication validates
-asset ownership and includes them in media usage. External links also accept
-`tel:` URLs for telephone CTAs.
-
-External option feeds accept both `{items: [{value, label}]}` and existing
-`[{value, name}]` arrays. Both formats retain the same host allowlist, DNS, size,
-and uniqueness checks.
+Storypane is under active development. The current CMS targets Node/Docker;
+Cloudflare hosting in the guides applies to the separate static website. Fresh
+Railway deployment acceptance remains unverified. See the guides above before
+planning a hosted installation.
 
 ## License
 
-Storypane is [MIT licensed](LICENSE). Third-party components retain their own
-licenses. Plus Jakarta Sans is distributed under its [OFL notice](apps/web/public/fonts/OFL.txt).
+Storypane is [MIT licensed](LICENSE).

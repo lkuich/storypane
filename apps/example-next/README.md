@@ -140,8 +140,9 @@ With an existing local Fieldwork space from the Astro demo:
 
 ```sh
 # Repository root: reuse that space and register an optional Next.js preview target.
-pnpm example:setup:next
-pnpm dev:example:next
+pnpm --filter @storypane/example-next setup
+pnpm --filter @storypane/sdk build
+pnpm --filter @storypane/example-next dev
 ```
 
 Open **http://127.0.0.1:3133/home** and choose **Local Next.js** in the editor's
@@ -164,7 +165,8 @@ pnpm --filter @storypane/example-next storypane:generate # pull deployed schema 
 pnpm --filter @storypane/example-next storypane:types    # regenerate offline from the checked-in snapshot
 pnpm --filter @storypane/example-next lint
 pnpm --filter @storypane/example-next typecheck
-pnpm build:example:next
+pnpm --filter @storypane/sdk build
+pnpm --filter @storypane/example-next build
 pnpm --filter @storypane/example-next start              # production server on port 3133
 pnpm exec playwright test tests/next-example.e2e.ts
 ```
@@ -179,3 +181,20 @@ browser test uses this app's `.env` and preview token; it covers publications,
 locales, assets, unpublished previews, footer references, block selection, mobile
 layout, and checks for tokens in browser output. It creates temporary preview
 sessions without editing or publishing stories.
+
+## Working with linked dev spaces
+
+Keep authoring CLI credentials pointed at a linked dev space and provide its
+production token separately as `STORYPANE_PRODUCTION_MANAGEMENT_TOKEN`. Deploy and
+test schema changes in dev, then run `storypane migrations promote`. Use
+`storypane migrations status` and `storypane migrations sync` when another
+developer advances production. Block-library nesting and nested-block restrictions
+travel with the migration; content dependencies are reviewed and copied as drafts.
+
+Before building this example for production, point its existing delivery/preview
+configuration at production and run `pnpm storypane:generate` from this app's
+directory. That pulls production's deployed schema and migration version. Keep
+management tokens server-side and separate from delivery configuration. See the
+[linked-space workflow](../../packages/sdk/README.md#linked-development-and-production-spaces)
+for conflict resolution, CI, and generating from a separately pulled production
+migration file.

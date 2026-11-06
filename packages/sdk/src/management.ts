@@ -66,6 +66,7 @@ export type ManagementClientOptions = {
   url: string;
   spaceId: string;
   token: string;
+  productionToken?: string;
   fetch?: typeof fetch;
   timeoutMs?: number;
 };
@@ -114,6 +115,9 @@ export function createManagementClient(options: ManagementClientOptions) {
       method: init.method ?? 'GET',
       headers: {
         Authorization: `Bearer ${options.token}`,
+        ...(options.productionToken && path.startsWith('/migrations/')
+          ? { 'X-Storypane-Production-Token': options.productionToken }
+          : {}),
         ...(binary
           ? {
               'Content-Type': 'application/octet-stream',

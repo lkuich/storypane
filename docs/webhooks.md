@@ -31,16 +31,9 @@ Rotate individual endpoint signing secrets through Settings; this is different
 from replacing the master encryption key. Missing or malformed encryption
 configuration disables creation/sending. Cleanup still runs.
 
-The current CMS runtime is Node/Docker. The checked-in Worker configuration is
-retained for the previous runtime and test compatibility; it does not make this
-release deployable on Workers. Keep runtime secrets in the Node process
-environment and never commit them. `pnpm types` only generates legacy Worker
-binding declarations; it is not part of Node setup.
-
-The Worker handler and its `/cdn-cgi/local/scheduled` test endpoint belong to the
-previous Cloudflare runtime. They are not part of the current Node application.
-The Node scheduler starts with the application and runs automatically. See the
-[self-hosting guide](self-hosting.md) for the supported runtime.
+Keep runtime secrets in the Node process environment and never commit them.
+The scheduler starts with the application; no separate cron service or public
+HTTP trigger is required. See the [self-hosting guide](self-hosting.md).
 
 ## Events and delivery
 

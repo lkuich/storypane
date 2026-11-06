@@ -104,3 +104,20 @@ describe('management client', () => {
     expect(new ManagementError('failure', 403, 'forbidden')).toBeInstanceOf(Error);
   });
 });
+
+it('sends production credentials only to the configured migration boundary', async () => {
+  const fetcher = vi.fn<typeof fetch>(async () => Response.json({}));
+  const client = createManagementClient({
+    ...options,
+    productionToken: 'production-secret',
+    fetch: fetcher,
+  });
+  await client.request('/migrations/environment');
+  expect(new Headers(fetcher.mock.calls[0][1]?.headers).get('x-storypane-production-token')).toBe(
+    'production-secret',
+  );
+  await client.request('/stories');
+  expect(new Headers(fetcher.mock.calls[1][1]?.headers).has('x-storypane-production-token')).toBe(
+    false,
+  );
+});

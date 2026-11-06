@@ -13,6 +13,18 @@ import { createClerkClient } from '@clerk/backend';
 import { createClerkChecks, type ClerkChecks } from './clerk-checks.js';
 import { StorypaneStore } from './store.js';
 import { migrate } from './migrate.js';
+import { captureSchema } from './schema-environments.js';
+import {
+  collectSchemaDependencies,
+  schemaDigest,
+  schemaIdentity,
+  dependencySummary,
+  installSchemaConfiguration,
+  installSchemaContent,
+  copySchemaAssets,
+  type CopySchemaAsset,
+} from './schema-dependencies.js';
+import type { SchemaTransferReview } from '@storypane/core';
 
 export type Provider = 'local' | 'clerk';
 export function authProvider(value = process.env.AUTH_PROVIDER ?? 'local'): Provider {
@@ -113,6 +125,23 @@ export async function migrateInstallation(pool: Pool, provider: Provider) {
       );
       await client.query("INSERT INTO installation_migrations(name) VALUES('001_installation')");
       await client.query('INSERT INTO installation_config(auth_provider) VALUES($1)', [provider]);
+    }
+    if (
+      !(
+        await client.query(
+          "SELECT 1 FROM installation_migrations WHERE name='002_space_environments'",
+        )
+      ).rowCount
+    ) {
+      await client.query(
+        await readFile(
+          new URL('../installation-migrations/002_space_environments.sql', import.meta.url),
+          'utf8',
+        ),
+      );
+      await client.query(
+        "INSERT INTO installation_migrations(name) VALUES('002_space_environments')",
+      );
     }
     const config = (await client.query('SELECT auth_provider FROM installation_config')).rows[0];
     if (config.auth_provider !== provider)
@@ -229,7 +258,7 @@ export class Installation {
   async directory() {
     return (
       await this.pool.query(
-        'SELECT id,name,description,status,mode,created_at FROM space_connections ORDER BY created_at,id',
+        'SELECT id,name,description,status,mode,created_at,environment,clone_source_id FROM space_connections ORDER BY created_at,id',
       )
     ).rows as Array<{
       id: string;
@@ -237,6 +266,8 @@ export class Installation {
       description: string;
       status: 'ready' | 'failed' | 'provisioning';
       mode: 'create' | 'attach' | 'import';
+      environment: 'prod' | 'dev';
+      clone_source_id: string | null;
       created_at: Date;
     }>;
   }
@@ -414,7 +445,59 @@ export class Installation {
       await candidate.end();
     }
   }
-  async provision(ownerId: string, raw: unknown) {
+  async reviewClone(
+    actor: Pick<Actor, 'userId' | 'sessionId'>,
+    raw: unknown,
+  ): Promise<SchemaTransferReview> {
+    if (!(await this.isAdmin(actor.userId)))
+      throw new StorypaneError('forbidden', 'Installation administrator access is required');
+    const input = parseInput(
+      z
+        .object({ id: z.uuid(), baseSpaceId: z.uuid(), environment: z.enum(['prod', 'dev']) })
+        .strict(),
+      raw,
+    );
+    const selected = await this.acquire(input.baseSpaceId);
+    try {
+      const sourceActor = { ...actor, spaceId: input.baseSpaceId, role: '' };
+      const source = await captureSchema(selected.store, sourceActor);
+      const deps = await collectSchemaDependencies(selected.store, sourceActor, source.definitions);
+      return {
+        id: input.id,
+        token: schemaDigest({
+          input,
+          head: source.head.id,
+          definitions: source.definitions,
+          branch: source.branch,
+          pending: source.pending,
+          deps,
+        }),
+        action: 'clone',
+        sourceSpaceId: input.baseSpaceId,
+        targetSpaceId: input.id,
+        conflicts: [],
+        resolutions: {},
+        dependencies: dependencySummary(deps),
+        steps: [
+          {
+            id: source.head.id,
+            name: `Clone ${source.space.name}`,
+            changes: [],
+            impacts: [],
+            blockers: [],
+          },
+        ],
+        confirmation: null,
+      };
+    } finally {
+      await selected.close();
+    }
+  }
+  async provision(
+    ownerId: string,
+    raw: unknown,
+    context?: { actor: Pick<Actor, 'userId' | 'sessionId'>; copyAsset?: CopySchemaAsset },
+  ) {
     if (!(await this.isAdmin(ownerId)))
       throw new StorypaneError('forbidden', 'Installation administrator access is required');
     const input = parseInput(
@@ -422,10 +505,19 @@ export class Installation {
         id: z.uuid().optional(),
         mode: z.enum(['create', 'attach']),
         connectionString: z.string().optional(),
+        environment: z.enum(['prod', 'dev']).optional(),
+        baseSpaceId: z.uuid().optional(),
+        reviewToken: z
+          .string()
+          .regex(/^[a-f0-9]{64}$/)
+          .optional(),
       }),
       raw,
     );
     const id = input.id ?? randomUUID();
+    const environment = input.environment ?? 'prod';
+    if (input.baseSpaceId && (!context || !input.reviewToken || input.baseSpaceId === id))
+      throw new StorypaneError('invalid', 'Review the base space before cloning');
     const lock = await this.pool.connect();
     let db: Pool | undefined;
     let provisioner: Pool | undefined;
@@ -473,7 +565,15 @@ export class Installation {
         );
         row = (await lock.query('SELECT * FROM space_connections WHERE id=$1', [id])).rows[0];
       }
-      await lock.query("UPDATE space_connections SET status='provisioning' WHERE id=$1", [id]);
+      if (
+        row.clone_source_id &&
+        (row.clone_source_id !== input.baseSpaceId || row.environment !== environment)
+      )
+        throw new StorypaneError('invalid', 'Cloning retry does not match');
+      await lock.query(
+        "UPDATE space_connections SET status='provisioning',environment=$2,clone_source_id=$3,clone_review_token=$4,clone_complete=CASE WHEN $3::uuid IS NULL THEN true ELSE clone_complete AND clone_source_id IS NOT NULL END WHERE id=$1",
+        [id, environment, input.baseSpaceId ?? null, input.reviewToken ?? null],
+      );
       const url = connectionURL(
         openConnection(row.connection_secret, this.options.encryptionKey, id),
       );
@@ -551,6 +651,176 @@ export class Installation {
       } else if ((await db.query('SELECT space_id FROM space_database')).rows[0]?.space_id !== id)
         throw new StorypaneError('invalid', 'Database belongs to another space');
       await migrateSpace(db);
+      const destination = new StorypaneStore(db, {
+        spaceId: id,
+        authorizeSession: (actor) => this.assertSession(actor),
+        authorizeIdentity: (userId) => this.assertIdentity(userId),
+      });
+      if (input.baseSpaceId && context) {
+        const selected = await this.acquire(input.baseSpaceId);
+        try {
+          const sourceActor: Actor = { ...context.actor, spaceId: input.baseSpaceId, role: '' };
+          const source = await captureSchema(selected.store, sourceActor);
+          const deps = await collectSchemaDependencies(
+            selected.store,
+            sourceActor,
+            source.definitions,
+          );
+          const token = schemaDigest({
+            input: { id, baseSpaceId: input.baseSpaceId, environment },
+            head: source.head.id,
+            definitions: source.definitions,
+            branch: source.branch,
+            pending: source.pending,
+            deps,
+          });
+          const receipt = (await db.query('SELECT result FROM schema_transfers WHERE id=$1', [id]))
+            .rows[0]?.result;
+          const done = !!receipt;
+          const targetActor: Actor = { ...context.actor, spaceId: id, role: 'admin' };
+          const productionId =
+            environment === 'dev'
+              ? source.space.environment === 'prod'
+                ? input.baseSpaceId
+                : source.space.production_space_id
+              : null;
+          if (!done) {
+            if (token !== input.reviewToken)
+              throw new StorypaneError(
+                'stale_revision',
+                'The base space changed. Review the clone again.',
+              );
+            await copySchemaAssets(deps, id, context.copyAsset);
+            await destination.schemaTransaction(targetActor, async (scoped, client) => {
+              const imported = (
+                await client.query('SELECT 1 FROM schema_transfers WHERE id=$1', [id])
+              ).rowCount;
+              if (imported) return;
+              await client.query(
+                'UPDATE spaces SET environment=$2,schema_read_only=$3,production_space_id=$4 WHERE id=$1',
+                [id, environment, environment === 'prod', productionId],
+              );
+              const sourceDefault = deps.locales.find((l) => l.is_default);
+              if (sourceDefault)
+                await client.query(
+                  'UPDATE space_locales SET name=$2,slug=$3 WHERE space_id=$1 AND is_default',
+                  [id, sourceDefault.name, sourceDefault.slug],
+                );
+              const localeIds = await installSchemaConfiguration(client, id, deps);
+              await installSchemaContent(client, targetActor, deps, localeIds, source.definitions);
+              const migration = await scoped.pushMigration(targetActor, {
+                formatVersion: 2,
+                id: schemaIdentity([id, 'baseline']),
+                spaceId: id,
+                version: 1,
+                baseVersion: 0,
+                name: `Baseline from ${source.space.name}`.slice(0, 120),
+                definitions: source.definitions,
+                remoteRevision: null,
+                sourceHash: null,
+                status: 'active',
+              });
+              const review = await scoped.reviewMigration(targetActor, migration.id);
+              if (review.blockers.length)
+                throw new StorypaneError(
+                  'invalid',
+                  'Clone dependencies do not validate against the deployed schema',
+                  review.blockers,
+                );
+              if (review.confirmation)
+                throw new StorypaneError(
+                  'invalid',
+                  'Clone dependencies would lose data. Reconcile their schemas in the source first.',
+                );
+              await scoped.deployMigration(targetActor, migration.id, review.token);
+              if (productionId)
+                await client.query(
+                  'INSERT INTO schema_branches(space_id,production_head,baseline,local_version,pending) VALUES($1,$2,$3,1,$4)',
+                  [
+                    id,
+                    source.space.environment === 'prod'
+                      ? source.head.id
+                      : source.branch.production_head,
+                    JSON.stringify(
+                      source.space.environment === 'prod'
+                        ? source.definitions
+                        : source.branch.baseline,
+                    ),
+                    JSON.stringify(source.space.environment === 'prod' ? [] : source.pending),
+                  ],
+                );
+              await client.query(
+                'INSERT INTO schema_transfers(id,source_space_id,source_head,review_token,result) VALUES($1,$2,$3,$4,$5)',
+                [
+                  id,
+                  input.baseSpaceId,
+                  source.head.id,
+                  token,
+                  JSON.stringify({
+                    sourceVersion: source.head.version,
+                    definitions: source.definitions,
+                  }),
+                ],
+              );
+            });
+            await lock.query(
+              'UPDATE space_connections SET clone_complete=true,production_space_id=$2 WHERE id=$1',
+              [id, productionId],
+            );
+          }
+          await lock.query(
+            'UPDATE space_connections SET clone_complete=true,production_space_id=$2 WHERE id=$1',
+            [id, productionId],
+          );
+          if (
+            environment === 'prod' &&
+            source.space.environment === 'dev' &&
+            !source.space.production_space_id
+          ) {
+            const baseline = schemaIdentity([id, 'baseline']);
+            const imported = (
+              await db.query('SELECT result FROM schema_transfers WHERE id=$1', [id])
+            ).rows[0].result;
+            await selected.store.schemaTransaction(sourceActor, async (_scoped, client) => {
+              const current = (
+                await client.query(
+                  'SELECT production_space_id FROM spaces WHERE id=$1 FOR UPDATE',
+                  [input.baseSpaceId],
+                )
+              ).rows[0];
+              if (current.production_space_id && current.production_space_id !== id)
+                throw new StorypaneError(
+                  'stale_revision',
+                  'The source dev space was linked to another production space',
+                );
+              await client.query('UPDATE spaces SET production_space_id=$2 WHERE id=$1', [
+                input.baseSpaceId,
+                id,
+              ]);
+              await client.query(
+                'INSERT INTO schema_branches(space_id,production_head,baseline,local_version) VALUES($1,$2,$3,$4) ON CONFLICT(space_id) DO NOTHING',
+                [
+                  input.baseSpaceId,
+                  baseline,
+                  JSON.stringify(imported.definitions),
+                  imported.sourceVersion,
+                ],
+              );
+            });
+            await lock.query('UPDATE space_connections SET production_space_id=$2 WHERE id=$1', [
+              input.baseSpaceId,
+              id,
+            ]);
+          }
+        } finally {
+          await selected.close();
+        }
+      } else
+        await db.query('UPDATE spaces SET environment=$2,schema_read_only=$3 WHERE id=$1', [
+          id,
+          environment,
+          input.environment === 'prod',
+        ]);
       await lock.query("UPDATE space_connections SET status='ready' WHERE id=$1", [id]);
       return { id, status: 'ready' as const };
     } catch (error) {

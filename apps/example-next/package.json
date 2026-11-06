@@ -3,6 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "setup": "cd ../.. && node --env-file-if-exists=.env --import tsx scripts/setup-next-example.ts",
     "dev": "next dev --hostname 127.0.0.1 --port 3133",
     "build": "next build",
     "start": "next start --hostname 127.0.0.1 --port 3133",

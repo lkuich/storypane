@@ -40,6 +40,7 @@ export async function migrate(
       '022_definition_parents',
       '023_default_locale',
       '024_management_api',
+      '026_space_environments',
     ]) {
       if (
         (await client.query('SELECT name FROM storypane_migrations WHERE name=$1', [name])).rowCount

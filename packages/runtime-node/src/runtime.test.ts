@@ -9,7 +9,7 @@ import {
 import { S3Bucket } from './s3';
 import { images, focalCrop } from './images';
 import { minuteScheduler } from './scheduler';
-import { nodeRoom, releaseRoom } from './index';
+import { env, nodeRoom, releaseRoom } from './index';
 import { PART_BYTES } from '@storypane/assets';
 
 const stream = (bytes: Uint8Array) =>
@@ -22,10 +22,17 @@ const stream = (bytes: Uint8Array) =>
 afterEach(() => {
   vi.useRealTimers();
   vi.restoreAllMocks();
+  vi.unstubAllEnvs();
 });
 describe('Node runtime adapters', () => {
+  it('requires an explicit application origin regardless of hosting provider', () => {
+    vi.stubEnv('STORYPANE_APP_URL', undefined);
+    vi.stubEnv('RAILWAY_PUBLIC_DOMAIN', 'cms.example.com');
+    expect(() => env.APP_URL).toThrow('Missing STORYPANE_APP_URL');
+    vi.stubEnv('STORYPANE_APP_URL', 'https://cms.example.com');
+    expect(env.APP_URL).toBe('https://cms.example.com');
+  });
   it('retains a room while another authenticated connection is opening', () => {
-    vi.stubEnv('DATABASE_URL', 'postgres://unused:unused@localhost/unused');
     const first = nodeRoom('concurrent');
     first.pending++;
     releaseRoom('concurrent');
@@ -34,7 +41,6 @@ describe('Node runtime adapters', () => {
     releaseRoom('concurrent');
     expect(nodeRoom('concurrent')).not.toBe(first);
     releaseRoom('concurrent');
-    vi.unstubAllEnvs();
   });
   it('retains multipart ETags and whole-object size for ranged downloads', async () => {
     const send = vi

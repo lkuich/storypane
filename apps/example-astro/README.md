@@ -25,8 +25,8 @@ pnpm dev
 In another terminal:
 
 ```sh
-pnpm example:setup
-pnpm dev:example
+pnpm --filter @storypane/example-astro setup
+pnpm --filter @storypane/example-astro dev
 ```
 
 Open **http://127.0.0.1:3132/home**. The setup command creates a separate
@@ -35,7 +35,7 @@ Default and French locales, and an unpublished Work in progress story. It create
 scoped API keys and writes them to an ignored, owner-readable `.env`. It only
 seeds a local CMS and preserves an existing `.env` and content on subsequent runs.
 Set `STORYPANE_SESSION_COOKIE` from your signed-in local editor session when
-running `pnpm example:setup`; Clerk installs can use the private
+running `pnpm --filter @storypane/example-astro setup`; Clerk installs can use the private
 `STORYPANE_SESSION_TOKEN`. Do not commit or share either value.
 The French hero is translated; the other blocks deliberately start as copies.
 
@@ -84,7 +84,8 @@ preview payload, so the shell does not need a build-time copy of published stori
 To prove preview works after a static build, stop the dev server and run:
 
 ```sh
-pnpm build:example
+pnpm --filter @storypane/sdk build
+pnpm --filter @storypane/example-astro build
 pnpm --filter @storypane/example-astro preview
 ```
 
@@ -216,13 +217,13 @@ for supported variants, still-frame animation, and image size limits.
 | `src/components/blocks/`                              | Block switch, individual components, and page body layout          |
 | `storypane/components.json`, `src/types/storypane.ts` | Pulled schema and generated types                                  |
 
-From the repository root, `pnpm lint:example` checks both self-contained examples with ESLint and Prettier. The shared configuration includes recommended
+From the repository root, `pnpm --filter './apps/example-*' lint` checks both self-contained examples with ESLint and Prettier. The shared configuration includes recommended
 JavaScript/TypeScript/Astro rules, React hook checks, and Next.js rules for the Next
 example. `pnpm --filter @storypane/example-astro lint` checks only this app.
 Generated schema types are checked by TypeScript instead. Use `pnpm format` to
 apply the repository's formatting conventions.
 
-`pnpm typecheck` includes Astro checking. `pnpm build:example` checks and builds
+`pnpm typecheck` includes Astro checking. `pnpm --filter @storypane/example-astro build` checks and builds
 this site; root `pnpm build` builds the CMS/SDK independently of a configured CMS
 connection. With the CMS running and the example built, run:
 
@@ -253,3 +254,20 @@ For authoring and CI/CD, the SDK also supports `storypane migrations pull`,
 --deploy --yes`. These use a separate management token issued by an admin in
 **Blocks → Schema migrations → CLI & CI access tokens**. See the
 [SDK guide](../../packages/sdk/README.md#schema-migrations-and-generated-types).
+
+## Working with linked dev spaces
+
+Keep authoring CLI credentials pointed at a linked dev space and provide its
+production token separately as `STORYPANE_PRODUCTION_MANAGEMENT_TOKEN`. Deploy and
+test schema changes in dev, then run `storypane migrations promote`. Use
+`storypane migrations status` and `storypane migrations sync` when another
+developer advances production. Block-library nesting and nested-block restrictions
+travel with the migration; content dependencies are reviewed and copied as drafts.
+
+Before building this example for production, point its existing delivery/preview
+configuration at production and run `pnpm storypane:generate` from this app's
+directory. That pulls production's deployed schema and migration version. Keep
+management tokens server-side and separate from delivery configuration. See the
+[linked-space workflow](../../packages/sdk/README.md#linked-development-and-production-spaces)
+for conflict resolution, CI, and generating from a separately pulled production
+migration file.

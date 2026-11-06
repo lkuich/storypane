@@ -765,3 +765,49 @@ export async function handleAssets(
     );
   }
 }
+
+/** Keep each space's original independent, including when a failed clone is retried. */
+export async function copySchemaAsset(
+  bucket: AssetContext['bucket'],
+  asset: { object_key: string; id: string; byte_size: string; mime_type: string },
+  destinationKey: string,
+) {
+  const existing = await bucket.head(destinationKey);
+  if (existing) {
+    if (existing.size !== Number(asset.byte_size))
+      throw new AssetError(409, 'invalid', 'Copied media size differs from its source');
+    return;
+  }
+  const original = await bucket.get(asset.object_key);
+  if (!original || original.size !== Number(asset.byte_size))
+    throw new AssetError(404, 'not_found', 'Required media original is unavailable');
+  const upload = await bucket.createMultipartUpload(destinationKey, {
+    httpMetadata: { contentType: asset.mime_type },
+  });
+  const reader = original.body.getReader();
+  const parts: AssetPart[] = [];
+  let pending = new Uint8Array(0);
+  try {
+    for (;;) {
+      const chunk = await reader.read();
+      if (chunk.value) {
+        const joined = new Uint8Array(pending.length + chunk.value.length);
+        joined.set(pending);
+        joined.set(chunk.value, pending.length);
+        pending = joined;
+      }
+      while (pending.length >= PART_BYTES || (chunk.done && pending.length)) {
+        const bytes = pending.slice(0, PART_BYTES);
+        pending = pending.slice(bytes.length);
+        parts.push(await upload.uploadPart(parts.length + 1, bytes.buffer));
+      }
+      if (chunk.done) break;
+    }
+    await upload.complete(parts);
+  } catch (error) {
+    await upload.abort().catch(() => undefined);
+    throw error;
+  } finally {
+    reader.releaseLock();
+  }
+}

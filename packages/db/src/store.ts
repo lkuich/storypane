@@ -101,6 +101,8 @@ import {
   spaceInvitationSchema,
   type SpaceInvitation,
   spaceInputSchema,
+  portableDefinitions,
+  validatePortableDefinitions,
   spaceLocaleInputSchema,
   deleteSpaceLocaleSchema,
   type Space,
@@ -165,7 +167,7 @@ async function spacesFor(
   spaceId: string | null = null,
 ): Promise<Space[]> {
   const result = await client.query(
-    `SELECT s.id,s.name,s.description,m.role,r.name AS "roleName",r.permissions,r.content_scopes AS "contentScopes",s.created_at AS "createdAt",
+    `SELECT s.id,s.name,s.description,s.environment,s.schema_read_only AS "schemaReadOnly",s.production_space_id AS "productionSpaceId",m.role,r.name AS "roleName",r.permissions,r.content_scopes AS "contentScopes",s.created_at AS "createdAt",
     (SELECT count(*)::integer FROM stories WHERE space_id=s.id AND deleted_at IS NULL) AS "storyCount",
     (SELECT count(*)::integer FROM memberships WHERE space_id=s.id) AS "memberCount"
     FROM spaces s JOIN memberships m ON m.space_id=s.id JOIN space_roles r ON r.space_id=m.space_id AND r.id=m.role
@@ -260,9 +262,7 @@ const migrationRow = (row: Row): SchemaMigration => ({
   name: row.name,
   status: row.status,
   revision: row.revision,
-  definitions: row.definitions.map(
-    ({ parentDefinitionId: _parent, ...definition }: BlockDefinition) => definition,
-  ),
+  definitions: row.definitions,
   contributors: row.contributors,
   createdAt: iso(row.created_at),
   deployedAt: row.deployed_at ? iso(row.deployed_at) : null,
@@ -327,6 +327,8 @@ export function assembleContent(snapshot: LocaleSnapshot): Json {
 
 export class StorypaneStore {
   readonly pool: Pool;
+  private transactionClient?: PoolClient;
+  private incomingSchema = false;
   constructor(
     connection: Pool | string,
     private options: {
@@ -401,8 +403,60 @@ export class StorypaneStore {
           ? 'Your role does not allow this action'
           : 'You do not have access to this space',
       );
+    if (permission === 'schemas:write') await this.assertSchemaEditable(client, actor);
     if (permission && ['schemas:write', 'settings:write'].includes(permission))
       assertUnrestrictedRead(await loadContentAccess(client, actor));
+  }
+  private async assertSchemaEditable(client: PoolClient, actor: Actor) {
+    const row = (
+      await client.query('SELECT schema_read_only FROM spaces WHERE id=$1', [actor.spaceId])
+    ).rows[0];
+    if (row?.schema_read_only && !this.incomingSchema)
+      throw new StorypaneError(
+        'forbidden',
+        'Schema editing is disabled. Promote changes from a linked dev space.',
+      );
+  }
+  async readSchema<T>(
+    actor: Actor,
+    work: (client: PoolClient, store: StorypaneStore) => Promise<T>,
+  ): Promise<T> {
+    return this.tx(
+      actor,
+      async (client) => {
+        assertUnrestrictedRead(await this.contentAccess(client, actor));
+        const scoped = new StorypaneStore(this.pool, this.options);
+        scoped.transactionClient = client;
+        return work(client, scoped);
+      },
+      undefined,
+      true,
+    );
+  }
+  async schemaTransaction<T>(
+    actor: Actor,
+    work: (store: StorypaneStore, client: PoolClient) => Promise<T>,
+    preview = false,
+  ): Promise<T> {
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1,91))', [actor.spaceId]);
+      await this.authorize(client, actor, 'admin');
+      assertUnrestrictedRead(await this.contentAccess(client, actor));
+      const scoped = new StorypaneStore(this.pool, this.options);
+      scoped.transactionClient = client;
+      scoped.incomingSchema = true;
+      const result = await work(scoped, client);
+      await this.authorize(client, actor, 'admin');
+      await client.query(preview ? 'ROLLBACK' : 'COMMIT');
+      return result;
+    } catch (error) {
+      await client.query('ROLLBACK');
+      dbError(error);
+    } finally {
+      client.release();
+    }
   }
   private async contentAccess(client: PoolClient, actor: Actor) {
     return loadContentAccess(client, actor);
@@ -863,10 +917,20 @@ export class StorypaneStore {
     );
   }
   async updateSpace(actor: Actor, raw: unknown): Promise<Space> {
-    const input = parseInput(spaceInputSchema, raw);
+    const input = parseInput(
+      spaceInputSchema.extend({ schemaReadOnly: z.boolean().optional() }),
+      raw,
+    );
     return this.tx(
       actor,
       async (client) => {
+        if (input.schemaReadOnly !== undefined) {
+          await this.authorize(client, actor, 'admin');
+          await client.query('UPDATE spaces SET schema_read_only=$2 WHERE id=$1', [
+            actor.spaceId,
+            input.schemaReadOnly,
+          ]);
+        }
         await client.query('UPDATE spaces SET name=$2,description=$3 WHERE id=$1', [
           actor.spaceId,
           input.name,
@@ -875,6 +939,7 @@ export class StorypaneStore {
         return (await spacesFor(client, actor.userId, actor.spaceId))[0]!;
       },
       'settings:write',
+      true,
     );
   }
   async listSpaceLocales(actor: Actor): Promise<SpaceLocale[]> {
@@ -1615,6 +1680,13 @@ export class StorypaneStore {
     permission?: Permission | 'admin',
     exclusive = false,
   ): Promise<T> {
+    if (this.transactionClient) {
+      await this.authorize(this.transactionClient, actor, permission);
+      const result = await fn(this.transactionClient);
+      return hasContentResult(result)
+        ? projectResult(await this.contentAccess(this.transactionClient, actor), result)
+        : result;
+    }
     const client = await this.pool.connect();
     try {
       await client.query('BEGIN');
@@ -1985,7 +2057,7 @@ export class StorypaneStore {
         const retained = field.id
           ? previous?.fields.find((old) => old.id === field.id)
           : previous?.fields.find((old) => old.name === field.name);
-        if (field.id && !retained && known.includes(field.id))
+        if (field.id && !retained && known.includes(field.id) && !this.incomingSchema)
           throw new StorypaneError(
             'invalid',
             'A deleted field identity cannot be reused; create a new field',
@@ -2067,7 +2139,7 @@ export class StorypaneStore {
         );
         await this.saveMigrationDefinitions(client, actor, migration, [
           ...migration.definitions,
-          definition,
+          { ...definition, parentDefinitionId: parent },
         ]);
         return { ...definition, parentDefinitionId: parent };
       },
@@ -2124,7 +2196,11 @@ export class StorypaneStore {
           client,
           actor,
           migration,
-          migration.definitions.map((item) => (item.id === definitionId ? definition : item)),
+          migration.definitions.map((item) =>
+            item.id === definitionId
+              ? { ...definition, parentDefinitionId: parentRow.parent_definition_id }
+              : item,
+          ),
         );
         return { ...definition, parentDefinitionId: parentRow.parent_definition_id };
       },
@@ -2137,6 +2213,7 @@ export class StorypaneStore {
       actor,
       async (client) => {
         await client.query('SELECT id FROM spaces WHERE id=$1 FOR UPDATE', [actor.spaceId]);
+        const migration = await this.activeMigration(client, actor);
         const definitions = await this.definitionHeads(client, actor.spaceId, true);
         const previous = definitions.find((item) => item.id === definitionId);
         if (!previous) throw new StorypaneError('not_found', 'Definition not found');
@@ -2152,6 +2229,12 @@ export class StorypaneStore {
         await client.query(
           'UPDATE definitions SET parent_definition_id=$2 WHERE id=$1 AND space_id=$3',
           [definitionId, input.parentDefinitionId, actor.spaceId],
+        );
+        await this.saveMigrationDefinitions(
+          client,
+          actor,
+          migration,
+          definitions.map((item) => (item.id === definitionId ? moved : item)),
         );
         return moved;
       },
@@ -2226,7 +2309,13 @@ export class StorypaneStore {
           client,
           actor,
           migration,
-          migration.definitions.filter((item) => item.id !== definitionId),
+          migration.definitions
+            .filter((item) => item.id !== definitionId)
+            .map((item) =>
+              item.parentDefinitionId === definitionId
+                ? { ...item, parentDefinitionId: previous.parentDefinitionId ?? null }
+                : item,
+            ),
         );
         // Keep immutable versions for history; only move the surviving organizational children.
         await client.query(
@@ -2370,14 +2459,22 @@ export class StorypaneStore {
     const input = parseInput(
       z
         .object({
-          formatVersion: z.literal(1),
+          formatVersion: z.union([z.literal(1), z.literal(2)]),
           id: z.uuid(),
           spaceId: z.uuid(),
           version: z.number().int().positive(),
           baseVersion: z.number().int().nonnegative(),
           name: z.string().trim().min(1).max(120),
           definitions: z
-            .array(z.object({ id: z.uuid(), schema: definitionInputSchema }).strict())
+            .array(
+              z
+                .object({
+                  id: z.uuid(),
+                  parentDefinitionId: z.uuid().nullable().optional(),
+                  schema: definitionInputSchema,
+                })
+                .strict(),
+            )
             .max(10000),
           remoteRevision: z.number().int().positive().nullable(),
           sourceHash: z.string().nullable(),
@@ -2406,8 +2503,20 @@ export class StorypaneStore {
         const previous = found ? migrationRow(found) : undefined;
         const same =
           previous &&
-          digest({ name: previous.name, definitions: migrationTarget(previous) }) ===
-            digest({ name: input.name, definitions: input.definitions });
+          digest({
+            name: previous.name,
+            definitions:
+              input.formatVersion === 2
+                ? portableDefinitions(previous.definitions)
+                : migrationTarget(previous),
+          }) ===
+            digest({
+              name: input.name,
+              definitions:
+                input.formatVersion === 2
+                  ? [...input.definitions].sort((a, b) => a.id.localeCompare(b.id))
+                  : input.definitions,
+            });
         if (same) return previous!;
         if (previous?.status === 'deployed')
           throw new StorypaneError('stale_revision', 'Deployed migrations are immutable');
@@ -2431,7 +2540,10 @@ export class StorypaneStore {
         if (!activeRow && input.remoteRevision !== null)
           throw new StorypaneError('stale_revision', 'The active migration no longer exists');
         const old = activeRow ? migrationRow(activeRow).definitions : base.definitions;
-        if (old.some((definition) => !input.definitions.some((item) => item.id === definition.id)))
+        if (
+          input.formatVersion === 1 &&
+          old.some((definition) => !input.definitions.some((item) => item.id === definition.id))
+        )
           throw new StorypaneError(
             'invalid',
             'Delete blocks from the CMS schema editor, then pull the updated migration',
@@ -2442,22 +2554,39 @@ export class StorypaneStore {
           if (prior && prior.name !== item.schema.name)
             throw new StorypaneError('invalid', 'Definition API names cannot be renamed');
           if (!prior)
-            await client.query('INSERT INTO definitions(id,space_id,name) VALUES($1,$2,$3)', [
-              item.id,
-              actor.spaceId,
-              item.schema.name,
-            ]);
+            await client.query(
+              'INSERT INTO definitions(id,space_id,name) VALUES($1,$2,$3) ON CONFLICT(id) DO NOTHING',
+              [item.id, actor.spaceId, item.schema.name],
+            );
         }
+        const parents = (
+          await client.query('SELECT id,parent_definition_id FROM definitions WHERE space_id=$1', [
+            actor.spaceId,
+          ])
+        ).rows;
         const definitions: BlockDefinition[] = [];
         for (const item of input.definitions) {
           const prior = old.find((definition) => definition.id === item.id);
           const schema = await this.identifyFields(client, item.id, item.schema, prior);
           await this.validateDefinition(client, actor, schema);
           if (prior && canonicalJson(definitionInput(prior)) === canonicalJson(schema)) {
-            definitions.push(prior);
+            definitions.push({
+              ...prior,
+              parentDefinitionId:
+                item.parentDefinitionId === undefined
+                  ? (parents.find((d) => d.id === item.id)?.parent_definition_id ?? null)
+                  : item.parentDefinitionId,
+            });
             continue;
           }
-          const version = (prior?.version ?? 0) + 1;
+          const version = Number(
+            (
+              await client.query(
+                'SELECT coalesce(max(version),0)+1 AS version FROM definition_versions WHERE definition_id=$1',
+                [item.id],
+              )
+            ).rows[0].version,
+          );
           const definition = definitionRow(
             (
               await client.query(
@@ -2470,8 +2599,20 @@ export class StorypaneStore {
             item.id,
             version,
           ]);
-          definitions.push(definition);
+          definitions.push({
+            ...definition,
+            parentDefinitionId:
+              item.parentDefinitionId === undefined
+                ? (parents.find((d) => d.id === item.id)?.parent_definition_id ?? null)
+                : item.parentDefinitionId,
+          });
         }
+        validatePortableDefinitions(portableDefinitions(definitions));
+        for (const definition of definitions)
+          await client.query(
+            'UPDATE definitions SET parent_definition_id=$2 WHERE id=$1 AND space_id=$3',
+            [definition.id, definition.parentDefinitionId ?? null, actor.spaceId],
+          );
         const row = (
           await client.query(
             "INSERT INTO schema_migrations(id,space_id,version,base_version,name,status,definitions,contributors) VALUES($1,$2,$3,$4,$5,'active',$6,ARRAY[$7]::text[]) ON CONFLICT(id) DO UPDATE SET name=EXCLUDED.name,definitions=EXCLUDED.definitions,revision=schema_migrations.revision+1,contributors=ARRAY(SELECT DISTINCT unnest(schema_migrations.contributors || EXCLUDED.contributors)) RETURNING *",
@@ -2764,6 +2905,7 @@ export class StorypaneStore {
       const result = await this.tx(
         actor,
         async (client) => {
+          await this.assertSchemaEditable(client, actor);
           const existing = (
             await client.query('SELECT * FROM schema_migrations WHERE id=$1 AND space_id=$2', [
               id,
@@ -2894,22 +3036,24 @@ export class StorypaneStore {
         'admin',
         true,
       );
-      console.info('Schema migration deployed', {
-        spaceId: actor.spaceId,
-        version: result.version,
-        actor: actor.userId,
-        managementTokenId: actor.managementTokenId,
-        durationMs: Date.now() - started,
-      });
+      if (!this.transactionClient)
+        console.info('Schema migration deployed', {
+          spaceId: actor.spaceId,
+          version: result.version,
+          actor: actor.userId,
+          managementTokenId: actor.managementTokenId,
+          durationMs: Date.now() - started,
+        });
       return result;
     } catch (error) {
-      console.warn('Schema migration failed', {
-        spaceId: actor.spaceId,
-        migrationId: id,
-        actor: actor.userId,
-        code: error instanceof StorypaneError ? error.code : 'unavailable',
-        durationMs: Date.now() - started,
-      });
+      if (!this.transactionClient)
+        console.warn('Schema migration failed', {
+          spaceId: actor.spaceId,
+          migrationId: id,
+          actor: actor.userId,
+          code: error instanceof StorypaneError ? error.code : 'unavailable',
+          durationMs: Date.now() - started,
+        });
       throw error;
     }
   }

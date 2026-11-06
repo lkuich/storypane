@@ -5,25 +5,18 @@ const mocks = vi.hoisted(() => ({
   snapshot: vi.fn(),
   assertActor: vi.fn(),
   preview: vi.fn(),
-  end: vi.fn(),
 }));
-vi.mock('cloudflare:workers', () => ({
-  DurableObject: class {
-    constructor(
-      public ctx: unknown,
-      public env: unknown,
-    ) {}
-  },
-}));
-vi.mock('@storypane/db', () => ({
-  StorypaneStore: class {
-    pool = { end: mocks.end };
-    getSnapshot = mocks.snapshot;
-    assertActor = mocks.assertActor;
-    previewStory = mocks.preview;
-  },
-}));
-import { StoryRoom } from './index.js';
+import { Room } from './room';
+import type { StorypaneStore } from '@storypane/db';
+
+const env = {
+  withStore: async <T>(run: (store: StorypaneStore) => Promise<T>): Promise<T> =>
+    run({
+      getSnapshot: mocks.snapshot,
+      assertActor: mocks.assertActor,
+      previewStory: mocks.preview,
+    } as unknown as StorypaneStore),
+};
 
 const actor: Actor = { userId: 'alice', sessionId: 'session', spaceId: 'space', role: 'editor' };
 const connection = { actor, storyId: 'story', localeId: 'locale' };
@@ -54,14 +47,13 @@ function fixture(preview = false) {
     }),
   };
   const ctx = { getWebSockets: () => [socket] };
-  const room = new StoryRoom(ctx as never, { HYPERDRIVE: { connectionString: 'unused' } });
+  const room = new Room(ctx, env);
   return { socket, room };
 }
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.snapshot.mockResolvedValue(snapshot);
   mocks.assertActor.mockResolvedValue(undefined);
-  mocks.end.mockResolvedValue(undefined);
 });
 describe('realtime recovery and authorization', () => {
   it('refreshes referenced drafts even when the parent story revision is unchanged', async () => {
@@ -207,9 +199,7 @@ it('projects each committed broadcast for its recipient and invalidates without 
       },
     ],
   }));
-  const room = new StoryRoom({ getWebSockets: () => sockets } as never, {
-    HYPERDRIVE: { connectionString: 'unused' },
-  });
+  const room = new Room({ getWebSockets: () => sockets }, env);
   const response = await room.fetch(
     new Request('http://room/invalidate', {
       method: 'POST',
@@ -247,9 +237,7 @@ it('never forwards changed IDs or field values from another subscriber’s full 
     close: vi.fn(),
     deserializeAttachment: () => ({ ...connection, actor: recipient }),
   };
-  const room = new StoryRoom({ getWebSockets: () => [socket] } as never, {
-    HYPERDRIVE: { connectionString: 'unused' },
-  });
+  const room = new Room({ getWebSockets: () => [socket] }, env);
   const response = await room.fetch(
     new Request('http://room/notify', {
       method: 'POST',

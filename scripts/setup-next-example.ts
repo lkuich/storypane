@@ -6,7 +6,9 @@ import { deliverySettingsSchema } from '@storypane/core';
 const envPath = 'apps/example-next/.env';
 const source = existsSync(envPath) ? envPath : 'apps/example-astro/.env';
 if (!existsSync(source)) {
-  throw new Error('Run pnpm example:setup to configure the shared Fieldwork space first.');
+  throw new Error(
+    'Run pnpm --filter @storypane/example-astro setup to configure the shared Fieldwork space first.',
+  );
 }
 const env = parseEnv(readFileSync(source, 'utf8'));
 const cmsUrl = env.STORYPANE_URL || 'http://127.0.0.1:3130';
@@ -74,6 +76,6 @@ assert(
     );
   }
   console.log(
-    `Configured ${target.name}. Existing preview targets and the default are preserved.\nRun pnpm dev:example:next, then select ${target.name} in Storypane’s preview selector.`,
+    `Configured ${target.name}. Existing preview targets and the default are preserved.\nRun pnpm --filter @storypane/example-next dev, then select ${target.name} in Storypane’s preview selector.`,
   );
 }

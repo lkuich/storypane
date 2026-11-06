@@ -30,7 +30,7 @@ export async function writeAtomic(path, value, exclusive = false) {
 export function validateMigration(file) {
   if (
     !file ||
-    file.formatVersion !== 1 ||
+    ![1, 2].includes(file.formatVersion) ||
     !uuid.test(file.id) ||
     !uuid.test(file.spaceId) ||
     !Number.isSafeInteger(file.version) ||
@@ -56,6 +56,9 @@ export function validateMigration(file) {
     if (
       !definition ||
       !(uuid.test(definition.id) || (file.status === 'active' && definition.id === undefined)) ||
+      (definition.parentDefinitionId !== undefined &&
+        definition.parentDefinitionId !== null &&
+        !uuid.test(definition.parentDefinitionId)) ||
       !definition.schema ||
       typeof definition.schema.name !== 'string' ||
       !/^[a-z][a-z0-9_]{0,79}$/.test(definition.schema.name) ||
@@ -104,15 +107,16 @@ export function migrationFile(migration) {
       versionId: _versionId,
       version: _version,
       createdAt: _createdAt,
-      parentDefinitionId: _parent,
+      parentDefinitionId,
       ...schema
     }) => ({
       id,
+      ...(parentDefinitionId !== undefined ? { parentDefinitionId } : {}),
       schema,
     }),
   );
   const file = {
-    formatVersion: 1,
+    formatVersion: definitions.some((d) => d.parentDefinitionId !== undefined) ? 2 : 1,
     id: migration.id,
     spaceId: migration.spaceId,
     version: migration.version,
@@ -284,7 +288,7 @@ export async function createMigration(name, dir = directory) {
   const base = local.deployed.at(-1);
   if (!base) throw new Error('Run storypane migrations pull first');
   const file = {
-    formatVersion: 1,
+    formatVersion: 2,
     id: randomUUID(),
     spaceId: base.spaceId,
     version: base.version + 1,
@@ -385,6 +389,11 @@ export async function pushMigration(
 }
 export async function runMigrations(positionals, values, setting) {
   const [command, name, ...extra] = positionals;
+  if (['status', 'sync', 'promote'].includes(command)) {
+    if (name || extra.length || values.deploy || values.out)
+      throw new Error('Invalid environment migration arguments');
+    return runEnvironmentMigration(command, values, setting);
+  }
   if (
     values.input ||
     extra.length ||
@@ -411,4 +420,104 @@ export async function runMigrations(positionals, values, setting) {
     return;
   }
   throw new Error('Use migrations pull, create, or push');
+}
+
+export async function runEnvironmentMigration(command, values, setting, dir = directory) {
+  const api = createManagementClient({
+    url: setting('URL'),
+    spaceId: setting('SPACE_ID'),
+    token: setting('MANAGEMENT_TOKEN'),
+    productionToken: process.env.STORYPANE_PRODUCTION_MANAGEMENT_TOKEN,
+    timeoutMs: 120000,
+  });
+  if (command === 'status') {
+    if (values.input || values.yes) throw new Error('Use migrations status without flags');
+    console.log(JSON.stringify(await api.request('/migrations/environment'), null, 2));
+    return;
+  }
+  const receiptPath = join(dir, '.transfer.json');
+  const pending = await readJson(receiptPath).catch((error) => {
+    if (error.code === 'ENOENT') return null;
+    throw error;
+  });
+  if (
+    pending &&
+    (pending.spaceId !== setting('SPACE_ID') ||
+      pending.review?.action !== command ||
+      !uuid.test(pending.review?.id) ||
+      !/^[a-f0-9]{64}$/.test(pending.review?.token))
+  )
+    throw new Error(
+      'A different transfer is pending. Resume it before starting another operation.',
+    );
+  const resolutions =
+    pending?.review.resolutions ?? (values.input ? await readJson(resolve(values.input)) : {});
+  const review =
+    pending?.review ??
+    (await api.request('/migrations/transfer-review', {
+      method: 'POST',
+      body: { id: randomUUID(), action: command, resolutions },
+    }));
+  if (review.conflicts.length) {
+    console.log(
+      JSON.stringify(
+        {
+          conflicts: review.conflicts,
+          resolutions: Object.fromEntries(review.conflicts.map((c) => [c.path, 'dev'])),
+        },
+        null,
+        2,
+      ),
+    );
+    throw new Error(
+      'Resolve each conflict with "dev" or "prod" in a JSON object, then run migrations sync --input resolutions.json',
+    );
+  }
+  for (const step of review.steps)
+    printReview({
+      ...step,
+      migration: { version: step.id, name: step.name },
+      confirmation: review.confirmation,
+    });
+  console.log(JSON.stringify({ dependencies: review.dependencies }, null, 2));
+  if (review.steps.some((step) => step.blockers.length))
+    throw new Error('Resolve the listed blockers before applying');
+  if (!values.yes) {
+    if (!process.stdin.isTTY) throw new Error('Noninteractive transfer requires --yes');
+    const prompt = createInterface({ input: process.stdin, output: process.stdout });
+    try {
+      const answer = (
+        await prompt.question(
+          review.confirmation
+            ? `Type ${review.confirmation} to accept data loss: `
+            : `Apply ${command} to ${review.targetSpaceId}? [y/N] `,
+        )
+      ).trim();
+      if (review.confirmation ? answer !== review.confirmation : answer.toLowerCase() !== 'y')
+        return;
+    } finally {
+      prompt.close();
+    }
+  }
+  await writeAtomic(
+    receiptPath,
+    JSON.stringify({ spaceId: setting('SPACE_ID'), review }, null, 2) + '\n',
+  );
+  try {
+    await api.request('/migrations/transfer-apply', {
+      method: 'POST',
+      body: {
+        id: review.id,
+        action: command,
+        resolutions,
+        reviewToken: review.token,
+        ...(review.confirmation ? { confirmation: review.confirmation } : {}),
+      },
+    });
+  } catch (error) {
+    if (error.status === 409) await rm(receiptPath, { force: true });
+    throw error;
+  }
+  await rm(receiptPath, { force: true });
+  console.log(`Applied ${command}. Pull the dev migrations before further edits.`);
 }

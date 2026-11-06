@@ -12,7 +12,10 @@ const env = existsSync('apps/example-astro/.env')
   : undefined;
 
 test('Astro publication and preview contract', async ({ page, context }) => {
-  test.skip(!env, 'Run pnpm example:setup and pnpm build:example first.');
+  test.skip(
+    !env,
+    'Run pnpm --filter @storypane/example-astro setup and pnpm --filter @storypane/example-astro build first.',
+  );
   test.setTimeout(90000);
   const cms = env!.STORYPANE_URL!,
     spaceId = env!.STORYPANE_SPACE_ID!,
@@ -179,7 +182,7 @@ test('Astro editor integration updates drafts, selects nested blocks, and previe
 }) => {
   test.skip(
     !env,
-    'Run pnpm example:setup and pnpm build:example to enable the Astro integration test.',
+    'Run pnpm --filter @storypane/example-astro setup and pnpm --filter @storypane/example-astro build to enable the Astro integration test.',
   );
   test.setTimeout(90000);
   const site = 'http://127.0.0.1:3132',

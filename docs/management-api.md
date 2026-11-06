@@ -198,6 +198,33 @@ public. See the [migration guide](../packages/sdk/README.md#schema-migrations-an
 `--json` applies to management resource commands; migration and codegen commands
 retain their existing output.
 
+### Linked-space migrations
+
+`GET /migrations/environment` reports the space environment, schema protection,
+linked production head, pending migrations, and whether a sync is needed.
+`POST /migrations/transfer-review` accepts `{ id, action, resolutions? }`, where
+`action` is `sync` or `promote` and `id` is a fresh UUID. Its result includes
+conflicts, dependencies, per-step impacts, a review token, and any required
+confirmation. Resolve conflicts before applying.
+
+`POST /migrations/transfer-apply` accepts the same input plus `reviewToken` and,
+when required, `confirmation`. Retain the operation ID and token when retrying a
+lost response. A stale review returns 409. Production applies the complete ordered
+batch transactionally; source acknowledgement is recoverable from its receipt.
+
+Use the dev space in the URL and its bearer token in `Authorization`. Send the
+separate production token in `X-Storypane-Production-Token`; the linked production
+space is resolved by the server. Dev requires deployment access; production
+requires read access for sync and deployment access for promotion. The SDK's
+`createManagementClient` accepts this second credential as `productionToken` and
+sends it only on migration requests. Never expose either credential in a browser.
+
+Space responses include `environment`, `schemaReadOnly`, and `productionSpaceId`.
+Only admins can update `schemaReadOnly` through `PUT /space`. This protection also
+applies to direct migration API/CLI/MCP writes; incoming reviewed transfers use the
+separate authorized boundary. Version 2 migration files carry block parents beside
+their field schemas; older files remain accepted.
+
 ## HTTP v1 operations
 
 Prefix every path below with `/api/management/v1/spaces/{spaceId}`. JSON writes

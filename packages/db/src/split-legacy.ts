@@ -27,6 +27,8 @@ const scoped: Record<string, string> = {
   story_pins: 'story_id IN (SELECT id FROM stories WHERE space_id=$1)',
   asset_folder_placements: 'asset_id IN (SELECT id FROM assets WHERE space_id=$1)',
   webhook_attempts: 'delivery_id IN (SELECT id FROM webhook_deliveries WHERE space_id=$1)',
+  // Clone receipts use the destination space ID; other transfers record it in their result.
+  schema_transfers: "coalesce(result->>'targetSpaceId',id::text)=$1",
 };
 async function insertRows(client: PoolClient, table: string, rows: Record<string, unknown>[]) {
   // JSON recordsets preserve bigint, arrays, timestamps and jsonb without per-field conversions.
@@ -95,7 +97,7 @@ export async function splitLegacy(
     );
     const tables = (
       await legacy.query(
-        'SELECT table_name, array_agg(column_name) AS columns FROM information_schema.columns WHERE table_schema=current_schema() GROUP BY table_name ORDER BY table_name',
+        'SELECT table_name, array_agg(column_name::text) AS columns FROM information_schema.columns WHERE table_schema=current_schema() GROUP BY table_name ORDER BY table_name',
       )
     ).rows as Array<{ table_name: string; columns: string[] }>;
     const ignored = new Set([
