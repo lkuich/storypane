@@ -1,6 +1,7 @@
 # Documentation index
 
-Start with [Getting started](getting-started.md) to run a fresh local installation.
+To use an installed CMS, follow [Your first page in Storypane](editor-quickstart.md).
+To install the CMS, start with [Install Storypane](getting-started.md).
 
 - [Node installations](self-hosting.md): Docker setup, external Postgres and storage,
   authentication, operator commands, upgrades, backups, and recovery.

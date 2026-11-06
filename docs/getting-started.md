@@ -36,7 +36,8 @@ docker compose --env-file .env.production -f compose.node.yaml exec web \
 ```
 
 Open `http://localhost:3130`, sign in with that administrator, and create your
-first space. There are no default credentials or public signup endpoint. See
+first space. Continue with [Your first page in Storypane](editor-quickstart.md) for the
+editor walkthrough. There are no default credentials or public signup endpoint. See
 [Node installation and production setup](self-hosting.md) for external Postgres
 and object storage, invites, backup/restore, upgrades, and recovery.
 
