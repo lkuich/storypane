@@ -11,10 +11,14 @@ import {
 } from '@storypane/core';
 
 const databaseUrl =
-  process.env.TEST_DATABASE_URL ?? 'postgresql://blok:blok@127.0.0.1:55432/blok_test';
+  process.env.TEST_DATABASE_URL ??
+  'postgresql://storypane:storypane@127.0.0.1:55432/storypane_test';
 const target = new URL(databaseUrl);
-if (!['localhost', '127.0.0.1'].includes(target.hostname) || target.pathname !== '/blok_test')
-  throw new Error('Require disposable local blok_test');
+if (
+  !['localhost', '127.0.0.1'].includes(target.hostname) ||
+  target.pathname !== `/${process.env.POSTGRES_DB ?? 'storypane'}_test`
+)
+  throw new Error('Require dedicated local test database');
 const schema = 'webhook_review_' + randomUUID().replaceAll('-', '');
 const admin = new Pool({ connectionString: databaseUrl });
 const pool = new Pool({

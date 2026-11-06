@@ -1,4 +1,4 @@
-Storypane's first public release candidate: **0.1.0-rc.1**.
+Storypane's public release candidate: **0.1.0-rc.2**.
 
 A self-hosted Node/Docker CMS with block-level collaboration, live preview,
 independent locales, linked developer spaces and schema migrations, content
@@ -15,7 +15,7 @@ replica. Fresh hosted acceptance, an independent security audit, and production
 load benchmarks remain outstanding. Back up all databases, original media and
 keys before upgrades. See the acceptance checklist and known limits in the docs.
 
-The attached SDK tarball installs with `npm install ./storypane-sdk-0.1.0-rc.1.tgz`.
+The attached SDK tarball installs with `npm install ./storypane-sdk-0.1.0-rc.2.tgz`.
 Registry publication is separate and gated on npm scope/publisher setup; installing
 an RC from npm requires the explicit version or `rc` tag. The CMS is built from
 this source tag with Docker Compose. No prebuilt CMS image is required.

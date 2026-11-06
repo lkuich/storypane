@@ -1,7 +1,7 @@
 # Releases and versioning
 
-The current version is **0.1.0-rc.1**, the first public release candidate. The
-CMS checkout and SDK share that version. Tags use `v0.1.0-rc.1`; later candidates
+The current version is **0.1.0-rc.2**, the current public release candidate. The
+CMS checkout and SDK share that version. Tags use `v0.1.0-rc.2`; later candidates
 increment the final number. `0.1.0` will be the first stable release only after
 its acceptance checks pass. An RC is for evaluation, not a production-readiness
 promise.
@@ -13,7 +13,7 @@ Check out an explicit tag rather than tracking a moving branch:
 ```sh
 git clone https://github.com/lkuich/storypane.git
 cd storypane
-git checkout v0.1.0-rc.1
+git checkout v0.1.0-rc.2
 node scripts/setup-env.mjs
 ```
 
@@ -49,7 +49,7 @@ and persistence after restart. Record the tested revision, providers, and result
 2. Run the checks above and the relevant browser/deployment acceptance checks.
    Document any unverified areas instead of calling them verified.
 3. Commit and push. Tag that exact commit and push the tag, for example:
-   `git tag v0.1.0-rc.1` then `git push origin v0.1.0-rc.1`.
+   `git tag v0.1.0-rc.2` then `git push origin v0.1.0-rc.2`.
 4. The release workflow repeats CI, validates tag/version agreement, then creates
    a GitHub **prerelease** and uploads the installable SDK tarball. A tag push
    does not publish to npm.
@@ -74,7 +74,7 @@ terminal (with npm's required account/2FA checks):
 ```sh
 pnpm install --frozen-lockfile
 pnpm test:package
-npm publish artifacts/storypane-sdk-0.1.0-rc.1.tgz --access public --tag rc
+npm publish artifacts/storypane-sdk-0.1.0-rc.2.tgz --access public --tag rc
 ```
 
 Then configure the package's **Trusted Publisher** on npm:

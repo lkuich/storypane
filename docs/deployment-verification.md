@@ -163,3 +163,13 @@ These are local release checks, not fresh hosted-install acceptance:
 Fresh hosted acceptance, authenticated end-to-end browser acceptance for this
 candidate, backup-restore rehearsal, an independent security audit and production
 load benchmarks remain outstanding. The provider deployment gates remain closed.
+
+### rc.2 clean-fixture correction
+
+The rc.1 GitHub release gate rejected three legacy suites that still required
+`blok_test`. Their guards/default URLs now match the documented `POSTGRES_DB`
+and `storypane_test` setup while retaining the localhost/test-database restriction.
+All 74 affected lifecycle/webhook tests passed against a new disposable cluster
+with no existing databases. The rc.2 packed SDK consumer check and lint passed.
+No rc.1 package was published; the failed tag remains in history. GitHub release
+CI must pass before publishing rc.2. This does not change hosted acceptance status.

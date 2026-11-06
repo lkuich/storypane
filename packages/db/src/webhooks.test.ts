@@ -10,10 +10,14 @@ import { verifyWebhookSignature } from './webhook-transport.js';
 import { createRebuildReceiver } from '../../../scripts/webhook-rebuild.js';
 
 const databaseUrl =
-  process.env.TEST_DATABASE_URL ?? 'postgresql://blok:blok@127.0.0.1:55432/blok_test';
+  process.env.TEST_DATABASE_URL ??
+  'postgresql://storypane:storypane@127.0.0.1:55432/storypane_test';
 const target = new URL(databaseUrl);
-if (!['localhost', '127.0.0.1'].includes(target.hostname) || target.pathname !== '/blok_test')
-  throw new Error('Webhook tests require disposable local blok_test');
+if (
+  !['localhost', '127.0.0.1'].includes(target.hostname) ||
+  target.pathname !== `/${process.env.POSTGRES_DB ?? 'storypane'}_test`
+)
+  throw new Error('Webhook tests require dedicated local test database');
 const schemaName = 'webhooks_test_' + randomUUID().replaceAll('-', '');
 const admin = new Pool({ connectionString: databaseUrl });
 const pool = new Pool({

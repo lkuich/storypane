@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.0-rc.2 — 2026-11-06
+
+- Align three legacy database test guards/defaults with the documented
+  `POSTGRES_DB` and `storypane_test` setup. Preserve the localhost/dedicated-test
+  database restriction. Clean GitHub CI exposed the old hardcoded `blok_test` names.
+- Advance the app and SDK together. The rc.1 tag remains in history, but its
+  release gate failed and no rc.1 GitHub package or npm version was published.
+- All features and known limits below remain applicable.
+
 ## 0.1.0-rc.1 — 2026-11-06
 
 First public release candidate. Intended for evaluation and migration rehearsals;
