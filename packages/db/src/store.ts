@@ -1910,6 +1910,38 @@ export class StorypaneStore {
         );
     });
   }
+  async listDefinitionReferenceCounts(actor: Actor): Promise<Record<string, number>> {
+    return this.tx(actor, async (client) => {
+      const access = await this.contentAccess(client, actor);
+      const { rows } = await client.query<{ definition_id: string; total: number }>(
+        `WITH usage AS (
+          SELECT v.definition_id,s.id AS story_id
+          FROM stories s JOIN story_locales l ON l.story_id=s.id
+            JOIN block_drafts b ON b.locale_id=l.id JOIN definition_versions v ON v.id=b.schema_version_id
+          WHERE s.space_id=$1 AND s.deleted_at IS NULL AND l.id=ANY($2::uuid[])
+            AND ($3::uuid[] IS NULL OR v.definition_id=ANY($3))
+            AND ($4::text[] IS NULL OR EXISTS(SELECT 1 FROM jsonb_array_elements(v.schema->'fields') f WHERE f->>'id'=ANY($4)))
+          UNION ALL
+          SELECT (d->>'id')::uuid,s.id
+          FROM stories s JOIN story_locales l ON l.story_id=s.id JOIN publications p ON p.id=l.published_version_id
+            CROSS JOIN LATERAL jsonb_array_elements(p.snapshot->'blocks') b
+            CROSS JOIN LATERAL jsonb_array_elements(p.snapshot->'definitions') d
+          WHERE s.space_id=$1 AND s.deleted_at IS NULL AND l.id=ANY($2::uuid[])
+            AND d->>'versionId'=b->>'schemaVersionId'
+            AND ($3::uuid[] IS NULL OR (d->>'id')::uuid=ANY($3))
+            AND ($4::text[] IS NULL OR EXISTS(SELECT 1 FROM jsonb_array_elements(d->'fields') f WHERE f->>'id'=ANY($4)))
+        ) SELECT definition_id,count(DISTINCT story_id)::int AS total
+          FROM usage GROUP BY definition_id`,
+        [
+          actor.spaceId,
+          access.locales.map((locale) => locale.id),
+          access.admin ? null : access.scopes.read.definitionIds,
+          access.admin ? null : access.scopes.read.fieldIds,
+        ],
+      );
+      return Object.fromEntries(rows.map((row) => [row.definition_id, row.total]));
+    });
+  }
   async listDefinitionReferences(
     actor: Actor,
     definitionId: string,

@@ -1,7 +1,19 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
-import { Box, ChevronRight, GripVertical, Layers, Plus, Search } from 'lucide-react';
+import {
+  ArrowDown,
+  ArrowUp,
+  ArrowUpDown,
+  Box,
+  ChevronRight,
+  GripVertical,
+  Layers,
+  Pencil,
+  Plus,
+  Search,
+  Trash2,
+} from 'lucide-react';
 import {
   can,
   definitionInput,
@@ -15,11 +27,18 @@ import type { RegisterGuard } from '../editor/navigation';
 import { EnvironmentPanel } from './environment-panel';
 import { MigrationPanel } from './migration-panel';
 import { SchemaDrawer } from './schema-drawer';
-import { definitionDescendants, definitionTreeRows } from './definition-tree';
+import { definitionDescendants, definitionTreeRows, type DefinitionSort } from './definition-tree';
 import type { CMSSession } from '../../components/cms-app';
 
 const kindLabels = { nestable: 'Nestable', 'content-type': 'Content type', universal: 'Universal' };
 const kindColors = { nestable: 'blue', 'content-type': 'green', universal: 'violet' };
+const columns: { key: DefinitionSort['column']; label: string; mobileHide?: boolean }[] = [
+  { key: 'name', label: 'Block' },
+  { key: 'kind', label: 'Usage' },
+  { key: 'references', label: 'References' },
+  { key: 'fields', label: 'Fields', mobileHide: true },
+  { key: 'updated', label: 'Updated', mobileHide: true },
+];
 
 export function SchemaLibrary({
   space,
@@ -37,7 +56,13 @@ export function SchemaLibrary({
   const [error, setError] = useState<string | null>(null);
   const [moveError, setMoveError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
+  const [showReferences, setShowReferences] = useState(false);
+  const [referenceCounts, setReferenceCounts] = useState<Record<string, number> | null>(null);
+  const [referenceError, setReferenceError] = useState('');
+  const [referenceAttempt, setReferenceAttempt] = useState(0);
+  const [sort, setSort] = useState<DefinitionSort>({ column: 'name', direction: 'asc' });
   const [editing, setEditing] = useState<BlockDefinition | 'new' | null>(null);
+  const [initialView, setInitialView] = useState<'fields' | 'references' | 'delete'>();
   const [initialParentId, setInitialParentId] = useState<string>();
   const [collapsed, setCollapsed] = useState(new Set<string>());
   const [dragging, setDragging] = useState<string | null>(null);
@@ -83,7 +108,44 @@ export function SchemaLibrary({
       window.removeEventListener('focus', refresh);
     };
   }, [load]);
-  const rows = definitionTreeRows(definitions, collapsed, search);
+  useEffect(() => {
+    if (!showReferences) return;
+    let stopped = false,
+      pending = false;
+    const controller = new AbortController();
+    setReferenceCounts(null);
+    setReferenceError('');
+    const refresh = async () => {
+      if (document.hidden || pending) return;
+      pending = true;
+      try {
+        const counts = await api<Record<string, number>>('/definitions/reference-counts', {
+          signal: AbortSignal.any([controller.signal, AbortSignal.timeout(20_000)]),
+        });
+        if (!stopped) {
+          setReferenceCounts(counts);
+          setReferenceError('');
+        }
+      } catch (cause) {
+        if (!stopped) {
+          setReferenceCounts(null);
+          setReferenceError(errorMessage(cause));
+        }
+      } finally {
+        pending = false;
+      }
+    };
+    void refresh();
+    const timer = setInterval(() => void refresh(), 5000);
+    window.addEventListener('focus', refresh);
+    return () => {
+      stopped = true;
+      controller.abort();
+      clearInterval(timer);
+      window.removeEventListener('focus', refresh);
+    };
+  }, [showReferences, referenceAttempt]);
+  const rows = definitionTreeRows(definitions, collapsed, search, sort, referenceCounts ?? {});
   const publishedInputs = new Map(
     deployed.map((item) => [
       item.id,
@@ -102,8 +164,13 @@ export function SchemaLibrary({
     (source.parentDefinitionId ?? null) !== parentId &&
     (!parentId || !excluded.has(parentId));
   function create(parentId?: string) {
+    setInitialView(undefined);
     setInitialParentId(parentId);
     setEditing('new');
+  }
+  function open(definition: BlockDefinition, view: 'fields' | 'references' | 'delete' = 'fields') {
+    setInitialView(view);
+    setEditing(definition);
   }
   async function move(parentId: string | null) {
     if (!canDrop(parentId) || !source) return;
@@ -173,6 +240,18 @@ export function SchemaLibrary({
             onChange={(event) => setSearch(event.target.value)}
           />
         </div>
+        <label className="definition-reference-toggle">
+          <input
+            type="checkbox"
+            checked={showReferences}
+            onChange={(event) => {
+              setShowReferences(event.target.checked);
+              if (!event.target.checked && sort.column === 'references')
+                setSort({ column: 'name', direction: 'asc' });
+            }}
+          />
+          Show references
+        </label>
         <span className="small muted">{definitions.length} block types</span>
         {dragging && (
           <div
@@ -194,17 +273,67 @@ export function SchemaLibrary({
           </div>
         )}
       </div>
+      {showReferences && (
+        <ErrorNotice
+          message={
+            referenceError ? `Reference counts could not be loaded. ${referenceError}` : null
+          }
+          retry={() => setReferenceAttempt((attempt) => attempt + 1)}
+        />
+      )}
       <div className="panel definition-library" aria-busy={moving}>
         {loading ? (
           <Loading />
         ) : rows.length ? (
           <table className="data-table">
+            <caption className="sr-only">
+              Blocks, sorted within each parent. References count unique stories you can access in
+              current drafts or publications.
+            </caption>
             <thead>
               <tr>
-                <th>Block</th>
-                <th>Usage</th>
-                <th className="table-mobile-hide">Fields</th>
-                <th className="table-mobile-hide">Updated</th>
+                {columns
+                  .filter((column) => column.key !== 'references' || showReferences)
+                  .map((column) => (
+                    <th
+                      key={column.key}
+                      scope="col"
+                      className={column.mobileHide ? 'table-mobile-hide' : undefined}
+                      aria-sort={
+                        sort.column === column.key
+                          ? sort.direction === 'asc'
+                            ? 'ascending'
+                            : 'descending'
+                          : 'none'
+                      }
+                    >
+                      <button
+                        type="button"
+                        className="definition-sort"
+                        aria-label={`Sort by ${column.label}`}
+                        title="Sort blocks within each parent"
+                        disabled={column.key === 'references' && !referenceCounts}
+                        onClick={() =>
+                          setSort({
+                            column: column.key,
+                            direction:
+                              sort.column === column.key && sort.direction === 'asc'
+                                ? 'desc'
+                                : 'asc',
+                          })
+                        }
+                      >
+                        {column.label}
+                        {sort.column !== column.key ? (
+                          <ArrowUpDown aria-hidden="true" />
+                        ) : sort.direction === 'asc' ? (
+                          <ArrowUp aria-hidden="true" />
+                        ) : (
+                          <ArrowDown aria-hidden="true" />
+                        )}
+                      </button>
+                    </th>
+                  ))}
                 {canManage && (
                   <th>
                     <span className="sr-only">Actions</span>
@@ -289,7 +418,7 @@ export function SchemaLibrary({
                         <button
                           className="entity-title"
                           disabled={moving}
-                          onClick={() => setEditing(item)}
+                          onClick={() => open(item)}
                         >
                           {item.displayName}
                         </button>
@@ -309,6 +438,31 @@ export function SchemaLibrary({
                       {kindLabels[item.kind]}
                     </span>
                   </td>
+                  {showReferences && (
+                    <td>
+                      {referenceCounts ? (
+                        <button
+                          type="button"
+                          className="definition-reference-count"
+                          aria-label={`View ${referenceCounts[item.id] ?? 0} story references for ${item.displayName}`}
+                          onClick={() => open(item, 'references')}
+                        >
+                          {referenceCounts[item.id] ?? 0}
+                        </button>
+                      ) : (
+                        <span
+                          className="small muted"
+                          aria-label={
+                            referenceError
+                              ? 'Reference count unavailable'
+                              : 'Loading reference count'
+                          }
+                        >
+                          {referenceError ? '—' : '…'}
+                        </span>
+                      )}
+                    </td>
+                  )}
                   <td className="table-mobile-hide">
                     <span className="small muted">
                       {item.fields.length} fields · v{item.version}
@@ -319,16 +473,38 @@ export function SchemaLibrary({
                   </td>
                   {canManage && (
                     <td>
-                      <Button
-                        variant="ghost"
-                        className="icon-button"
-                        disabled={moving}
-                        aria-label={`Create nested block under ${item.displayName}`}
-                        title="Create nested block"
-                        onClick={() => create(item.id)}
-                      >
-                        <Plus />
-                      </Button>
+                      <div className="content-row-actions">
+                        <Button
+                          variant="ghost"
+                          className="icon-button"
+                          disabled={moving}
+                          aria-label={`Edit ${item.displayName}`}
+                          title="Edit block"
+                          onClick={() => open(item)}
+                        >
+                          <Pencil aria-hidden="true" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          className="icon-button definition-delete-action"
+                          disabled={moving}
+                          aria-label={`Delete ${item.displayName}`}
+                          title="Delete block"
+                          onClick={() => open(item, 'delete')}
+                        >
+                          <Trash2 aria-hidden="true" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          className="icon-button"
+                          disabled={moving}
+                          aria-label={`Create nested block under ${item.displayName}`}
+                          title="Create nested block"
+                          onClick={() => create(item.id)}
+                        >
+                          <Plus />
+                        </Button>
+                      </div>
                     </td>
                   )}
                 </tr>
@@ -356,6 +532,7 @@ export function SchemaLibrary({
           key={editing === 'new' ? `new-${initialParentId ?? 'root'}` : editing.id}
           initialDefinition={editing === 'new' ? null : editing}
           initialParentId={editing === 'new' ? initialParentId : undefined}
+          initialView={initialView}
           definitions={definitions}
           datasources={datasources}
           space={space}

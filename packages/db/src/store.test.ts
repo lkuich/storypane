@@ -3263,6 +3263,10 @@ describe('block definition references', () => {
       ),
     ).toBe(true);
     expect((await store.listDefinitionReferences(alice, root.definitionId)).total).toBe(1);
+    expect(await store.listDefinitionReferenceCounts(alice)).toMatchObject({
+      [hero.definitionId]: 1,
+      [root.definitionId]: 1,
+    });
     const unused = await store.createDefinition(alice, {
       name: 'unused_reference_parent',
       displayName: 'Unused parent',
@@ -3274,6 +3278,7 @@ describe('block definition references', () => {
       expectedParentDefinitionId: null,
     });
     expect((await store.listDefinitionReferences(alice, unused.id)).total).toBe(0);
+    expect(await store.listDefinitionReferenceCounts(alice)).not.toHaveProperty(unused.id);
     await run(alice, snapshot, {
       ...commandBase(),
       type: 'publishCheckpoint',
@@ -3282,17 +3287,20 @@ describe('block definition references', () => {
     expect(
       (await store.listDefinitionReferences(alice, hero.definitionId)).items[0].locales[0],
     ).toMatchObject({ draft: true, published: true });
+    expect((await store.listDefinitionReferenceCounts(alice))[hero.definitionId]).toBe(1);
     await pool.query(
       'DELETE FROM block_drafts WHERE schema_version_id=$1 AND locale_id=ANY($2::uuid[])',
       [hero.schemaVersionId, [snapshot.locale.id, translated.locale.id]],
     );
     const liveOnly = await store.listDefinitionReferences(alice, hero.definitionId);
     expect(liveOnly.total).toBe(1);
+    expect((await store.listDefinitionReferenceCounts(alice))[hero.definitionId]).toBe(1);
     expect(liveOnly.items[0].locales).toMatchObject([
       { localeId: snapshot.locale.id, draft: false, published: true, blockId: null },
     ]);
     await pool.query('UPDATE stories SET deleted_at=now() WHERE id=$1', [snapshot.story.id]);
     expect((await store.listDefinitionReferences(alice, hero.definitionId)).total).toBe(0);
+    expect(await store.listDefinitionReferenceCounts(alice)).toEqual({});
     await pool.query('UPDATE stories SET deleted_at=NULL WHERE id=$1', [snapshot.story.id]);
     await pool.query('UPDATE story_locales SET published_version_id=NULL WHERE id=$1', [
       snapshot.locale.id,
@@ -3302,6 +3310,7 @@ describe('block definition references', () => {
       items: [],
       nextCursor: null,
     });
+    expect(await store.listDefinitionReferenceCounts(alice)).not.toHaveProperty(hero.definitionId);
   });
   it('paginates stories while keeping an exact total and rejects foreign or invalid requests', async () => {
     const root = snapshot.blocks.find((block) => block.id === snapshot.locale.rootBlockId)!;
@@ -3326,6 +3335,7 @@ describe('block definition references', () => {
     }
     const first = await store.listDefinitionReferences(alice, root.definitionId);
     expect(first.total).toBe(22);
+    expect((await store.listDefinitionReferenceCounts(alice))[root.definitionId]).toBe(22);
     expect(first.items).toHaveLength(20);
     expect(first.nextCursor).toBe('20');
     const second = await store.listDefinitionReferences(alice, root.definitionId, {
@@ -3349,6 +3359,7 @@ describe('block definition references', () => {
       code: 'not_found',
     });
     const other = await store.createSpace(alice, { name: 'Other references' });
+    expect(await store.listDefinitionReferenceCounts({ ...alice, spaceId: other.id })).toEqual({});
     await expect(
       store.listDefinitionReferences({ ...alice, spaceId: other.id }, root.definitionId),
     ).rejects.toMatchObject({ code: 'not_found' });
@@ -4354,6 +4365,7 @@ describe('scoped content permissions', () => {
     const refs = await store.listDefinitionReferences(bob, hero.definitionId);
     expect(refs.total).toBe(1);
     expect(refs.items[0].locales.map((item) => item.localeSlug)).toEqual(['fr']);
+    expect(await store.listDefinitionReferenceCounts(bob)).toEqual({ [hero.definitionId]: 1 });
     expect((await store.listDefinitionReferences(bob, footer.definitionId)).total).toBe(0);
     scopes.read.definitionIds = null;
     scopes.read.localeIds = null;
@@ -4367,6 +4379,7 @@ describe('scoped content permissions', () => {
     );
     expect((await store.listDefinitionReferences(bob, hero.definitionId)).total).toBe(0);
     expect((await store.listDefinitionReferences(bob, footer.definitionId)).total).toBe(1);
+    expect(await store.listDefinitionReferenceCounts(bob)).toEqual({ [footer.definitionId]: 1 });
     scopes.read.locations = { folderIds: [], storyIds: [] };
     await store.saveSpaceRole(
       alice,
@@ -4374,6 +4387,7 @@ describe('scoped content permissions', () => {
       role.id,
     );
     expect((await store.listDefinitionReferences(bob, footer.definitionId)).total).toBe(0);
+    expect(await store.listDefinitionReferenceCounts(bob)).toEqual({});
     await store.saveSpaceRole(
       alice,
       {
@@ -4384,6 +4398,7 @@ describe('scoped content permissions', () => {
       role.id,
     );
     expect((await store.listDefinitionReferences(bob, hero.definitionId)).total).toBe(0);
+    expect(await store.listDefinitionReferenceCounts(bob)).toEqual({});
   });
   it('redacts current and historical fields, preserves hidden values on save and rejects whole-page actions', async () => {
     const hero = blockNamed(snapshot, 'hero');

@@ -1,5 +1,10 @@
 import type { BlockDefinition } from '@storypane/core';
 
+export type DefinitionSort = {
+  column: 'name' | 'kind' | 'fields' | 'updated' | 'references';
+  direction: 'asc' | 'desc';
+};
+
 export function definitionDescendants(definitions: BlockDefinition[], id: string): Set<string> {
   const children = new Map<string, string[]>();
   for (const item of definitions) {
@@ -23,12 +28,31 @@ export function definitionTreeRows(
   definitions: BlockDefinition[],
   collapsed = new Set<string>(),
   search = '',
+  sort: DefinitionSort = { column: 'name', direction: 'asc' },
+  references: Record<string, number> = {},
 ) {
   const byId = new Map(definitions.map((item) => [item.id, item]));
   const children = new Map<string | null, BlockDefinition[]>();
   const visible = new Set<string>();
   const query = search.trim().toLowerCase();
-  for (const item of [...definitions].sort((a, b) => a.displayName.localeCompare(b.displayName))) {
+  const ordered = [...definitions].sort((a, b) => {
+    const compared =
+      sort.column === 'kind'
+        ? a.kind.localeCompare(b.kind)
+        : sort.column === 'fields'
+          ? a.fields.length - b.fields.length
+          : sort.column === 'updated'
+            ? Date.parse(a.createdAt) - Date.parse(b.createdAt)
+            : sort.column === 'references'
+              ? (references[a.id] ?? 0) - (references[b.id] ?? 0)
+              : a.displayName.localeCompare(b.displayName);
+    return (
+      compared * (sort.direction === 'asc' ? 1 : -1) ||
+      a.displayName.localeCompare(b.displayName) ||
+      a.id.localeCompare(b.id)
+    );
+  });
+  for (const item of ordered) {
     const parent = item.parentDefinitionId ?? null;
     const siblings = children.get(parent) ?? [];
     siblings.push(item);

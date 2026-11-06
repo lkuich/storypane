@@ -284,6 +284,8 @@ async function handle(request: Request, route: { params: Promise<{ path: string[
       });
     }
     if (resource === 'definitions') {
+      if (method === 'GET' && id === 'reference-counts' && !child)
+        return jsonResponse(await store.listDefinitionReferenceCounts(actor));
       if (method === 'DELETE' && id && !child) {
         await store.deleteDefinition(actor, id, await readJson(request));
         return jsonResponse({ ok: true });

@@ -35,6 +35,7 @@ export function SchemaDrawer({
   initialDefinition,
   initialFieldName,
   initialParentId,
+  initialView,
   definitions,
   datasources,
   space,
@@ -47,6 +48,7 @@ export function SchemaDrawer({
   initialDefinition: BlockDefinition | null;
   initialFieldName?: string;
   initialParentId?: string;
+  initialView?: 'fields' | 'references' | 'delete';
   definitions: BlockDefinition[];
   datasources: Datasource[];
   space: CMSSession['space'];
@@ -86,14 +88,17 @@ export function SchemaDrawer({
     initialField < 0 ? null : initialField,
   );
   const [tab, setTab] = useState<'fields' | 'config' | 'references'>(
-    initialDefinition ? 'fields' : 'config',
+    initialView === 'delete'
+      ? 'config'
+      : (initialView ?? (initialDefinition ? 'fields' : 'config')),
   );
   const [referenceCount, setReferenceCount] = useState<number | '…' | '—'>(
     initialDefinition ? '…' : 0,
   );
   const [busy, setBusy] = useState(false);
   const [saved, setSaved] = useState(false);
-  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(initialView === 'delete' && canManage);
+  const [deleteFromRow, setDeleteFromRow] = useState(initialView === 'delete' && canManage);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [newName, setNewName] = useState('');
   const [newType, setNewType] = useState(FIELD_CHOICES.find((choice) => choice.id === 'text')!);
@@ -127,6 +132,11 @@ export function SchemaDrawer({
   function close() {
     if (busy || (dirty && !window.confirm('Discard your unsaved schema changes?'))) return;
     onClose();
+  }
+  function cancelDelete() {
+    if (busy) return;
+    setConfirmDelete(false);
+    if (deleteFromRow) close();
   }
   const originalId = original?.id,
     originalVersionId = original?.versionId;
@@ -324,7 +334,7 @@ export function SchemaDrawer({
   return (
     <>
       <Modal
-        open
+        open={!deleteFromRow}
         closeOnBackdrop
         onClose={close}
         title={original ? `${canManage ? 'Edit' : 'View'} '${original.name}'` : 'New block'}
@@ -538,6 +548,7 @@ export function SchemaDrawer({
                         variant="danger"
                         disabled={busy || baseVersion === null || !!remote}
                         onClick={() => {
+                          setDeleteFromRow(false);
                           setDeleteError(null);
                           setConfirmDelete(true);
                         }}
@@ -834,9 +845,7 @@ export function SchemaDrawer({
       </Modal>
       <Modal
         open={confirmDelete}
-        onClose={() => {
-          if (!busy) setConfirmDelete(false);
-        }}
+        onClose={cancelDelete}
         title={`Delete “${original?.displayName ?? 'block'}”?`}
       >
         <p>
@@ -848,6 +857,9 @@ export function SchemaDrawer({
           <p>Nested block definitions will be kept and moved up one level.</p>
         )}
         {dirty && <p>Unsaved schema edits will be discarded.</p>}
+        {remote && (
+          <p>The schema changed. Close this dialog and review the block before deleting it.</p>
+        )}
         {referenceCount !== 0 && (
           <p>
             {referenceCount === '…'
@@ -857,15 +869,16 @@ export function SchemaDrawer({
                 : 'This block cannot be deleted while stories still reference it. Check the References tab before continuing.'}
           </p>
         )}
-        <ErrorNotice message={deleteError} />
+        <ErrorNotice message={deleteError ?? error} />
         <div className="dialog-actions">
-          <Button disabled={busy} onClick={() => setConfirmDelete(false)}>
+          <Button disabled={busy} onClick={cancelDelete}>
             Cancel
           </Button>
           {referenceCount !== 0 && (
             <Button
               disabled={busy}
               onClick={() => {
+                setDeleteFromRow(false);
                 setConfirmDelete(false);
                 setTab('references');
                 requestAnimationFrame(() =>

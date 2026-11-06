@@ -5182,6 +5182,7 @@ hr {
 }
 
 .definition-library {
+  position: relative;
   overflow-x: auto;
 }
 .definition-tree-name {
@@ -5227,6 +5228,61 @@ hr {
 }
 .definition-library-toolbar {
   position: relative;
+  flex-wrap: wrap;
+  justify-content: flex-start;
+}
+.definition-library-toolbar > .small {
+  margin-left: auto;
+}
+.definition-reference-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  font-size: 12px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.definition-reference-toggle input {
+  width: 16px;
+  height: 16px;
+}
+.definition-sort {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  padding: 8px 0;
+}
+.definition-sort svg {
+  width: 14px;
+  height: 14px;
+}
+.definition-sort:hover,
+.definition-library th[aria-sort='ascending'],
+.definition-library th[aria-sort='descending'] {
+  color: var(--accent);
+}
+.definition-reference-count {
+  min-width: 36px;
+  min-height: 44px;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  font-variant-numeric: tabular-nums;
+}
+.definition-reference-count:hover {
+  background: var(--accent-soft);
+}
+.definition-delete-action {
+  color: var(--danger);
 }
 .definition-root-drop {
   position: absolute;
