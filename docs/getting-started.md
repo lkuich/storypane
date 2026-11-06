@@ -53,6 +53,7 @@ ignored `.env` as described in the local development section of the
 Postgres and object storage, then migrate and bootstrap the installation database:
 
 ```sh
+pnpm install --frozen-lockfile
 pnpm db:start
 node --env-file=.env --import tsx scripts/admin.ts migrate
 node --env-file=.env --import tsx scripts/admin.ts bootstrap
