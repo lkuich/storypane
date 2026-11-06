@@ -1,3 +1,5 @@
+import { readPageMap } from './page-map.js';
+import { pageMapQuerySchema, pageMapResponseSchema, pageMapPagesSchema } from '@storypane/core';
 import { richTextAssetIds } from '@storypane/core';
 import { recordWebhookEvent } from './webhooks.js';
 import {
@@ -482,6 +484,19 @@ export class StorypaneStore {
     } finally {
       client.release();
     }
+  }
+  async pageMap(actor: Actor, raw: unknown, view: 'graph' | 'pages' | 'orphans' = 'graph') {
+    const query = parseInput(pageMapQuerySchema, raw);
+    return this.tx(
+      actor,
+      async (client) => {
+        const result = await readPageMap(client, actor, query, view);
+        return view === 'graph'
+          ? pageMapResponseSchema.parse(result)
+          : pageMapPagesSchema.parse(result);
+      },
+      'content:read',
+    );
   }
   private async contentAccess(client: PoolClient, actor: Actor) {
     return loadContentAccess(client, actor);

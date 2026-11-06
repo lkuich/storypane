@@ -1,0 +1,177 @@
+.page-map {
+  --xy-background-color: var(--bg);
+  --xy-node-color: var(--ink);
+  --xy-edge-stroke: var(--muted);
+  --xy-edge-label-color: var(--ink);
+  --xy-edge-label-background-color: var(--surface);
+  --xy-controls-button-background-color: var(--surface);
+  --xy-controls-button-color: var(--ink);
+  --xy-controls-button-border-color: var(--border);
+  --xy-attribution-background-color: var(--surface);
+}
+.map-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  align-items: end;
+  margin-bottom: 20px;
+}
+.map-toolbar .field {
+  min-width: 120px;
+  flex: 1;
+}
+.map-toolbar .checkbox-label {
+  padding-bottom: 10px;
+}
+.map-picker,
+.map-accessible-list,
+.map-orphans {
+  margin: 16px 0;
+  padding: 16px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+.page-map summary {
+  cursor: pointer;
+  font-weight: 600;
+  margin-bottom: 12px;
+}
+.map-page-list {
+  list-style: none;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 8px;
+}
+.map-page-list li {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  min-width: 0;
+}
+.map-page-list button {
+  text-align: left;
+  white-space: normal;
+}
+.map-page-list small {
+  color: var(--muted);
+}
+.map-workspace {
+  display: flex;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+}
+.map-canvas {
+  height: 580px;
+  min-width: 0;
+  flex: 1;
+}
+.map-card {
+  width: 240px;
+  height: 155px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  border-radius: 10px;
+  box-shadow: 0 2px 8px #0000000a;
+}
+.map-card--root {
+  border: 2px solid var(--accent);
+  background: var(--accent-soft);
+}
+.map-card-title,
+.map-url {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.map-card small,
+.map-url,
+.map-legend {
+  color: var(--muted);
+  font-size: 12px;
+}
+.map-card .react-flow__handle {
+  width: 6px;
+  height: 6px;
+  background: var(--muted);
+}
+.map-details {
+  width: 340px;
+  padding: 18px;
+  overflow: auto;
+  max-height: 580px;
+  background: var(--surface);
+  border-left: 1px solid var(--border);
+}
+.map-details h2 {
+  font-size: 20px;
+  margin-top: 20px;
+}
+.map-connections {
+  padding-left: 18px;
+}
+.map-connections small {
+  display: block;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.map-connections > li {
+  margin: 16px 0;
+}
+.map-connections code {
+  overflow-wrap: anywhere;
+}
+.map-accessible-list > ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  list-style: none;
+  padding: 0;
+}
+.map-sheet {
+  width: 100%;
+  max-width: 100%;
+  margin: auto 0 0;
+  max-height: 85dvh;
+  border-radius: 16px 16px 0 0;
+}
+@media (max-width: 760px) {
+  .map-canvas {
+    height: 450px;
+  }
+  .map-toolbar {
+    gap: 10px;
+  }
+  .map-toolbar .field {
+    min-width: 135px;
+  }
+  .map-page-list {
+    grid-template-columns: 1fr;
+  }
+}
+
+.map-card-title {
+  text-align: left;
+  font-weight: 700;
+  background: none;
+  border: 0;
+  padding: 0;
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.page-map .button--secondary {
+  background: var(--surface);
+  color: var(--ink);
+  border-color: var(--border);
+}
+.page-map .button--secondary:hover {
+  background: var(--surface-hover);
+}

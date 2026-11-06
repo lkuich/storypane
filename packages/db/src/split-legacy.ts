@@ -24,6 +24,8 @@ const scoped: Record<string, string> = {
     'locale_id IN (SELECT l.id FROM story_locales l JOIN stories s ON s.id=l.story_id WHERE s.space_id=$1)',
   mutation_receipts:
     'locale_id IN (SELECT l.id FROM story_locales l JOIN stories s ON s.id=l.story_id WHERE s.space_id=$1)',
+  page_connections:
+    'locale_id IN (SELECT l.id FROM story_locales l JOIN stories s ON s.id=l.story_id WHERE s.space_id=$1)',
   story_pins: 'story_id IN (SELECT id FROM stories WHERE space_id=$1)',
   asset_folder_placements: 'asset_id IN (SELECT id FROM assets WHERE space_id=$1)',
   webhook_attempts: 'delivery_id IN (SELECT id FROM webhook_deliveries WHERE space_id=$1)',
@@ -169,6 +171,10 @@ export async function splitLegacy(
             await client.query(
               'ALTER TABLE publication_schedules DISABLE TRIGGER content_release_members_changed',
             );
+          if (included.has('028_page_connections'))
+            await client.query(
+              'ALTER TABLE story_locales DISABLE TRIGGER page_connections_changed',
+            );
           await insertRows(client, 'user', profiles);
           for (const [table, data] of rows) await insertRows(client, table, data);
           await client.query('ALTER TABLE spaces ENABLE TRIGGER space_roles_defaults');
@@ -188,6 +194,8 @@ export async function splitLegacy(
             if (JSON.stringify(canonicalRows(copied)) !== JSON.stringify(canonicalRows(data)))
               throw new Error(`Split validation failed for ${table}`);
           }
+          if (included.has('028_page_connections'))
+            await client.query('ALTER TABLE story_locales ENABLE TRIGGER page_connections_changed');
           await client.query('DELETE FROM storypane_migrations');
           await insertRows(client, 'storypane_migrations', history);
           await client.query(

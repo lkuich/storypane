@@ -43,6 +43,7 @@ export async function migrate(
       '024_management_api',
       '026_space_environments',
       '027_content_releases',
+      '028_page_connections',
     ]) {
       if (included && !included.has(name)) continue;
       if (

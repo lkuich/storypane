@@ -1,7 +1,7 @@
 'use client';
 
 import { AccountControl } from './account-control';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import {
   CalendarClock,
   Box,
@@ -35,6 +35,19 @@ import { ThemePicker } from './theme-picker';
 import { EnvironmentBadge } from './environment-badge';
 import { SpaceSwitcher } from './space-switcher';
 import type { NavigationGuard, RegisterGuard } from '../features/editor/navigation';
+
+const PageMap = lazy(() => import('../features/page-map/page-map'));
+function mapLocation() {
+  if (typeof window === 'undefined') return null;
+  const params = new URLSearchParams(window.location.search);
+  return params.has('map')
+    ? new URLSearchParams(
+        [...params]
+          .filter(([key]) => key.startsWith('map-'))
+          .map(([key, value]) => [key.slice(4), value]),
+      ).toString()
+    : null;
+}
 
 export type CMSSession = {
   installationAdmin?: boolean;
@@ -78,6 +91,34 @@ export function CMSApp({ session: initialSession }: { session: CMSSession }) {
     typeof window !== 'undefined' ? tabFromUrl(new URL(window.location.href)) : 'content',
   );
   const historyIndex = useRef(0);
+  const [mapParams, setMapParams] = useState<string | null>(mapLocation);
+  async function showMap(params: string | null) {
+    if (guard.current && !(await guard.current())) return;
+    guard.current = null;
+    const url = new URL(window.location.href);
+    for (const key of [...url.searchParams.keys()])
+      if (
+        key === 'map' ||
+        key.startsWith('map-') ||
+        ['story', 'locale', 'block', 'view'].includes(key)
+      )
+        url.searchParams.delete(key);
+    if (params !== null) {
+      url.searchParams.set('map', '1');
+      for (const [key, value] of new URLSearchParams(params))
+        url.searchParams.set(`map-${key}`, value);
+    }
+    historyIndex.current++;
+    window.history.pushState(
+      { ...window.history.state, storypaneIndex: historyIndex.current },
+      '',
+      url,
+    );
+    setMapParams(params);
+    setStoryId(null);
+    setStory(null);
+    setTab('content');
+  }
   const [story, setStory] = useState<Story | null>(null);
   const [storyId, setStoryId] = useState(() =>
     typeof window === 'undefined' ? null : new URLSearchParams(window.location.search).get('story'),
@@ -168,6 +209,7 @@ export function CMSApp({ session: initialSession }: { session: CMSSession }) {
       setStory(null);
       setStoryId(nextStoryId);
       setStoryError(null);
+      setMapParams(mapLocation());
     }
     window.addEventListener('popstate', restoreLocation);
     return () => {
@@ -360,6 +402,9 @@ export function CMSApp({ session: initialSession }: { session: CMSSession }) {
                   session={session}
                   registerGuard={registerGuard}
                   onBack={closeStory}
+                  onMap={(locale) =>
+                    void showMap(new URLSearchParams({ root: story.id, locale }).toString())
+                  }
                 />
               ) : storyError ? (
                 <>
@@ -372,12 +417,22 @@ export function CMSApp({ session: initialSession }: { session: CMSSession }) {
               ) : (
                 <Loading label="Opening story…" />
               )
+            ) : mapParams !== null ? (
+              <Suspense fallback={<Loading label="Opening page map…" />}>
+                <PageMap
+                  params={mapParams}
+                  onChange={(params) => void showMap(params)}
+                  onList={() => void showMap(null)}
+                  onOpen={openStory}
+                />
+              </Suspense>
             ) : (
               <ContentList
                 canCreate={can(session.space, 'content:edit')}
                 canPublish={can(session.space, 'content:publish')}
                 onOpen={openStory}
                 onBlocks={() => void navigate('blocks')}
+                onMap={() => void showMap('')}
               />
             ))}
           {tab === 'releases' && (

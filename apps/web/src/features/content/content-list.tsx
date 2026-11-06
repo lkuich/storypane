@@ -52,11 +52,13 @@ export function ContentList({
   canPublish,
   onOpen,
   onBlocks,
+  onMap,
 }: {
   canCreate: boolean;
   canPublish: boolean;
   onOpen: (story: Story, locale?: string) => void;
   onBlocks: () => void;
+  onMap: () => void;
 }) {
   const editors = usePageEditors();
   const [deleted, setDeleted] = useState(false);
@@ -262,6 +264,8 @@ export function ContentList({
           <p>Create, organize, and publish your stories.</p>
         </div>
         <div className="button-group">
+          <Button aria-pressed>List</Button>
+          <Button onClick={onMap}>Map</Button>
           <Button onClick={() => setEditingFolder(null)} disabled={loading || !canCreate}>
             <FolderPlus aria-hidden="true" /> New folder
           </Button>

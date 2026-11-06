@@ -269,6 +269,12 @@ before starting a new release. Never use local-only `db:setup` for deployment.
 Installation/database migrations are separate from the schema migrations that
 teams deploy and promote inside spaces.
 
+Page map requires space migration `028_page_connections`. The existing migration
+runner adds and backfills a derived index of current checkpoints and publications.
+Historical content and migration timestamps remain unchanged. Run the migration
+before opening Map after an upgrade; restarting alone does not apply it. See
+[Page map](page-map.md#upgrade-existing-instances) for the workflow and limits.
+
 Content releases require space migration `027_content_releases`. Run
 `pnpm admin migrate` before starting this version. Existing schedules, checkpoint
 IDs, times and history are retained as individual releases. Failed schedules

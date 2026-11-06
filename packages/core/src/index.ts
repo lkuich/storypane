@@ -1332,3 +1332,5 @@ export const cancelScheduleSchema = z
 export * from './media.js';
 export * from './releases.js';
 export * from './seo.js';
+
+export * from './page-map.js';

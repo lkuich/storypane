@@ -96,11 +96,13 @@ export function StoryWorkspace({
   story,
   session,
   onBack,
+  onMap,
   registerGuard,
 }: {
   story: Story;
   session: CMSSession;
   onBack: () => void;
+  onMap: (locale: string) => void;
   registerGuard: RegisterGuard;
 }) {
   const [locales, setLocales] = useState<StoryLocale[]>([]);
@@ -226,6 +228,12 @@ export function StoryWorkspace({
         <button onClick={() => void back()}>Content</button>
         <ChevronRight size={12} />
         <span>{story.name}</span>
+        <Button
+          disabled={!initialSnapshot || busy}
+          onClick={() => onMap(initialSnapshot!.locale.slug)}
+        >
+          View in map
+        </Button>
       </div>
       <ErrorNotice
         message={error}

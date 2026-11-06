@@ -114,7 +114,7 @@ it.skipIf(!url).each([false, true])(
       }
       if (legacySchedules)
         await source.query(
-          "DROP TRIGGER content_release_members_changed ON publication_schedules; DROP FUNCTION bump_content_release_revision(); ALTER TABLE publication_schedules DROP COLUMN release_id,DROP COLUMN approved_snapshot,DROP COLUMN cancelled_by_release; DROP TABLE content_releases; DELETE FROM storypane_migrations WHERE name='027_content_releases'",
+          "DROP TRIGGER page_connections_changed ON story_locales; DROP FUNCTION update_page_connections(); DROP FUNCTION refresh_page_connections(uuid); DROP TABLE page_connections; DELETE FROM storypane_migrations WHERE name='028_page_connections'; DROP TRIGGER content_release_members_changed ON publication_schedules; DROP FUNCTION bump_content_release_revision(); ALTER TABLE publication_schedules DROP COLUMN release_id,DROP COLUMN approved_snapshot,DROP COLUMN cancelled_by_release; DROP TABLE content_releases; DELETE FROM storypane_migrations WHERE name='027_content_releases'",
         );
       installation = new Installation({
         connectionString: urls[1],

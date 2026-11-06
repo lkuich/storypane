@@ -41,6 +41,21 @@ async function handle(request: Request, route: { params: Promise<{ path: string[
         );
       }
     }
+    if (
+      resource === 'page-map' &&
+      method === 'GET' &&
+      !child &&
+      (!id || id === 'pages' || id === 'orphans')
+    )
+      return jsonResponse(
+        await store.pageMap(
+          actor,
+          Object.fromEntries(
+            [...new URL(request.url).searchParams].filter(([key]) => key !== 'space'),
+          ),
+          id === 'pages' || id === 'orphans' ? id : 'graph',
+        ),
+      );
     if (resource === 'webhooks') {
       if (!id && method === 'GET') return jsonResponse(await store.listWebhooks(actor));
       if (!id && method === 'POST')

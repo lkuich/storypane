@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { Pool } from 'pg';
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { StorypaneStore } from './store.js';
 import { contentScopesSchema, definitionInput } from '@storypane/core';
 import { migrate } from './migrate.js';
@@ -94,6 +94,24 @@ afterAll(async () => {
   await pool.end();
   await admin.query(`DROP SCHEMA ${schemaName} CASCADE`);
   await admin.end();
+});
+afterEach(async (context) => {
+  if (context.task.name.includes('large fixture')) return;
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const sql =
+      'SELECT i.* FROM page_connections i JOIN story_locales l ON l.id=i.locale_id JOIN stories s ON s.id=l.story_id WHERE s.space_id=$1 ORDER BY i.locale_id,i.mode';
+    const before = (await client.query(sql, [alice.spaceId])).rows;
+    await client.query(
+      'SELECT refresh_page_connections(l.id) FROM story_locales l JOIN stories s ON s.id=l.story_id WHERE s.space_id=$1',
+      [alice.spaceId],
+    );
+    expect((await client.query(sql, [alice.spaceId])).rows).toEqual(before);
+  } finally {
+    await client.query('ROLLBACK');
+    client.release();
+  }
 });
 async function deletion(storyId = snapshot.story.id) {
   const review = await store.reviewStoryAction(alice, storyId);
@@ -1893,4 +1911,301 @@ describe('Release upgrades and authorization', () => {
     await scopedEditor({ read: { locations: { folderIds: [], storyIds: [] } } });
     await expect(store.saveRelease(bob, input)).rejects.toMatchObject({ code: 'not_found' });
   });
+});
+
+describe('Page map index', () => {
+  async function graph(
+    root = snapshot.story.id,
+    options: Record<string, unknown> = {},
+    actor = alice,
+  ) {
+    const { pageMapResponseSchema } = await import('@storypane/core');
+    return pageMapResponseSchema.parse(
+      await store.pageMap(actor, { root, mode: 'draft', ...options }),
+    );
+  }
+  async function orphans(actor = alice) {
+    const { pageMapPagesSchema } = await import('@storypane/core');
+    return pageMapPagesSchema.parse(await store.pageMap(actor, { mode: 'draft' }, 'orphans'));
+  }
+  it('indexes nested saved links, separates publications, resolves cycles and self-links, and filters orphans globally', async () => {
+    const b = await copiedStory('B'),
+      c = await copiedStory('C');
+    snapshot = await linkStory(snapshot, b);
+    const linkedB = await linkStory(b, c);
+    await linkStory(c, snapshot);
+    const first = await graph(undefined, { depth: 1 });
+    expect(first.nodes).toHaveLength(2);
+    expect(first.edges).toHaveLength(1);
+    expect(first.edges[0].usages[0]).toMatchObject({ block: 'Footer', field: 'link' });
+    expect((await graph()).nodes).toHaveLength(3);
+    expect((await graph(undefined, { depth: 4 })).edges).toHaveLength(3);
+    expect(
+      (await graph(undefined, { direction: 'incoming', depth: 1 })).nodes.map((n) => n.id),
+    ).toContain(c.story.id);
+    expect((await orphans()).pages).toHaveLength(0);
+    await expect(graph(undefined, { mode: 'published' })).rejects.toMatchObject({
+      code: 'not_found',
+    });
+    // Publish the exact reviewed graph, then change only the saved draft.
+    await publishWith(snapshot, await linkedChoices(snapshot));
+    expect((await graph(undefined, { mode: 'published' })).edges.length).toBeGreaterThan(0);
+    await linkStory(snapshot, snapshot);
+    expect((await graph()).nodes).toHaveLength(1);
+    expect((await graph(undefined, { mode: 'published' })).nodes.length).toBeGreaterThan(1);
+    // A source outside the displayed graph still prevents B from being an orphan.
+    await linkStory(await store.getSnapshot(alice, c.story.id, c.locale.id), b);
+    expect((await orphans()).pages.map((p) => p.id)).not.toContain(b.story.id);
+    expect(linkedB.story.id).toBe(b.story.id);
+  });
+  it('hides restricted nodes, field labels, counts, and incoming links before orphan classification', async () => {
+    const b = await copiedStory('Hidden target');
+    snapshot = await linkStory(snapshot, b);
+    await scopedEditor({ read: { locations: { folderIds: [], storyIds: [snapshot.story.id] } } });
+    const visible = await graph(undefined, {}, bob);
+    expect(visible.nodes).toHaveLength(1);
+    expect(visible.nodes[0].outgoing).toBe(0);
+    expect(visible.edges).toEqual([]);
+    expect(JSON.stringify(visible)).not.toContain(b.story.id);
+    await scopedEditor({ read: { locations: { folderIds: [], storyIds: [b.story.id] } } });
+    expect(await orphans(bob)).toMatchObject({ restricted: true, pages: [{ id: b.story.id }] });
+    const footer = blockNamed(snapshot, 'footer');
+    const title = snapshot.definitions
+      .find((d) => d.name === 'hero')!
+      .fields.find((f) => f.name === 'title')!;
+    await scopedEditor({ read: { fieldIds: [title.id!] } });
+    expect((await graph(undefined, {}, bob)).edges).toHaveLength(0);
+    await scopedEditor({ read: { definitionIds: [footer.definitionId] } });
+    expect((await graph(undefined, {}, bob)).edges).toHaveLength(1);
+    await scopedEditor({ read: { fieldIds: [] } });
+    await expect(graph(undefined, {}, bob)).rejects.toMatchObject({ code: 'not_found' });
+  });
+  it('backfills existing checkpoints and publications without changing history and reruns safely', async () => {
+    const b = await copiedStory('Target');
+    snapshot = await linkStory(snapshot, b);
+    await publishWith(snapshot, await linkedChoices(snapshot));
+    const before = await graph(undefined, { mode: 'published' });
+    const history = (await pool.query('SELECT id,snapshot,content FROM checkpoints ORDER BY id'))
+      .rows;
+    const migrations = (
+      await pool.query(
+        "SELECT name,applied_at FROM storypane_migrations WHERE name<>'028_page_connections' ORDER BY name",
+      )
+    ).rows;
+    await pool.query(
+      "DROP TRIGGER page_connections_changed ON story_locales; DROP FUNCTION update_page_connections(); DROP FUNCTION refresh_page_connections(uuid); DROP TABLE page_connections; DELETE FROM storypane_migrations WHERE name='028_page_connections'",
+    );
+    await migrate(pool);
+    await migrate(pool);
+    expect(await graph(undefined, { mode: 'published' })).toEqual(before);
+    expect(
+      (await pool.query('SELECT id,snapshot,content FROM checkpoints ORDER BY id')).rows,
+    ).toEqual(history);
+    expect(
+      (
+        await pool.query(
+          "SELECT name,applied_at FROM storypane_migrations WHERE name<>'028_page_connections' ORDER BY name",
+        )
+      ).rows,
+    ).toEqual(migrations);
+  });
+  it('updates cloning, deletion, restored checkpoints, and scheduled publications transactionally', async () => {
+    const b = await copiedStory('Target');
+    const original = snapshot;
+    snapshot = await linkStory(snapshot, b);
+    const duplicate = await copiedStory('Copy with link');
+    expect((await graph(duplicate.story.id)).edges).toHaveLength(1);
+    const job = await schedule(snapshot.checkpointId!, await linkedChoices(snapshot));
+    await due(job.id);
+    await store.runScheduledPublications();
+    // An unreviewed linked draft prevents publishing; publishing the target then re-scheduling uses the index.
+    await publishWith(b);
+    const fresh = await store.getSnapshot(alice, snapshot.story.id, snapshot.locale.id);
+    await publishWith(fresh);
+    expect((await graph(undefined, { mode: 'published' })).edges).toHaveLength(1);
+    const current = await store.getSnapshot(alice, snapshot.story.id, snapshot.locale.id);
+    const rootBlock = current.blocks.find((block) => block.id === current.locale.rootBlockId)!;
+    const rootLease = await lease(alice, current, rootBlock);
+    const base = commandBase({ block: rootBlock, lease: rootLease });
+    await run(alice, current, {
+      ...base,
+      expectedRevisions: { ...base.expectedRevisions, $locale: current.revision },
+      type: 'restorePage',
+      payload: { checkpointId: original.checkpointId! },
+    });
+    expect((await graph()).edges).toHaveLength(0);
+    await store.storyAction(alice, duplicate.story.id, await deletion(duplicate.story.id));
+    await expect(graph(duplicate.story.id)).rejects.toMatchObject({ code: 'not_found' });
+  });
+});
+
+// Import-style fixtures exercise the deferred index without thousands of editor commands.
+async function mapCheckpoint(state: LocaleSnapshot) {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const row = (
+      await client.query(
+        'UPDATE story_locales SET revision=revision+1,checkpoint_id=$2 WHERE id=$1 RETURNING revision',
+        [state.locale.id, randomUUID()],
+      )
+    ).rows[0];
+    await client.query(
+      `INSERT INTO checkpoints(id,locale_id,revision,actor_id,reason,snapshot,content)
+      SELECT checkpoint_id,id,revision,$2,'Map fixture',$3,$4 FROM story_locales WHERE id=$1`,
+      [state.locale.id, alice.userId, JSON.stringify(state), JSON.stringify(state.blocks)],
+    );
+    await client.query('COMMIT');
+    return Number(row.revision);
+  } catch (e) {
+    await client.query('ROLLBACK');
+    throw e;
+  } finally {
+    client.release();
+  }
+}
+async function mapGraph(options: Record<string, unknown> = {}) {
+  const { pageMapResponseSchema } = await import('@storypane/core');
+  return pageMapResponseSchema.parse(
+    await store.pageMap(alice, { root: snapshot.story.id, mode: 'draft', ...options }),
+  );
+}
+it('collapses repeated nested links, distinguishes story options, and ignores external and rich text URLs', async () => {
+  const target = await copiedStory('Target');
+  const state = structuredClone(snapshot),
+    footer = blockNamed(state, 'footer');
+  const definition = state.definitions.find((d) => d.id === footer.definitionId)!;
+  definition.fields.push({
+    id: randomUUID(),
+    name: 'references',
+    label: 'References',
+    type: 'options',
+    source: { type: 'stories' },
+  });
+  footer.fields.references = [target.story.id.toUpperCase()];
+  footer.fields.link = { type: 'story', storyId: target.story.id };
+  state.blocks.push({
+    ...footer,
+    id: randomUUID(),
+    position: 2,
+    fields: { link: footer.fields.link },
+  });
+  await mapCheckpoint(state);
+  let result = await mapGraph();
+  expect(result.edges).toHaveLength(1);
+  expect(result.edges[0].count).toBe(2);
+  result = await mapGraph({ references: 'true' });
+  expect(result.edges.map((e) => e.kind).sort()).toEqual(['link', 'reference']);
+  expect(result.edges.find((e) => e.kind === 'reference')!.count).toBe(1);
+  footer.fields.link = { type: 'url', url: `https://example.com/${target.story.id}` };
+  footer.fields.text = `https://example.com/${target.story.id}`;
+  state.blocks.pop();
+  await mapCheckpoint(state);
+  expect((await mapGraph()).edges).toEqual([]);
+});
+it('resolves fallback locales, filters locale permissions, and excludes form-only orphan candidates', async () => {
+  const fr = await store.createSpaceLocale(alice, { name: 'French', slug: 'fr' });
+  const { pageMapPagesSchema } = await import('@storypane/core');
+  const fallback = await mapGraph({ locale: 'fr' });
+  expect(fallback.nodes[0]).toMatchObject({ locale: snapshot.locale.slug, fallback: true });
+  await scopedEditor({ read: { localeIds: [fr.id] } });
+  await expect(
+    store.pageMap(bob, { root: snapshot.story.id, mode: 'draft', locale: 'fr' }),
+  ).rejects.toMatchObject({ code: 'not_found' });
+  const folder = await store.saveFolder(alice, { name: 'Shared', slug: 'shared', formOnly: true });
+  await store.updateStoryLocation(alice, snapshot.story.id, {
+    folderId: folder.id,
+    slug: 'home',
+    localeSlugs: {},
+  });
+  const orphans = pageMapPagesSchema.parse(
+    await store.pageMap(alice, { mode: 'draft' }, 'orphans'),
+  );
+  expect(orphans.pages).toHaveLength(0);
+});
+it('enforces depth, node and edge caps, paginates orphans and uses the incoming index on a large fixture', async () => {
+  const ids = Array.from({ length: 1000 }, () => ({ id: randomUUID(), locale: randomUUID() }));
+  await pool.query(
+    `INSERT INTO stories(id,space_id,name,slug) SELECT x.id,$1,'Fixture '||x.id,x.id::text FROM jsonb_to_recordset($2) x(id uuid,locale uuid)`,
+    [alice.spaceId, JSON.stringify(ids)],
+  );
+  await pool.query(
+    `INSERT INTO story_locales(id,story_id,space_locale_id,name,slug,url_slug,root_block_id) SELECT x.locale,x.id,$1,'Default','',x.id::text,$3 FROM jsonb_to_recordset($2) x(id uuid,locale uuid)`,
+    [snapshot.locale.spaceLocaleId, JSON.stringify(ids), snapshot.locale.rootBlockId],
+  );
+  // Compact index fixtures isolate graph-query cost from content import cost.
+  const index = (
+    await pool.query("SELECT metadata FROM page_connections WHERE locale_id=$1 AND mode='draft'", [
+      snapshot.locale.id,
+    ])
+  ).rows[0];
+  await pool.query(
+    `INSERT INTO page_connections(locale_id,mode,metadata,connections,targets) SELECT x.locale,'draft',$1,'[]','{}' FROM jsonb_to_recordset($2) x(id uuid,locale uuid)`,
+    [JSON.stringify(index.metadata), JSON.stringify(ids)],
+  );
+  const state = structuredClone(snapshot),
+    footer = blockNamed(state, 'footer');
+  state.blocks = [
+    ...state.blocks.filter((b) => b.id !== footer.id),
+    ...ids.slice(0, 120).map((target, i) => ({
+      ...footer,
+      id: randomUUID(),
+      position: i,
+      fields: { link: { type: 'story', storyId: target.id } },
+    })),
+  ];
+  await mapCheckpoint(state);
+  const start = performance.now();
+  const capped = await mapGraph({ depth: 1 });
+  expect(capped.nodes).toHaveLength(100);
+  expect(capped.truncated).toBe(true);
+  expect(capped.edges).toHaveLength(99);
+  expect(performance.now() - start).toBeLessThan(5000);
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query('SET LOCAL enable_seqscan=off');
+    const plan = await client.query(
+      'EXPLAIN SELECT locale_id FROM page_connections WHERE targets && $1::uuid[]',
+      [[ids[0].id]],
+    );
+    expect(JSON.stringify(plan.rows)).toContain('page_connections_incoming');
+    await client.query('ROLLBACK');
+  } finally {
+    client.release();
+  }
+  const { pageMapPagesSchema } = await import('@storypane/core');
+  const first = pageMapPagesSchema.parse(await store.pageMap(alice, { mode: 'draft' }, 'orphans'));
+  const second = pageMapPagesSchema.parse(
+    await store.pageMap(alice, { mode: 'draft', offset: first.nextOffset }, 'orphans'),
+  );
+  expect(first.pages).toHaveLength(50);
+  expect(second.pages).toHaveLength(50);
+  expect(second.pages.some((p) => first.pages.some((q) => q.id === p.id))).toBe(false);
+  // A dense graph hits the edge cap independently of the node cap.
+  const targets = ids.slice(0, 30);
+  state.blocks = state.blocks.slice(0, 1).concat(
+    targets.map((target, i) => ({
+      ...footer,
+      id: randomUUID(),
+      position: i,
+      fields: { link: { type: 'story', storyId: target.id } },
+    })),
+  );
+  await mapCheckpoint(state);
+  const fields = (
+    await pool.query(
+      "SELECT connections FROM page_connections WHERE locale_id=$1 AND mode='draft'",
+      [snapshot.locale.id],
+    )
+  ).rows[0].connections;
+  await pool.query(
+    'UPDATE page_connections SET connections=$1,targets=$2 WHERE locale_id=ANY($3::uuid[])',
+    [JSON.stringify(fields), targets.map((t) => t.id), targets.map((t) => t.locale)],
+  );
+  const dense = await mapGraph({ depth: 2 });
+  expect(dense.edges).toHaveLength(500);
+  expect(dense.nodes.length).toBeLessThan(100);
+  expect(dense.truncated).toBe(true);
+  await expect(mapGraph({ depth: 5 })).rejects.toMatchObject({ code: 'invalid' });
 });

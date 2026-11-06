@@ -278,6 +278,14 @@ session. If you see **Enable component previews in your app’s Storypane SDK
 integration**, update the app's SDK and connect its `onComponent` callback as
 shown in the SDK guide. Both framework examples already include that integration.
 
+## Explore page connections
+
+Choose **Content → Map** or **View in map** from an open page. Start with published
+content and two hops, inspect incoming and outgoing links, and use **Potential
+orphans** to find pages with no visible incoming page links. The map is read-only
+and respects content permissions. See the [page-map guide](page-map.md) for locale
+fallback, saved drafts, optional content references, limits, and upgrade details.
+
 ## Continue with your team
 
 - **Collaboration:** add a second Hero, then invite an Editor through
