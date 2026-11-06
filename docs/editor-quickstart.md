@@ -171,6 +171,7 @@ content fields that your application can render.
 If the preview pane says **Connect your app**, you can choose **Hide preview**
 and continue editing. Connecting a website is optional for this walkthrough.
 
+Click anywhere in the bottom **Add block** row to append a block to the list.
 To insert between two blocks, hover over their divider or tab to its controls.
 Choose the round **+** to open the block picker at that position. If you have a
 compatible copied block, the round clipboard button pastes an independent copy

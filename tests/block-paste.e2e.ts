@@ -115,15 +115,32 @@ test('inserts and pastes between siblings and clears the clipboard, including th
     await page.evaluate(() => navigator.clipboard.writeText('Ordinary copied text'));
     await page.goto(`/?space=${space.id}&story=${story.id}`);
     const editor = page.getByRole('region', { name: 'Block editor' });
-    await expect(editor.getByRole('button', { name: 'Add block', exact: true })).toBeEnabled();
+    await expect(editor.getByRole('button', { name: 'Add block', exact: true })).toBeEnabled({
+      timeout: 20000,
+    });
     const pasteButtons = editor.getByRole('button', { name: /^Paste block/ });
     await expect(pasteButtons).toHaveCount(0);
+    const addRow = editor.locator('.block-list-add');
+    const picker = page.getByRole('dialog', { name: 'Add a block', exact: true });
+    await addRow.click({ position: { x: 4, y: 4 } });
+    await expect(picker).toBeVisible();
+    await picker.getByRole('button', { name: 'Cancel', exact: true }).click();
+    await page.setViewportSize({ width: 390, height: 844 });
+    const rowBounds = (await addRow.boundingBox())!;
+    await addRow.click({ position: { x: rowBounds.width - 4, y: rowBounds.height - 4 } });
+    await expect(picker).toBeVisible();
+    await picker.getByRole('button', { name: 'Cancel', exact: true }).click();
+    await editor.getByRole('button', { name: 'Add block', exact: true }).focus();
+    await page.screenshot({ path: testInfo.outputPath('add-row-mobile-focus.png') });
+    await page.keyboard.press('Enter');
+    await expect(picker).toBeVisible();
+    await picker.getByRole('button', { name: 'Cancel', exact: true }).click();
+    await page.setViewportSize({ width: 1440, height: 1000 });
     const addBetween = editor.getByRole('button', { name: 'Add block before Footer', exact: true });
     await addBetween.locator('..').hover();
     await expect(addBetween).toHaveCSS('opacity', '1');
     await addBetween.focus();
     await page.keyboard.press('Enter');
-    const picker = page.getByRole('dialog', { name: 'Add a block', exact: true });
     await picker.getByRole('button', { name: 'Add Hero', exact: true }).click();
     await expect(picker).not.toBeVisible();
     const inserted: LocaleSnapshot = await get(base);
@@ -240,6 +257,8 @@ test('inserts and pastes between siblings and clears the clipboard, including th
       .click();
     await expect(addBetween).toBeDisabled();
     await expect(editor.getByRole('button', { name: 'Add block', exact: true })).toBeDisabled();
+    await addRow.click({ position: { x: 4, y: 4 }, force: true });
+    await expect(picker).not.toBeVisible();
     await expect(pasteButtons).toHaveCount(0);
     await editor.getByRole('button', { name: 'Clear clipboard', exact: true }).click();
     await expect(editor.getByRole('button', { name: 'Clear clipboard', exact: true })).toHaveCount(

@@ -2350,11 +2350,18 @@ hr {
   white-space: nowrap;
 }
 .block-list-add {
-  display: flex;
-  justify-content: center;
-  padding: 10px;
   background: var(--surface-subtle);
   border-top: 1px solid var(--line);
+}
+.block-list-add .button-group {
+  gap: 0;
+  align-items: stretch;
+}
+.block-list-add .button {
+  flex: 1;
+  min-height: 58px;
+  border-radius: 0;
+  outline-offset: -3px;
 }
 .block-list-insert {
   position: relative;
