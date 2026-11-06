@@ -2,6 +2,8 @@
 
 **A collaborative, open-source CMS for the websites you build.**
 
+**0.1.0-rc.1 — release candidate.** [Release status and known limits](docs/releases-and-versioning.md).
+
 Give editors a place to compose pages, preview changes, and publish together.
 Keep your frontend, your components, and your content on infrastructure you control.
 
@@ -214,6 +216,8 @@ first using their integration guides above. Never commit session files or creden
 - [Team development workflow](docs/development-workflow.md) — production for editors,
   linked dev spaces for developers, reviewed promotion, and sync.
 - [Editor quickstart](docs/editor-quickstart.md) — model blocks and publish your first page.
+- [Authentication](docs/authentication.md) — local sign-in, invitations, recovery, optional Clerk,
+  provider migration, and agent credentials.
 - [Self-hosting](docs/self-hosting.md) — configuration, authentication, operations,
   backups, and upgrades.
 - [SDK](packages/sdk/README.md) — delivery, live preview, media, and generated types.
@@ -232,4 +236,7 @@ planning a hosted installation.
 
 ## License
 
-Storypane is [MIT licensed](LICENSE).
+Storypane is [MIT licensed](LICENSE), provided without warranty under its terms.
+See [privacy and data handling](docs/privacy.md), [security reporting](SECURITY.md),
+[third-party notices](THIRD_PARTY_NOTICES.md), and [release/upgrade policy](docs/releases-and-versioning.md). Self-hosted operators
+remain responsible for their installation, providers, and user privacy notices.

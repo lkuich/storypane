@@ -23,7 +23,8 @@
     "format:check": "prettier . --check",
     "db:migrate:production": "node --env-file-if-exists=.env.production --import tsx scripts/migrate-production.ts",
     "admin": "node --env-file-if-exists=.env.production --import tsx scripts/admin.ts",
-    "start": "pnpm --filter @storypane/web start"
+    "start": "pnpm --filter @storypane/web start",
+    "test:package": "pnpm --filter @storypane/sdk build && node scripts/check-sdk-package.mjs"
   },
   "dependencies": {
     "@storypane/core": "workspace:*",
@@ -50,5 +51,6 @@
     "vitest": "latest",
     "@typescript/native": "npm:typescript@^7.0.2"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "version": "0.1.0-rc.1"
 }

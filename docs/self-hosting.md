@@ -30,6 +30,10 @@ provider credentials.
 
 </aside>
 
+The example runs PostgreSQL and an AGPL-licensed MinIO service alongside the
+MIT-licensed CMS. Review [third-party notices](../THIRD_PARTY_NOTICES.md); external
+Postgres and S3 providers can be used instead.
+
 ## Fresh Docker installation
 
 Run `node scripts/setup-env.mjs` from the repository root using Node 24.22+
@@ -109,6 +113,9 @@ pnpm build
 # With the same variables exported, or using Node's --env-file option:
 node --env-file=.env.production --import tsx apps/web/src/node.ts
 ```
+
+See the dedicated [authentication guide](authentication.md) for local sign-in,
+Clerk setup, identity-preserving provider changes, and API/agent credentials.
 
 ## Invitations and recovery
 

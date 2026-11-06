@@ -8,12 +8,16 @@ Node, Workers, browsers, Next.js client components, and Astro islands/scripts.
 The delivery and preview entrypoints have no runtime dependencies; React is an optional
 peer dependency. The MCP CLI uses the official MCP server package and Zod.
 
-Start with the [Next.js integration guide](../../apps/example-next/README.md) for
+Start with the [Next.js integration guide](https://github.com/lkuich/storypane/blob/main/apps/example-next/README.md) for
 server-side fetching, typed block components, and a separate live preview route.
-An [Astro example](../../apps/example-astro/README.md) is also included.
+An [Astro example](https://github.com/lkuich/storypane/blob/main/apps/example-astro/README.md) is also included.
 
-Build from this monorepo with `pnpm --filter @storypane/sdk build`. Until an npm release,
-install a packed archive or link `packages/sdk` into your app. Entrypoints:
+The current version is **0.1.0-rc.1**. Use the SDK tarball attached to the
+[matching GitHub prerelease](https://github.com/lkuich/storypane/releases), or build
+from this monorepo with `pnpm --filter @storypane/sdk build` and pack/link
+`packages/sdk`. npm publication is separately gated on publisher setup; when
+available, select the explicit RC version or `@storypane/sdk@rc`. See the
+[release guide](https://storypane.dev/docs/releases-and-versioning/). Entrypoints:
 
 - `@storypane/sdk`: delivery client, types, preview detection, editable attributes.
 - `@storypane/sdk/preview`: framework-independent browser subscription and editor bridge.
@@ -22,7 +26,7 @@ install a packed archive or link `packages/sdk` into your app. Entrypoints:
 
 ## Configure the CMS
 
-For a team, start with [production for editors and a linked dev space per developer](../../docs/development-workflow.md).
+For a team, start with [production for editors and a linked dev space per developer](https://github.com/lkuich/storypane/blob/main/docs/development-workflow.md).
 Use production credentials and production-generated types for the live website,
 and a separate dev configuration for schema and frontend testing.
 
@@ -159,7 +163,7 @@ export function Preview({
 }
 ```
 
-The [complete Next.js example](../../apps/example-next/README.md) includes routing,
+The [complete Next.js example](https://github.com/lkuich/storypane/blob/main/apps/example-next/README.md) includes routing,
 `Suspense` around `useSearchParams`, block rendering, and referenced footer drafts.
 It keeps published pages on the server and reuses the renderer inside `/preview`.
 Client preview components must not import server-only fetch modules.
@@ -218,7 +222,7 @@ import { cmsUrl, spaceId } from '../lib/cms';
 <PreviewShell client:load cmsUrl={cmsUrl} spaceId={spaceId} />
 ```
 
-The example's [`PreviewShell`](../../apps/example-astro/src/components/PreviewShell.tsx)
+The example's [`PreviewShell`](https://github.com/lkuich/storypane/blob/main/apps/example-astro/src/components/PreviewShell.tsx)
 uses `useStorypanePreview` with the URL's `slug` and `locale`, clears stale content
 on navigation, and renders the references supplied by the authenticated editor.
 It also previews stories that have never been published. Configure the CMS preview
@@ -344,7 +348,7 @@ storypane assets upload ./cover.jpg --mime image/jpeg
 storypane api GET /delivery-settings
 ```
 
-See the [management API guide](../../docs/management-api.md) for safe edits,
+See the [management API guide](https://github.com/lkuich/storypane/blob/main/docs/management-api.md) for safe edits,
 publishing, token permissions, pagination, HTTP operations, and CLI JSON input.
 The delivery SDK remains the entrypoint for public sites.
 
@@ -368,8 +372,8 @@ const release = await management.request('/releases', {
 
 Choose a future date; retain the same request ID and payload on retries. Add
 approved page revisions through the scheduling endpoint, using the release ID and
-reviewed revision. See [API contracts](../../docs/management-api.md#content-releases)
-and [the release guide](../../docs/releases.md). Releases publish approved nested
+reviewed revision. See [API contracts](https://github.com/lkuich/storypane/blob/main/docs/management-api.md#content-releases)
+and [the release guide](https://github.com/lkuich/storypane/blob/main/docs/releases.md). Releases publish approved nested
 content together; later drafts stay unpublished. Delivery and preview calls are
 unchanged. No release-specific CLI command is required or provided.
 
@@ -435,7 +439,7 @@ apply intervening migrations; restore an older checkpoint before publishing it.
 
 For new teams, create **Production** first for content editors, keep its schema
 read-only, and create a dedicated **Development** space per developer using
-production as the base. Follow the [UI setup and promotion walkthrough](../../docs/development-workflow.md).
+production as the base. Follow the [UI setup and promotion walkthrough](https://github.com/lkuich/storypane/blob/main/docs/development-workflow.md).
 An installation admin can clone a space or choose a base when creating one.
 One production space can have multiple linked dev spaces. Starting in dev is supported: creating
 production from an unlinked dev space establishes the link. New production spaces
@@ -635,4 +639,4 @@ authenticated `getAsset` integration for static export when public media is disa
 Run `storypane mcp` (Node 20+) with `STORYPANE_URL`, `STORYPANE_SPACE_ID`, and a
 private `STORYPANE_MANAGEMENT_TOKEN`. The stdio adapter exposes read and write
 tools over the management API; the same scopes, issuer permissions and revocation
-apply. See [MCP configuration and contracts](../../docs/management-api.md#mcp-adapter).
+apply. See [MCP configuration and contracts](https://github.com/lkuich/storypane/blob/main/docs/management-api.md#mcp-adapter).

@@ -1,6 +1,7 @@
 import { McpServer } from '@modelcontextprotocol/server';
 import { StdioServerTransport } from '@modelcontextprotocol/server/stdio';
 import { z } from 'zod';
+import { readFile } from 'node:fs/promises';
 import { createManagementClient, ManagementError } from '../dist/management.js';
 
 export async function runMcp(setting) {
@@ -9,7 +10,10 @@ export async function runMcp(setting) {
     spaceId: setting('SPACE_ID'),
     token: setting('MANAGEMENT_TOKEN'),
   });
-  const server = new McpServer({ name: 'storypane', version: '0.1.0' });
+  const { version } = JSON.parse(
+    await readFile(new URL('../package.json', import.meta.url), 'utf8'),
+  );
+  const server = new McpServer({ name: 'storypane', version });
   const path = z
     .string()
     .max(4096)

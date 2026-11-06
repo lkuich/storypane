@@ -20,3 +20,9 @@ minimumReleaseAgeExclude:
 patchedDependencies:
   # Use Sharp's real types instead of vinext's optional-dependency placeholder.
   '@vinext/types@1.0.2': patches/@vinext__types@1.0.2.patch
+
+overrides:
+  # Keep old peer resolutions on the patched Vite line.
+  'vite@>=8.3.0 <8.3.3': 8.3.5
+  # GHSA-px8p-9vwx-vf98: preserve the existing 0.7.x dependency contract.
+  'fflate@<0.7.5': 0.7.5

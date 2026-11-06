@@ -1,0 +1,55 @@
+name: Release candidate
+on:
+  push:
+    tags: ['v0.1.0-rc.*']
+  workflow_dispatch:
+    inputs:
+      publish_npm:
+        description: Publish the SDK through the configured npm trusted publisher
+        type: boolean
+        default: false
+permissions:
+  contents: read
+jobs:
+  checks:
+    uses: ./.github/workflows/ci.yml
+  release:
+    needs: checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa # v4
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '24.22.0'
+          cache: pnpm
+          registry-url: https://registry.npmjs.org
+      - name: Require the matching RC tag
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          node --input-type=module -e '
+            import assert from "node:assert/strict";
+            import { readFileSync } from "node:fs";
+            const { version } = JSON.parse(readFileSync("package.json"));
+            assert.match(version, /^0\.1\.0-rc\.[1-9]\d*$/);
+            assert.equal(process.env.RELEASE_TAG, `v${version}`);
+          '
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test:package
+      - name: Publish SDK to the rc channel
+        if: github.event_name == 'workflow_dispatch' && inputs.publish_npm
+        run: npm publish artifacts/*.tgz --access public --tag rc --provenance
+      - name: Publish GitHub prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if ! gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release create "$GITHUB_REF_NAME" --verify-tag --prerelease \
+              --title "Storypane $GITHUB_REF_NAME" --notes-file .github/RELEASE_NOTES.md
+          fi
+          gh release upload "$GITHUB_REF_NAME" artifacts/*.tgz --clobber

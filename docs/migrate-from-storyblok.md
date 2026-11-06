@@ -57,15 +57,15 @@ Start with an [installed local CMS](getting-started.md) and a dedicated, empty
 **Development** space for rehearsal. Use your CMS URL, such as
 `http://localhost:3130`; `storypane.dev` is the marketing website.
 
-| Setting | What to provide |
-| --- | --- |
-| Storypane checkout | The local source repository, including `AGENTS.md`, contracts, SDK, and docs. |
-| `STORYBLOK_SPACE_ID` | The numeric source space ID. |
-| `STORYBLOK_PAT` | A personal access token with permission to read the required source resources. |
-| Source region | The region containing that space; use its documented Management API base URL. |
-| `STORYPANE_URL` | The running local CMS origin. |
-| `STORYPANE_SPACE_ID` | The empty rehearsal space's UUID. |
-| `STORYPANE_MANAGEMENT_TOKEN` | A space-scoped token created in Settings → API & preview → Management API. |
+| Setting                      | What to provide                                                                |
+| ---------------------------- | ------------------------------------------------------------------------------ |
+| Storypane checkout           | The local source repository, including `AGENTS.md`, contracts, SDK, and docs.  |
+| `STORYBLOK_SPACE_ID`         | The numeric source space ID.                                                   |
+| `STORYBLOK_PAT`              | A personal access token with permission to read the required source resources. |
+| Source region                | The region containing that space; use its documented Management API base URL.  |
+| `STORYPANE_URL`              | The running local CMS origin.                                                  |
+| `STORYPANE_SPACE_ID`         | The empty rehearsal space's UUID.                                              |
+| `STORYPANE_MANAGEMENT_TOKEN` | A space-scoped token created in Settings → API & preview → Management API.     |
 
 Store secrets in an ignored local file, such as `.env.storyblok-migration.local`,
 or your agent's local secret configuration. That filename is ignored by this
@@ -113,19 +113,19 @@ The core concepts line up closely; the persistence model and API contracts diffe
 Create a mapping manifest instead of treating a Storyblok JSON export as a
 Storypane write request.
 
-| Storyblok | Storypane | Mapping work |
-| --- | --- | --- |
-| Space | Space with its own Postgres database | Create the target explicitly; map source and target IDs. |
-| Component technical name | Block definition technical name | Keep names where valid. Review root/nestable usage when choosing Content type, Nestable, or Universal. |
-| Component groups | Block-library hierarchy | Map the grouping intent to parents in the library; do not confuse library parents with nested content. |
-| Text, textarea, markdown, rich text | Text with the corresponding format | Map validation/defaults. Convert rich-text nodes and marks where their representations differ. |
-| Number, boolean, date/time | Number, Boolean, Date/Datetime | Normalize numeric values and UTC timestamps to the target contracts. |
-| Blocks field | Blocks field and ordered child block instances | Preserve field names and order. Resolve allowed block names/groups/tags to target restrictions. |
-| Single/multiple options, datasources | Option/Options with the appropriate source | Preserve option values; map datasource IDs and story-backed choices. |
-| Asset | Private asset plus an Asset reference | Copy the original, then map its ID and per-use alt text. |
-| Story, URL, email, or asset link | Typed Link value or story-backed options | Rewrite identifiers and handle anchors/custom attributes explicitly. |
-| Folder hierarchy and stories | Content folders and stories | Preserve paths where representable; explicitly map start pages and translated slugs. |
-| Translated fields or folder-based language variants | Independent story locales, or an explicitly chosen folder model | Materialize each locale's values. Review fallback and shared-field behavior. |
+| Storyblok                                           | Storypane                                                       | Mapping work                                                                                           |
+| --------------------------------------------------- | --------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| Space                                               | Space with its own Postgres database                            | Create the target explicitly; map source and target IDs.                                               |
+| Component technical name                            | Block definition technical name                                 | Keep names where valid. Review root/nestable usage when choosing Content type, Nestable, or Universal. |
+| Component groups                                    | Block-library hierarchy                                         | Map the grouping intent to parents in the library; do not confuse library parents with nested content. |
+| Text, textarea, markdown, rich text                 | Text with the corresponding format                              | Map validation/defaults. Convert rich-text nodes and marks where their representations differ.         |
+| Number, boolean, date/time                          | Number, Boolean, Date/Datetime                                  | Normalize numeric values and UTC timestamps to the target contracts.                                   |
+| Blocks field                                        | Blocks field and ordered child block instances                  | Preserve field names and order. Resolve allowed block names/groups/tags to target restrictions.        |
+| Single/multiple options, datasources                | Option/Options with the appropriate source                      | Preserve option values; map datasource IDs and story-backed choices.                                   |
+| Asset                                               | Private asset plus an Asset reference                           | Copy the original, then map its ID and per-use alt text.                                               |
+| Story, URL, email, or asset link                    | Typed Link value or story-backed options                        | Rewrite identifiers and handle anchors/custom attributes explicitly.                                   |
+| Folder hierarchy and stories                        | Content folders and stories                                     | Preserve paths where representable; explicitly map start pages and translated slugs.                   |
+| Translated fields or folder-based language variants | Independent story locales, or an explicitly chosen folder model | Materialize each locale's values. Review fallback and shared-field behavior.                           |
 
 Storypane delivers nested block content with the familiar `component` and `_uid`
 keys. For ordinary text and block nesting, this shape will look familiar:

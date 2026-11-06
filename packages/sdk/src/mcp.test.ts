@@ -1,3 +1,4 @@
+import { readFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { fileURLToPath } from 'node:url';
 import { Client } from '@modelcontextprotocol/client';
@@ -30,6 +31,10 @@ it('serves MCP over stdio with fixed credentials, scoped paths and API errors', 
   const client = new Client({ name: 'storypane-test', version: '1' });
   try {
     await client.connect(transport);
+    const { version } = JSON.parse(
+      await readFile(new URL('../package.json', import.meta.url), 'utf8'),
+    );
+    expect(client.getServerVersion()).toEqual({ name: 'storypane', version });
     const tools = await client.listTools();
     expect(tools.tools.map((t) => t.name)).toEqual(['storypane_read', 'storypane_write']);
     expect(tools.tools[0].annotations?.readOnlyHint).toBe(true);

@@ -142,3 +142,24 @@ unsupported; Cloudflare Workers Static Assets website hosting is a separate stat
 
 These results verify releases locally. They do not replace the fresh provider
 acceptance checklist above or verify a new Railway installation.
+
+## RC package and local checks — 2026-11-06
+
+Checked the `0.1.0-rc.1` source candidate with Node 24.22.0 and pnpm 12.4.2.
+These are local release checks, not fresh hosted-install acceptance:
+
+- 503 Vitest tests passed; two opt-in live-service tests were skipped (S3 transport
+  and live management API/CLI/MCP). A dedicated disposable PostgreSQL cluster
+  exercised authentication, invitation/recovery, database isolation, and legacy split.
+- Lint/format, SDK/app/both-example type checks, Node production build and Docker
+  image build passed. The packed SDK installed outside the monorepo and loaded
+  every public entrypoint; its CLI, type declarations, and license were checked.
+- The production dependency audit reported no known advisories after Vite/fflate
+  patch updates. The development-only minimatch advisory is recorded in the
+  [release guide](releases-and-versioning.md#dependency-review-for-rc1).
+- Website production build and all 13 checks passed, including documentation links,
+  metadata, responsive/keyboard access, copy failures, and reduced-motion behavior.
+
+Fresh hosted acceptance, authenticated end-to-end browser acceptance for this
+candidate, backup-restore rehearsal, an independent security audit and production
+load benchmarks remain outstanding. The provider deployment gates remain closed.

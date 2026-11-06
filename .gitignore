@@ -21,3 +21,5 @@ playwright-report/
 .node/
 
 **/storypane/migrations/.transfer.json
+
+artifacts/

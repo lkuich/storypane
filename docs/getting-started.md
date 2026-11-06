@@ -134,3 +134,7 @@ or backed up and the replacement installation is verified. See
 - [Cloudflare and the static website](deploy-cloudflare.md)
 - [Management API, SDK, CLI, and MCP](management-api.md)
 - [Webhooks](webhooks.md)
+
+For invitations, recovery, Clerk, and agent credentials, read
+[authentication and access](authentication.md). Check the
+[release status](releases-and-versioning.md) before choosing a production version.

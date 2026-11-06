@@ -1,0 +1,53 @@
+name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_call:
+permissions:
+  contents: read
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      POSTGRES_DB: storypane
+      TEST_DATABASE_URL: postgresql://storypane:storypane@127.0.0.1:55432/storypane_test
+      ISOLATION_TEST_DATABASE_URL: postgresql://storypane:storypane@127.0.0.1:55449/postgres
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: storypane
+          POSTGRES_PASSWORD: storypane
+          POSTGRES_DB: storypane
+        ports: ['55432:5432']
+        options: >-
+          --health-cmd "pg_isready -U storypane"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+      isolation:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: storypane
+          POSTGRES_PASSWORD: storypane
+          POSTGRES_DB: postgres
+        ports: ['55449:5432']
+        options: >-
+          --health-cmd "pg_isready -U storypane"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa # v4
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '24.22.0'
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm audit --prod --audit-level high
+      - run: pnpm lint
+      - run: pnpm typecheck
+      - run: pnpm db:test
+      - run: pnpm test
+      - run: pnpm build
+      - run: pnpm test:package
+      - run: docker build --tag storypane:check .

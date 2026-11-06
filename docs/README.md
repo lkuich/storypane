@@ -13,6 +13,8 @@ Already have an instance? Start with content and schemas below.
   with copyable instructions for a coding agent.
 - [Node installations](self-hosting.md): Docker setup, external Postgres and storage,
   authentication, operator commands, upgrades, backups, and recovery.
+- [Authentication](authentication.md): local sign-in, invitations, recovery, optional
+  Clerk, provider changes, and credentials for agents.
 - [Portable hosting and backups](self-hosting.md#backups-upgrades-and-health): move
   regions or cloud hosts, enable provider-managed backups, and preserve media and keys.
 
@@ -45,6 +47,14 @@ Explore the SDK, then choose the integration guide for your framework.
   skills, and MCP connections.
 - [Management API, SDK, CLI, and MCP](management-api.md): credentials and automation.
 - [Webhooks](webhooks.md): signed deliveries, event names, receiver validation, and retries.
+
+## Project and releases
+
+- [Releases and versioning](releases-and-versioning.md): RC status, CI, SDK packages,
+  maintainer publishing, upgrade requirements, and the path to stable.
+- [Privacy and data handling](privacy.md): installation data, chosen providers,
+  website requests, and operator responsibilities.
+- [Security policy](../SECURITY.md): supported candidates and private reporting.
 
 ## Deployment references
 

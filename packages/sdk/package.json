@@ -1,6 +1,6 @@
 {
   "name": "@storypane/sdk",
-  "version": "0.1.0",
+  "version": "0.1.0-rc.1",
   "type": "module",
   "description": "Published content delivery and live visual preview for Storypane",
   "files": [
@@ -60,5 +60,19 @@
   "dependencies": {
     "@modelcontextprotocol/server": "^2.4.0",
     "zod": "^4.6.7"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/lkuich/storypane.git",
+    "directory": "packages/sdk"
+  },
+  "homepage": "https://storypane.dev/docs/sdk/",
+  "bugs": {
+    "url": "https://github.com/lkuich/storypane/issues"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/",
+    "tag": "rc"
   }
 }
