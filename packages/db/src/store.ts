@@ -1,5 +1,5 @@
 import { readPageMap } from './page-map.js';
-import { pageMapQuerySchema, pageMapResponseSchema, pageMapPagesSchema } from '@storypane/core';
+import { pageMapQuerySchema, pageMapResponseSchema } from '@storypane/core';
 import { richTextAssetIds } from '@storypane/core';
 import { recordWebhookEvent } from './webhooks.js';
 import {
@@ -485,16 +485,11 @@ export class StorypaneStore {
       client.release();
     }
   }
-  async pageMap(actor: Actor, raw: unknown, view: 'graph' | 'pages' | 'orphans' = 'graph') {
+  async pageMap(actor: Actor, raw: unknown) {
     const query = parseInput(pageMapQuerySchema, raw);
     return this.tx(
       actor,
-      async (client) => {
-        const result = await readPageMap(client, actor, query, view);
-        return view === 'graph'
-          ? pageMapResponseSchema.parse(result)
-          : pageMapPagesSchema.parse(result);
-      },
+      async (client) => pageMapResponseSchema.parse(await readPageMap(client, actor, query)),
       'content:read',
     );
   }

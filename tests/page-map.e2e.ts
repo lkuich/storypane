@@ -100,6 +100,19 @@ test('page map supports keyboard navigation, URL restoration, read-only cards, t
       true,
     );
   }
+  const references = page.getByRole('checkbox', { name: 'Include content references' });
+  for (const width of [1280, 1600]) {
+    await page.setViewportSize({ width, height: 900 });
+    const select = await page.getByLabel('Direction', { exact: true }).boundingBox();
+    const checkbox = await references.boundingBox();
+    expect(
+      Math.abs(checkbox!.y + checkbox!.height / 2 - select!.y - select!.height / 2),
+    ).toBeLessThan(1);
+  }
+  await references.focus();
+  await page.keyboard.press('Space');
+  await expect(page).toHaveURL(/map-references=true/);
+  await expect(references).toBeChecked();
   await page.getByLabel('Depth', { exact: true }).selectOption('3');
   await expect(page).toHaveURL(/map-depth=3/);
   await page.goBack();

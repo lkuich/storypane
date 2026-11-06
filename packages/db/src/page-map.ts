@@ -8,7 +8,6 @@ import {
   type PageMapNode,
   type PageMapEdge,
   type PageMapResponse,
-  type PageMapPages,
 } from '@storypane/core';
 import { loadContentAccess } from './content-access.js';
 
@@ -36,8 +35,7 @@ export async function readPageMap(
   client: PoolClient,
   actor: Actor,
   query: PageMapQuery,
-  view: 'graph' | 'pages' | 'orphans',
-): Promise<PageMapResponse | PageMapPages> {
+): Promise<PageMapResponse> {
   const access = await loadContentAccess(client, actor);
   const restricted = !unrestrictedRead(access);
   const requested =
@@ -67,7 +65,7 @@ export async function readPageMap(
     WHERE s.space_id=$1 AND s.deleted_at IS NULL AND ($4 OR NOT coalesce(f.form_only,false))
       AND l.slug IN ($3,(SELECT slug FROM space_locales WHERE space_id=$1 AND is_default))
     ORDER BY s.id,(l.slug=$3) DESC`,
-      [actor.spaceId, query.mode, requested, view === 'graph' && query.references === 'true'],
+      [actor.spaceId, query.mode, requested, query.references === 'true'],
     )
   ).rows;
   const catalog = new Map<string, PageMapNode>();
@@ -95,20 +93,13 @@ export async function readPageMap(
     });
   }
   const byLocale = new Map([...catalog.values()].map((node) => [node.localeId, node]));
-  async function connections(frontier?: string[]) {
+  async function connections(frontier: string[]) {
     const result = await client.query<{ locale_id: string; connections: Connection[] }>(
       `
       SELECT locale_id,connections FROM page_connections WHERE mode=$1 AND locale_id=ANY($2::uuid[])
-      ${frontier ? 'AND (locale_id=ANY($3::uuid[]) OR targets && $4::uuid[])' : ''}
+      AND (locale_id=ANY($3::uuid[]) OR targets && $4::uuid[])
       ORDER BY locale_id`,
-      frontier
-        ? [
-            query.mode,
-            [...byLocale.keys()],
-            frontier.map((id) => catalog.get(id)!.localeId),
-            frontier,
-          ]
-        : [query.mode, [...byLocale.keys()]],
+      [query.mode, [...byLocale.keys()], frontier.map((id) => catalog.get(id)!.localeId), frontier],
     );
     const edges = new Map<string, PageMapEdge>();
     for (const row of result.rows) {
@@ -138,27 +129,7 @@ export async function readPageMap(
     }
     return [...edges.values()];
   }
-  if (view !== 'graph') {
-    const incoming = new Set<string>();
-    if (view === 'orphans')
-      for (const edge of await connections())
-        if (edge.kind === 'link' && edge.source !== edge.target) incoming.add(edge.target);
-    const pages = [...catalog.values()]
-      .filter(
-        (node) =>
-          !incoming.has(node.id) &&
-          `${node.title} ${node.url}`
-            .toLocaleLowerCase()
-            .includes(query.search.toLocaleLowerCase()),
-      )
-      .sort((a, b) => a.title.localeCompare(b.title) || a.id.localeCompare(b.id));
-    return {
-      pages: pages.slice(query.offset, query.offset + 50),
-      nextOffset: pages.length > query.offset + 50 ? query.offset + 50 : null,
-      restricted,
-    };
-  }
-  if (!query.root || !catalog.has(query.root))
+  if (!catalog.has(query.root))
     throw new StorypaneError('not_found', 'Page unavailable in this locale and content mode');
   const selected = new Set([query.root]);
   const edges = new Map<string, PageMapEdge>();

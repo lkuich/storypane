@@ -1924,15 +1924,16 @@ describe('Page map index', () => {
       await store.pageMap(actor, { root, mode: 'draft', ...options }),
     );
   }
-  async function orphans(actor = alice) {
-    const { pageMapPagesSchema } = await import('@storypane/core');
-    return pageMapPagesSchema.parse(await store.pageMap(actor, { mode: 'draft' }, 'orphans'));
-  }
-  it('indexes nested saved links, separates publications, resolves cycles and self-links, and filters orphans globally', async () => {
+  it('requires a starting page and rejects retired list parameters', async () => {
+    for (const options of [{ root: undefined }, { search: 'Home' }, { offset: 50 }]) {
+      await expect(graph(undefined, options)).rejects.toMatchObject({ code: 'invalid' });
+    }
+  });
+  it('indexes nested saved links, separates publications, resolves cycles and self-links', async () => {
     const b = await copiedStory('B'),
       c = await copiedStory('C');
     snapshot = await linkStory(snapshot, b);
-    const linkedB = await linkStory(b, c);
+    await linkStory(b, c);
     await linkStory(c, snapshot);
     const first = await graph(undefined, { depth: 1 });
     expect(first.nodes).toHaveLength(2);
@@ -1943,7 +1944,6 @@ describe('Page map index', () => {
     expect(
       (await graph(undefined, { direction: 'incoming', depth: 1 })).nodes.map((n) => n.id),
     ).toContain(c.story.id);
-    expect((await orphans()).pages).toHaveLength(0);
     await expect(graph(undefined, { mode: 'published' })).rejects.toMatchObject({
       code: 'not_found',
     });
@@ -1953,12 +1953,8 @@ describe('Page map index', () => {
     await linkStory(snapshot, snapshot);
     expect((await graph()).nodes).toHaveLength(1);
     expect((await graph(undefined, { mode: 'published' })).nodes.length).toBeGreaterThan(1);
-    // A source outside the displayed graph still prevents B from being an orphan.
-    await linkStory(await store.getSnapshot(alice, c.story.id, c.locale.id), b);
-    expect((await orphans()).pages.map((p) => p.id)).not.toContain(b.story.id);
-    expect(linkedB.story.id).toBe(b.story.id);
   });
-  it('hides restricted nodes, field labels, counts, and incoming links before orphan classification', async () => {
+  it('hides restricted nodes, field labels, counts, and incoming links', async () => {
     const b = await copiedStory('Hidden target');
     snapshot = await linkStory(snapshot, b);
     await scopedEditor({ read: { locations: { folderIds: [], storyIds: [snapshot.story.id] } } });
@@ -1968,7 +1964,10 @@ describe('Page map index', () => {
     expect(visible.edges).toEqual([]);
     expect(JSON.stringify(visible)).not.toContain(b.story.id);
     await scopedEditor({ read: { locations: { folderIds: [], storyIds: [b.story.id] } } });
-    expect(await orphans(bob)).toMatchObject({ restricted: true, pages: [{ id: b.story.id }] });
+    const incoming = await graph(b.story.id, { direction: 'incoming' }, bob);
+    expect(incoming.nodes).toMatchObject([{ id: b.story.id, incoming: 0 }]);
+    expect(incoming.edges).toEqual([]);
+    expect(JSON.stringify(incoming)).not.toContain(snapshot.story.id);
     const footer = blockNamed(snapshot, 'footer');
     const title = snapshot.definitions
       .find((d) => d.name === 'hero')!
@@ -2103,9 +2102,8 @@ it('collapses repeated nested links, distinguishes story options, and ignores ex
   await mapCheckpoint(state);
   expect((await mapGraph()).edges).toEqual([]);
 });
-it('resolves fallback locales, filters locale permissions, and excludes form-only orphan candidates', async () => {
+it('resolves fallback locales, filters locale permissions, and includes form-only content only with references', async () => {
   const fr = await store.createSpaceLocale(alice, { name: 'French', slug: 'fr' });
-  const { pageMapPagesSchema } = await import('@storypane/core');
   const fallback = await mapGraph({ locale: 'fr' });
   expect(fallback.nodes[0]).toMatchObject({ locale: snapshot.locale.slug, fallback: true });
   await scopedEditor({ read: { localeIds: [fr.id] } });
@@ -2118,12 +2116,10 @@ it('resolves fallback locales, filters locale permissions, and excludes form-onl
     slug: 'home',
     localeSlugs: {},
   });
-  const orphans = pageMapPagesSchema.parse(
-    await store.pageMap(alice, { mode: 'draft' }, 'orphans'),
-  );
-  expect(orphans.pages).toHaveLength(0);
+  await expect(mapGraph()).rejects.toMatchObject({ code: 'not_found' });
+  expect((await mapGraph({ references: 'true' })).nodes).toMatchObject([{ id: snapshot.story.id }]);
 });
-it('enforces depth, node and edge caps, paginates orphans and uses the incoming index on a large fixture', async () => {
+it('enforces depth, node and edge caps and uses the incoming index on a large fixture', async () => {
   const ids = Array.from({ length: 1000 }, () => ({ id: randomUUID(), locale: randomUUID() }));
   await pool.query(
     `INSERT INTO stories(id,space_id,name,slug) SELECT x.id,$1,'Fixture '||x.id,x.id::text FROM jsonb_to_recordset($2) x(id uuid,locale uuid)`,
@@ -2174,14 +2170,6 @@ it('enforces depth, node and edge caps, paginates orphans and uses the incoming 
   } finally {
     client.release();
   }
-  const { pageMapPagesSchema } = await import('@storypane/core');
-  const first = pageMapPagesSchema.parse(await store.pageMap(alice, { mode: 'draft' }, 'orphans'));
-  const second = pageMapPagesSchema.parse(
-    await store.pageMap(alice, { mode: 'draft', offset: first.nextOffset }, 'orphans'),
-  );
-  expect(first.pages).toHaveLength(50);
-  expect(second.pages).toHaveLength(50);
-  expect(second.pages.some((p) => first.pages.some((q) => q.id === p.id))).toBe(false);
   // A dense graph hits the edge cap independently of the node cap.
   const targets = ids.slice(0, 30);
   state.blocks = state.blocks.slice(0, 1).concat(
