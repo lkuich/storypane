@@ -5,6 +5,15 @@ Assets. The current CMS runs separately on Node with PostgreSQL and private S3
 storage. The website deployment contains static files only: no CMS server code,
 Clerk keys, database connections, Durable Objects, or media bucket bindings.
 
+## Current storypane.dev deployment
+
+The static website is live on `storypane.dev` as of November 5, 2026. The previous
+`storypane-web` and `storypane-realtime` Workers, realtime room namespace, and
+unused `storypane-postgres` Hyperdrive configuration have been retired. PostgreSQL,
+the private `storypane-assets` R2 bucket, backups, and encryption keys were retained.
+This verifies website hosting and legacy compute removal; CMS installation
+acceptance remains a separate checklist.
+
 ## Deploy the website
 
 Use the [storypane-www repository](https://github.com/lkuich/storypane-www), Node

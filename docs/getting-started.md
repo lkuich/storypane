@@ -8,7 +8,7 @@ not compatible with the current installation and per-space database layout.
 ## Run a fresh installation
 
 For a Docker installation, you need Docker Compose. Clone the
-[CMS repository](https://github.com/lkuich/blok):
+[CMS repository](https://github.com/lkuich/storypane):
 
 ```sh
 cp .env.production.example .env.production
