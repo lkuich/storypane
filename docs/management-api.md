@@ -126,6 +126,12 @@ apply. Where needed, pass `referenceChoices` with the reviewed locale/checkpoint
 and `action: 'publish' | 'omit'`. A stale or unreviewed reference is not silently
 published.
 
+`GET /stories/:storyId/locales/:localeId/publication-review/:checkpointId` returns
+the fixed checkpoint, linked-page choices, and `publishedSnapshot`: the current
+live snapshot, or `null` for an unpublished locale. Both snapshots respect the
+caller's content access. Compare component values and positions to show changes;
+revision numbers alone can change without changing live content.
+
 ### Other operations
 
 `management.request<T>(path, { method, body })` exposes the remaining HTTP

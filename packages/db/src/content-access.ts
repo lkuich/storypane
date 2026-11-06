@@ -253,6 +253,9 @@ export function projectResult<T>(access: StoreContentAccess, value: T): T {
       snapshot,
       ...('actorId' in value && !snapshot.access.complete ? { actorId: '' } : {}),
       ...('content' in value ? { content: projectedContent(snapshot) } : {}),
+      ...('publishedSnapshot' in value
+        ? { publishedSnapshot: projectResult(access, value.publishedSnapshot) }
+        : {}),
       ...('changedBlockIds' in value && Array.isArray(value.changedBlockIds)
         ? {
             changedBlockIds: value.changedBlockIds.filter((id) => snapshot.access.blocks[id]?.read),

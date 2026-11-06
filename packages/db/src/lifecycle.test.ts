@@ -1031,6 +1031,21 @@ const publishWith = (
     type: 'publishCheckpoint',
     payload: { checkpointId: state.checkpointId!, referenceChoices },
   });
+it('reviews against the current live snapshot, including when reviewing an older checkpoint', async () => {
+  expect((await referenceReview(snapshot)).publishedSnapshot).toBeNull();
+  await publishWith(snapshot);
+  const hero = blockNamed(snapshot, 'hero');
+  const edited = (await save(alice, snapshot, hero, { ...hero.fields, title: 'New title' }))
+    .snapshot;
+  const review = await referenceReview(edited);
+  expect(blockNamed(review.publishedSnapshot!, 'hero').fields.title).toBe(hero.fields.title);
+  expect(blockNamed(review.snapshot, 'hero').fields.title).toBe('New title');
+  expect(review.publishedSnapshot!.leases).toEqual([]);
+  await publishWith(edited);
+  const historical = await referenceReview(snapshot);
+  expect(blockNamed(historical.publishedSnapshot!, 'hero').fields.title).toBe('New title');
+  expect(blockNamed(historical.snapshot, 'hero').fields.title).toBe(hero.fields.title);
+});
 async function changedLinkedStory() {
   const original = await copiedStory();
   const published = await publishWith(original);

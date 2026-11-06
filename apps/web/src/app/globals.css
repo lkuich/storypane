@@ -2400,23 +2400,155 @@ hr {
   border-color: var(--primary);
   background: var(--accent-soft);
 }
-.review-label {
+.publication-changes {
+  margin: 24px 0;
+}
+.publication-changes-heading {
   display: flex;
-  align-items: center;
-  gap: 8px;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.publication-changes-heading > svg {
   color: var(--accent);
+  margin-top: 3px;
+}
+.publication-changes-heading h3 {
+  margin: 0 0 4px;
+  font-size: 15px;
+}
+.publication-changes-heading p {
+  margin: 0;
+  color: var(--muted);
   font-size: 12px;
-  margin-bottom: 18px;
 }
-.review-tree {
-  padding: 0;
-  margin: 0 0 20px;
-  list-style: none;
+.publication-change-list {
+  border-top: 1px solid var(--line);
+  max-height: 340px;
+  overflow: auto;
+  scrollbar-gutter: stable;
 }
-.review-tree li {
-  padding: 8px 0;
+.publication-change-list:empty {
+  display: none;
+}
+.publication-change {
   border-bottom: 1px solid var(--line);
+}
+.publication-change > summary {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 14px 3px;
+  list-style: none;
+  cursor: pointer;
+}
+.publication-change > summary::-webkit-details-marker {
+  display: none;
+}
+.publication-change-chevron {
+  margin-top: 3px;
+  color: var(--muted);
+}
+.publication-change[open] .publication-change-chevron {
+  transform: rotate(90deg);
+}
+.publication-change-heading {
+  min-width: 0;
+  flex: 1;
+  overflow-wrap: anywhere;
+}
+.publication-change-heading strong {
+  display: block;
   font-size: 13px;
+}
+.publication-change-heading strong > span {
+  font-weight: 400;
+}
+.publication-change-heading small {
+  display: block;
+  color: var(--muted);
+  font-size: 11px;
+}
+.publication-change-heading .publication-change-fields {
+  color: var(--text-secondary);
+  margin-top: 4px;
+}
+.publication-change-kind {
+  flex-shrink: 0;
+  padding: 2px 7px;
+  border-radius: 5px;
+  font-size: 10px;
+  font-weight: 650;
+  background: var(--info-soft);
+  color: var(--info);
+}
+.publication-change-kind--added {
+  background: var(--success-soft);
+  color: var(--success);
+}
+.publication-change-kind--removed {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+.publication-change-kind--moved {
+  background: var(--warning-soft);
+  color: var(--warning);
+}
+.publication-change-detail {
+  padding: 0 6px 16px 29px;
+}
+.publication-field-change + .publication-field-change {
+  margin-top: 14px;
+}
+.publication-field-change h4 {
+  font-size: 12px;
+  margin: 0 0 6px;
+}
+.publication-field-values {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
+  gap: 10px;
+}
+.publication-field-values > div {
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: var(--bg);
+}
+.publication-field-values span {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 650;
+}
+.publication-field-values pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 180px;
+  overflow: auto;
+  font: inherit;
+  font-size: 12px;
+  margin: 5px 0 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+.publication-full-content > summary,
+.publication-first-publish > summary {
+  color: var(--muted);
+  font-size: 12px;
+  cursor: pointer;
+}
+.publication-first-publish > summary {
+  margin-bottom: 12px;
+}
+.publish-review-dialog .publish-review-actions {
+  position: sticky;
+  bottom: -28px;
+  z-index: 1;
+  padding-bottom: 20px;
+  margin-bottom: -20px;
+  background: var(--surface);
 }
 .field-error-list {
   color: var(--danger);

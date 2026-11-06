@@ -209,7 +209,10 @@ test('admin builds a schema and datasource, then authors and publishes typed con
   await expect(page.getByText('All changes saved', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Review & publish', exact: true }).click();
   const review = page.getByRole('dialog', { name: 'Review before publishing' });
-  await expect(review.locator('pre')).toContainText('Typed content, saved live');
+  await review.getByText('View full saved content', { exact: true }).click();
+  await expect(review.locator('.publication-full-content pre')).toContainText(
+    'Typed content, saved live',
+  );
   await review.getByRole('button', { name: /Publish revision/ }).click();
   await expect(review).not.toBeVisible();
   const publishedLink = page.getByRole('link', { name: 'Published JSON', exact: true });

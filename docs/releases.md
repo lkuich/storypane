@@ -47,8 +47,10 @@ not need schema editing access.
 ## Schedule a page
 
 1. Open the page and locale in **Content**. Wait for **All changes saved**.
-2. Choose **Review & publish**. Check the saved content, URL, validation results,
-   and linked-page choices.
+2. Choose **Review & publish**. Check the URL and components changed since the live
+   version. Expand a component to compare its changed fields, and review validation
+   results and linked-page choices. This comparison uses live content, even when
+   updating an upcoming release; it is not a comparison with that release's approval.
 3. Choose **Add to release**.
 4. Select **Create a new release**, enter a clear name such as `Summer launch`,
    then choose the **Release date and time** and **Timezone**. Use an IANA zone

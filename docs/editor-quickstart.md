@@ -191,9 +191,13 @@ its handle to reorder sections.
 ## 8. Review and publish
 
 1. Wait until all changes are saved, then choose **Review & publish**.
-2. In **Review before publishing**, check the locale, URL, block list, and saved
-   content. Fix any validation issues, such as a missing Hero title or empty Body,
-   before continuing. If you add story references later, review the linked-story
+2. In **Review before publishing**, check the locale, URL, and changed components.
+   Only components added, edited, moved or removed since the live version are
+   listed. Expand a component to compare its changed fields. When there is no live
+   version, a compact count offers an expandable list of all components; **View full
+   saved content** is available for the complete JSON. Fix any validation issues,
+   such as a missing Hero title or empty Body, before continuing.
+   If you add story references later, review the linked-story
    publication choices here too.
 3. Choose **Publish revision** followed by the reviewed revision number.
 4. Check that the story is marked **Published**.

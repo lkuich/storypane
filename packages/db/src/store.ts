@@ -4806,13 +4806,18 @@ export class StorypaneStore {
       async (client) => {
         await this.lockLocale(client, actor, storyId, localeId);
         const checkpoint = await this.readCheckpoint(client, localeId, checkpointId);
+        const live = await client.query(
+          'SELECT p.snapshot FROM publications p JOIN story_locales l ON l.published_version_id=p.id WHERE l.id=$1',
+          [localeId],
+        );
+        const publishedSnapshot: LocaleSnapshot | null = live.rows[0]?.snapshot ?? null;
         if (
           !projectSnapshot(await this.contentAccess(client, actor), checkpoint.snapshot).access
             .publish
         )
-          return { ...checkpoint, references: [] };
+          return { ...checkpoint, references: [], publishedSnapshot };
         const { references } = await this.publicationPlan(client, actor, checkpoint);
-        return { ...checkpoint, references };
+        return { ...checkpoint, references, publishedSnapshot };
       },
       'content:read',
     );

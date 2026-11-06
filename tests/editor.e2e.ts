@@ -103,7 +103,10 @@ test('two editors work on separate blocks, autosave, publish a fixed checkpoint,
     await expect(other.getByText('All changes saved', { exact: true })).toBeVisible();
     await page.getByRole('button', { name: 'Review & publish' }).click();
     const review = page.getByRole('dialog', { name: 'Review before publishing' });
-    await expect(review.locator('pre')).toContainText('Footer before review');
+    await review.getByText('View full saved content', { exact: true }).click();
+    await expect(review.locator('.publication-full-content pre')).toContainText(
+      'Footer before review',
+    );
     await other
       .getByLabel('Footer text', { exact: true })
       .fill('Footer after review stays a draft');

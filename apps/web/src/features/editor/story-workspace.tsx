@@ -8,6 +8,7 @@ import {
 } from '@storypane/core';
 import { setStoryLocation, spaceUrl } from '../../lib/space-url';
 import { PublicationReferences, publicationSelection } from './publication-references';
+import { PublicationChangesView } from './publication-changes-view';
 
 import { Fragment, useCallback, useEffect, useRef, useState, type DragEvent } from 'react';
 import {
@@ -1850,6 +1851,7 @@ function LocaleEditor({
         open={!!review}
         onClose={() => !busy && setReview(null)}
         title="Review before publishing"
+        className="publish-review-dialog"
         description={
           review
             ? `This publishes revision ${review.revision}, saved ${dateLabel(review.createdAt)}. Later edits stay in the draft.`
@@ -1859,10 +1861,6 @@ function LocaleEditor({
       >
         {review && (
           <>
-            <div className="review-label">
-              <LockKeyhole size={14} />
-              This checkpoint is fixed while you review it.
-            </div>
             <div className="content-path-preview">
               <span>URL to publish · {review.snapshot.locale.name}</span>
               <code>
@@ -1872,22 +1870,28 @@ function LocaleEditor({
                   .join('/')}
               </code>
             </div>
-            <ul className="review-tree">
-              {outline(review.snapshot).map(({ block, depth }) => (
-                <li style={{ paddingLeft: depth * 18 }} key={block.id}>
-                  {blockTitle(review.snapshot, block)}{' '}
-                  <span className="small muted">· revision {block.revision}</span>
-                </li>
-              ))}
-            </ul>
+            {!!review.publishedSnapshot &&
+              review.publishedSnapshot.locale.urlSlug !== review.snapshot.locale.urlSlug && (
+                <p className="notice notice--warning">
+                  URL changed from{' '}
+                  <code>
+                    /
+                    {[review.publishedSnapshot.locale.slug, review.publishedSnapshot.locale.urlSlug]
+                      .filter(Boolean)
+                      .join('/')}
+                  </code>
+                  . Check links to the old URL.
+                </p>
+              )}
+            <PublicationChangesView review={review} />
             <PublicationReferences
               review={review}
               choices={referenceChoices}
               onChange={setReferenceChoices}
               disabled={busy || scheduleOpen}
             />
-            <details open>
-              <summary className="small">Review saved content</summary>
+            <details className="publication-full-content">
+              <summary className="small">View full saved content</summary>
               <pre className="read-only-json">{JSON.stringify(review.content, null, 2)}</pre>
             </details>
             <ErrorNotice message={reviewError} />
@@ -1913,7 +1917,7 @@ function LocaleEditor({
                 }}
               />
             ) : (
-              <div>
+              <>
                 {reviewSchedule && (
                   <p className="notice notice--warning">
                     This page belongs to <strong>{reviewSchedule.releaseName}</strong>. Updating the
@@ -1945,7 +1949,7 @@ function LocaleEditor({
                         : `Publish revision ${review.revision}`}
                   </Button>
                 </div>
-              </div>
+              </>
             )}
           </>
         )}

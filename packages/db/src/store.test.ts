@@ -4401,6 +4401,11 @@ describe('scoped content permissions', () => {
     expect(await store.listDefinitionReferenceCounts(bob)).toEqual({});
   });
   it('redacts current and historical fields, preserves hidden values on save and rejects whole-page actions', async () => {
+    await run(alice, snapshot, {
+      ...commandBase(),
+      type: 'publishCheckpoint',
+      payload: { checkpointId: snapshot.checkpointId! },
+    });
     const hero = blockNamed(snapshot, 'hero');
     const title = snapshot.definitions
       .find((d) => d.id === hero.definitionId)!
@@ -4420,6 +4425,18 @@ describe('scoped content permissions', () => {
     );
     expect(JSON.stringify(history)).not.toContain('Your next story starts here.');
     expect(history.actorId).toBe('');
+    const review = await store.reviewPublication(
+      bob,
+      snapshot.story.id,
+      snapshot.locale.id,
+      snapshot.checkpointId!,
+    );
+    expect(review.publishedSnapshot).not.toBeNull();
+    expect(blockNamed(review.publishedSnapshot!, 'hero').fields).toEqual({
+      title: hero.fields.title,
+    });
+    expect(review.publishedSnapshot!.access?.complete).toBe(false);
+    expect(JSON.stringify(review)).not.toContain('Your next story starts here.');
     expect(
       (await store.listCheckpoints(bob, snapshot.story.id, snapshot.locale.id)).every(
         (item) => item.actorId === '',

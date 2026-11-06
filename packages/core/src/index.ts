@@ -702,7 +702,10 @@ export type PublicationReference = {
   canPublish: boolean;
   usages: { localeId: string; storyName: string; field: string; canOmit: boolean }[];
 };
-export type PublicationReview = CheckpointDetail & { references: PublicationReference[] };
+export type PublicationReview = CheckpointDetail & {
+  references: PublicationReference[];
+  publishedSnapshot: LocaleSnapshot | null;
+};
 export type Publication = {
   id: string;
   checkpointId: string;
