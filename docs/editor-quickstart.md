@@ -246,10 +246,11 @@ Once your application's preview route is ready:
 5. Return to Home and choose **Preview**. Edit Hero and wait for autosave to see
    the draft update in the connected application.
 
-Use **Mobile**, **Tablet**, and **Desktop** in the live preview panel to check
-responsive layouts. Mobile uses a 390px viewport; Desktop uses 1440px. Tablet is
-the default and keeps the current panel width. Wider previews scale to fit the
-panel. Switching sizes preserves the loaded page and live connection.
+Use the **Mobile**, **Tablet**, and **Desktop** toggle buttons to the right of the
+Preview dropdown to check responsive layouts. Desktop is the default and fills
+the available panel width without a fixed width limit. Mobile uses a 390px viewport
+and Tablet uses 768px; they scale down when needed to fit the panel. Switching
+sizes preserves the loaded page and live connection.
 
 Keep an HTTPS CMS and its preview application on HTTPS. The integration guides
 explain local development origins, iframe access, and draft media authentication.

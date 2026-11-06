@@ -235,18 +235,37 @@ test('a static app receives live drafts, selects blocks in the editor, and leave
     await expect(frame.locator('#status')).toHaveText('connected');
     const sizes = page.getByRole('group', { name: 'Preview size', exact: true });
     const liveIframe = page.locator('iframe[title="Live application preview"]');
-    await expect(sizes.getByRole('button', { name: 'Tablet', exact: true })).toHaveAttribute(
+    await expect(sizes.getByRole('button', { name: 'Desktop', exact: true })).toHaveAttribute(
       'aria-pressed',
       'true',
     );
-    const tabletWidth = await frame.locator('html').evaluate(() => innerWidth);
-    expect(tabletWidth).toBeGreaterThan(390);
+    await page.setViewportSize({ width: 2560, height: 1000 });
+    await expect.poll(() => frame.locator('html').evaluate(() => innerWidth)).toBeGreaterThan(1440);
+    const desktopWidth = await frame.locator('html').evaluate(() => innerWidth);
+    await expect
+      .poll(() =>
+        liveIframe.evaluate(
+          (iframe) =>
+            Math.abs(
+              iframe.getBoundingClientRect().width -
+                iframe.parentElement!.getBoundingClientRect().width,
+            ) < 1,
+        ),
+      )
+      .toBe(true);
+    const dropdownBounds = (await switcher.boundingBox())!;
+    const sizeBounds = (await sizes.boundingBox())!;
+    expect(sizeBounds.x).toBeGreaterThan(dropdownBounds.x + dropdownBounds.width);
+    expect(Math.abs(sizeBounds.y - dropdownBounds.y)).toBeLessThan(2);
+    await page.getByRole('region', { name: 'Application preview' }).screenshot({
+      path: '/tmp/storypane-preview-controls-desktop.png',
+    });
     await frame.locator('body').evaluate((body) => (body.dataset.resizeCheck = 'preserved'));
     await sizes.getByRole('button', { name: 'Mobile', exact: true }).focus();
     for (const [name, width] of [
       ['Mobile', 390],
-      ['Tablet', tabletWidth],
-      ['Desktop', 1440],
+      ['Tablet', 768],
+      ['Desktop', desktopWidth],
     ] as const) {
       await expect(sizes.getByRole('button', { name, exact: true })).toBeFocused();
       await page.keyboard.press('Space');
@@ -263,7 +282,24 @@ test('a static app receives live drafts, selects blocks in the editor, and leave
       await page.keyboard.press('Tab');
     }
     await page.setViewportSize({ width: 390, height: 844 });
-    await expect.poll(() => frame.locator('html').evaluate(() => innerWidth)).toBe(1440);
+    await expect
+      .poll(() =>
+        liveIframe.evaluate(
+          (iframe) =>
+            Math.abs(
+              iframe.getBoundingClientRect().width -
+                iframe.parentElement!.getBoundingClientRect().width,
+            ) < 1,
+        ),
+      )
+      .toBe(true);
+    await expect
+      .poll(() => frame.locator('html').evaluate(() => innerWidth))
+      .toBeLessThanOrEqual(390);
+    const mobileDropdown = (await switcher.boundingBox())!;
+    const mobileButtons = (await sizes.boundingBox())!;
+    expect(mobileButtons.x).toBeGreaterThan(mobileDropdown.x + mobileDropdown.width);
+    expect(Math.abs(mobileButtons.y - mobileDropdown.y)).toBeLessThan(2);
     await expect
       .poll(async () => {
         const bounds = await liveIframe.boundingBox();
@@ -281,7 +317,7 @@ test('a static app receives live drafts, selects blocks in the editor, and leave
     await expect(frame.locator('body')).toHaveAttribute('data-resize-check', 'preserved');
     await page.setViewportSize({ width: 1440, height: 1000 });
     await sizes.getByRole('button', { name: 'Tablet', exact: true }).click();
-    await expect.poll(() => frame.locator('html').evaluate(() => innerWidth)).toBe(tabletWidth);
+    await expect.poll(() => frame.locator('html').evaluate(() => innerWidth)).toBe(768);
     const editor = page.getByRole('region', { name: 'Block editor' });
     const heroButton = editor.getByRole('button', { name: 'Hero', exact: true });
     const hoverPreview = page.locator('.block-hover-preview');

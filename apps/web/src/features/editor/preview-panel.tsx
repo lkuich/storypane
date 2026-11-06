@@ -9,8 +9,8 @@ export type ComponentPreview = { blockId: string } | { block: Record<string, Jso
 
 const previewSizes = [
   { name: 'Mobile', width: 390, icon: Smartphone },
-  { name: 'Tablet', width: 0, icon: Tablet },
-  { name: 'Desktop', width: 1440, icon: Monitor },
+  { name: 'Tablet', width: 768, icon: Tablet },
+  { name: 'Desktop', width: 0, icon: Monitor },
 ];
 
 export function PreviewPanel({
@@ -38,7 +38,7 @@ export function PreviewPanel({
     [status, setStatus] = useState('Waiting for your app'),
     [generation, setGeneration] = useState(0);
   const [componentReady, setComponentReady] = useState(false);
-  const [previewSize, setPreviewSize] = useState(previewSizes[1]);
+  const [previewSize, setPreviewSize] = useState(previewSizes[2]);
   const [viewportWidth, setViewportWidth] = useState(0);
   const viewport = useRef<HTMLDivElement>(null);
   const iframe = useRef<HTMLIFrameElement>(null),
@@ -230,19 +230,6 @@ export function PreviewPanel({
               )}
             </div>
           </header>
-          <div className="preview-size-switch" role="group" aria-label="Preview size">
-            {previewSizes.map((size) => (
-              <Button
-                key={size.name}
-                variant={previewSize === size ? 'primary' : 'ghost'}
-                aria-pressed={previewSize === size}
-                onClick={() => setPreviewSize(size)}
-                title={size.width ? `${size.width}px viewport` : 'Current panel width'}
-              >
-                <size.icon aria-hidden="true" /> {size.name}
-              </Button>
-            ))}
-          </div>
           {target && (
             <div className="preview-target-switch">
               <label htmlFor="preview-url">Preview</label>
@@ -259,6 +246,21 @@ export function PreviewPanel({
                   </option>
                 ))}
               </select>
+              <div className="preview-size-switch" role="group" aria-label="Preview size">
+                {previewSizes.map((size) => (
+                  <Button
+                    key={size.name}
+                    className="icon-button"
+                    variant={previewSize === size ? 'primary' : 'ghost'}
+                    aria-label={size.name}
+                    aria-pressed={previewSize === size}
+                    onClick={() => setPreviewSize(size)}
+                    title={`${size.name} · ${size.width ? `${size.width}px viewport` : 'Full panel width'}`}
+                  >
+                    <size.icon aria-hidden="true" />
+                  </Button>
+                ))}
+              </div>
             </div>
           )}
         </>
