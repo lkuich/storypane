@@ -17,8 +17,8 @@ account or service is required for this runtime.
 ## What the template sets up
 
 The template packages the CMS, PostgreSQL, and a private Railway bucket. You
-provide the first administrator’s name, email, and password in Railway before
-deployment. The application’s pre-deploy command creates an isolated installation
+select a bucket region and provide the first administrator’s name, email, and
+password in Railway before deployment. The application’s pre-deploy command creates an isolated installation
 database and unprivileged role, runs transactional migrations, and creates that
 administrator. There is no public signup or first-visitor-wins setup endpoint.
 
