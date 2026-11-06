@@ -1,5 +1,9 @@
 # Local tag-restriction cleanup
 
+> Historical local operation record. The status below is as recorded on the date
+> of the operation. For current nesting and release guidance, use the
+> [production/dev workflow](development-workflow.md).
+
 On 2026-11-05, field-level `allowedTags` references were removed from current local schema workspaces through the existing versioned save API. Definition tags and immutable deployed history were retained. These edits are staged in the active schema migration; they have not been deployed.
 
 Fields without explicit allowed block IDs now allow every nestable and universal definition after deployment. Review the affected fields in the CMS and select specific blocks before deploying if needed. No story content was deleted.

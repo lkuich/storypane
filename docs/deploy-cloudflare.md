@@ -5,6 +5,10 @@ Assets. The current CMS runs separately on Node with PostgreSQL and private S3
 storage. The website deployment contains static files only: no CMS server code,
 Clerk keys, database connections, Durable Objects, or media bucket bindings.
 
+For CMS installation and space setup, follow [Getting started](getting-started.md)
+and the [production/dev team workflow](development-workflow.md). Linking spaces
+is a CMS operation and does not deploy a frontend or a Worker.
+
 ## Current storypane.dev deployment
 
 The static website is live on `storypane.dev` as of November 5, 2026. The previous

@@ -1,5 +1,10 @@
 # Storypane: first implementation and subagent assignments
 
+> Historical implementation record from November 2026. Runtime choices and task
+> assignments below describe that work, not current setup instructions. Use
+> [Getting started](getting-started.md) and the [team workflow](development-workflow.md)
+> for the current Node runtime and linked production/development spaces.
+
 Status: implemented and integrated locally. Docker Postgres, Workers, Durable
 Objects, R2, authentication, editor, schemas, locales, history, and media library
 are running. See README for setup and the verification commands. Design review

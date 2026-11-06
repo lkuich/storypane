@@ -153,8 +153,7 @@ To use your own space, copy `.env.example` to `.env` in this directory. Set
 `STORYPANE_URL`, `STORYPANE_SPACE_ID`, and a **Published content** delivery token.
 Set a server-only **Preview** token as `STORYPANE_PREVIEW_TOKEN` when pulling
 schemas. Never prefix either token with `NEXT_PUBLIC_`. Register the preview URL
-in Storypane yourself for a remote CMS; the setup script only changes the local
-`storypane` database.
+in Storypane yourself for a remote CMS; the setup script only configures the selected local demo space through the CMS API.
 
 ## Schema and checks
 
@@ -184,12 +183,23 @@ sessions without editing or publishing stories.
 
 ## Working with linked dev spaces
 
+For a new team, follow the [recommended setup](../../docs/development-workflow.md):
+one production space for content editors, with schema protection enabled, and one
+linked dev space per developer. The seeded Fieldwork example is a local demo;
+cloning its schema does not copy its sample site content in bulk.
+
 Keep authoring CLI credentials pointed at a linked dev space and provide its
 production token separately as `STORYPANE_PRODUCTION_MANAGEMENT_TOKEN`. Deploy and
 test schema changes in dev, then run `storypane migrations promote`. Use
 `storypane migrations status` and `storypane migrations sync` when another
 developer advances production. Block-library nesting and nested-block restrictions
 travel with the migration; content dependencies are reviewed and copied as drafts.
+
+Configure a local/test instance of this frontend with dev's space ID, tokens,
+and deployed types; create sample stories there and register its preview URL in
+dev. Configure the live frontend and its preview with production's credentials.
+The preview bridge is bound to one space, so a production-configured instance
+cannot preview a dev story. Clones do not copy preview targets or tokens.
 
 Before building this example for production, point its existing delivery/preview
 configuration at production and run `pnpm storypane:generate` from this app's

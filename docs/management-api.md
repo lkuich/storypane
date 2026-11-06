@@ -7,6 +7,10 @@ and publishing rules as the editor. Public websites should continue using the
 
 ## Connect
 
+For schema work, use a [linked development space](development-workflow.md) and
+a separate production token for transfers. For content automation, target the
+space where that content belongs.
+
 An admin creates a token in **Space settings → API & preview → Management API**.
 The secret is shown once; copy it into a server environment or CI secret store.
 Use a separate token per integration. Revoking it takes effect on subsequent
@@ -145,7 +149,8 @@ media is not overwritten by a failed upload.
 
 ## CLI
 
-Install `@storypane/sdk` and run `storypane` (or `pnpm exec storypane`).
+Build and link or pack `@storypane/sdk` using the [SDK guide](../packages/sdk/README.md)
+until an npm release is available, then run `storypane` (or `pnpm exec storypane`).
 `storypane --help` lists the supported resource commands. Management commands
 write JSON to stdout; `--json` makes it compact. Failures exit nonzero, and with
 `--json` produce an error envelope on stderr. JSON input uses `--input file.json`
@@ -180,14 +185,16 @@ and its location/revision contract. The generic `api` command covers operations
 without a dedicated CLI shortcut. Asset uploads require Node.js 22 or later.
 Downloads stream into a temporary file; the destination is replaced only on success.
 
-The existing migration workflow now uses the versioned management API:
+The migration workflow uses the versioned management API. Target your **dev space**
+for authoring and local deployment:
 
 ```sh
 storypane migrations pull
 storypane migrations create "Add hero image"
 # Edit storypane/migrations/active.json.
 storypane migrations push
-storypane migrations push --deploy --yes
+storypane migrations push --deploy
+storypane migrations pull
 storypane generate-types --out src/types/storypane.ts
 ```
 
@@ -199,6 +206,24 @@ public. See the [migration guide](../packages/sdk/README.md#schema-migrations-an
 retain their existing output.
 
 ### Linked-space migrations
+
+Keep `STORYPANE_SPACE_ID` and `STORYPANE_MANAGEMENT_TOKEN` pointed at dev. Set
+`STORYPANE_PRODUCTION_MANAGEMENT_TOKEN` to a separate token for linked production:
+
+```sh
+storypane migrations status
+# If status reports behind: true, run the following and review incoming changes.
+# storypane migrations sync
+storypane migrations pull
+# After deploying and testing your dev changes:
+storypane migrations promote
+```
+
+Promotion includes deployed dev migrations; active drafts stay in dev. Other dev
+spaces must explicitly sync after a promotion. Keep production's schema read-only.
+See the [team workflow](development-workflow.md) for UI steps, nesting, and clone
+boundaries, and the [CLI reference](../packages/sdk/README.md#linked-development-and-production-spaces)
+for conflict files and interrupted-transfer retries.
 
 `GET /migrations/environment` reports the space environment, schema protection,
 linked production head, pending migrations, and whether a sync is needed.
@@ -231,25 +256,25 @@ Prefix every path below with `/api/management/v1/spaces/{spaceId}`. JSON writes
 use `Content-Type: application/json` and the same validated input contracts as the
 editor. The source of these contracts is [`packages/core`](../packages/core/src/index.ts).
 
-| Resource           | Methods / paths                                                                                                                                                                     |
-| ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Space              | GET, PUT `/space`                                                                                                                                                                   |
-| Stories            | GET, POST `/stories`; GET, DELETE `/stories/{id}`; GET `/{id}/review`; POST `/{id}/duplicate`, `/{id}/restore`; PUT `/{id}/location`; PUT, DELETE `/{id}/pin`; POST `/stories/bulk` |
-| Story locales      | GET, POST `/stories/{id}/locales`; GET `/stories/{id}/locales/{localeId}`                                                                                                           |
-| Content commands   | POST `/stories/{id}/locales/{localeId}/commands`                                                                                                                                    |
-| History            | GET `/stories/{id}/locales/{localeId}/checkpoints[/{checkpointId}]`                                                                                                                 |
-| Scheduling         | GET, POST `/stories/{id}/locales/{localeId}/schedules`; DELETE `.../schedules/{scheduleId}`                                                                                         |
-| Folders            | GET, POST `/folders`; PUT, DELETE `/folders/{id}`                                                                                                                                   |
-| Space locales      | GET, POST `/locales`; PUT, DELETE `/locales/{id}`; PUT `/locales/{id}/default`                                                                                                      |
-| Definitions        | GET, POST `/definitions`; POST `/definitions/{id}/versions`; PUT `/{id}/parent`; GET `/{id}/references`; DELETE `/definitions/{id}`                                                 |
-| Datasources        | GET, POST `/datasources`; PUT `/datasources/{id}`; POST `/options`                                                                                                                  |
-| Migrations         | GET, POST `/migrations`; GET `/migrations/{id}/review`; POST `/migrations/{id}/deploy`                                                                                              |
-| Assets             | GET `/assets`; GET, PATCH, DELETE `/assets/{id}`; GET, HEAD `/assets/{id}/content`; GET `/assets/{id}/usage`; existing asset folder and upload routes                               |
-| Uploads            | POST `/assets/uploads`; GET, DELETE `/assets/uploads/{id}`; PUT `.../parts/{partNumber}` (binary with Content-Length); POST `.../complete`                                          |
-| Delivery / preview | GET, PUT `/delivery-settings`; GET, POST `/delivery-tokens`; DELETE `/delivery-tokens/{id}`; GET, PUT `/public-media`                                                               |
-| Roles / members    | GET, POST `/roles`; PUT, DELETE `/roles/{id}`; PUT, DELETE `/members/{userId}`                                                                                                      |
-| Invitations        | GET, POST `/invitations`; DELETE `/invitations/{id}`                                                                                                                                |
-| Webhooks           | GET, POST `/webhooks`; PUT, DELETE `/webhooks/{id}`; POST `/{id}/rotate-secret`, `/{id}/test`; GET `/{id}/deliveries`; POST `/{id}/deliveries/{deliveryId}/retry`                   |
+| Resource           | Methods / paths                                                                                                                                                                         |
+| ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Space              | GET, PUT `/space`                                                                                                                                                                       |
+| Stories            | GET, POST `/stories`; GET, DELETE `/stories/{id}`; GET `/{id}/review`; POST `/{id}/duplicate`, `/{id}/restore`; PUT `/{id}/location`; PUT, DELETE `/{id}/pin`; POST `/stories/bulk`     |
+| Story locales      | GET, POST `/stories/{id}/locales`; GET `/stories/{id}/locales/{localeId}`                                                                                                               |
+| Content commands   | POST `/stories/{id}/locales/{localeId}/commands`                                                                                                                                        |
+| History            | GET `/stories/{id}/locales/{localeId}/checkpoints[/{checkpointId}]`                                                                                                                     |
+| Scheduling         | GET, POST `/stories/{id}/locales/{localeId}/schedules`; DELETE `.../schedules/{scheduleId}`                                                                                             |
+| Folders            | GET, POST `/folders`; PUT, DELETE `/folders/{id}`                                                                                                                                       |
+| Space locales      | GET, POST `/locales`; PUT, DELETE `/locales/{id}`; PUT `/locales/{id}/default`                                                                                                          |
+| Definitions        | GET, POST `/definitions`; POST `/definitions/{id}/versions`; PUT `/{id}/parent`; GET `/{id}/references`; DELETE `/definitions/{id}`                                                     |
+| Datasources        | GET, POST `/datasources`; PUT `/datasources/{id}`; POST `/options`                                                                                                                      |
+| Migrations         | GET, POST `/migrations`; GET `/migrations/{id}/review`; POST `/migrations/{id}/deploy`; GET `/migrations/environment`; POST `/migrations/transfer-review`, `/migrations/transfer-apply` |
+| Assets             | GET `/assets`; GET, PATCH, DELETE `/assets/{id}`; GET, HEAD `/assets/{id}/content`; GET `/assets/{id}/usage`; existing asset folder and upload routes                                   |
+| Uploads            | POST `/assets/uploads`; GET, DELETE `/assets/uploads/{id}`; PUT `.../parts/{partNumber}` (binary with Content-Length); POST `.../complete`                                              |
+| Delivery / preview | GET, PUT `/delivery-settings`; GET, POST `/delivery-tokens`; DELETE `/delivery-tokens/{id}`; GET, PUT `/public-media`                                                                   |
+| Roles / members    | GET, POST `/roles`; PUT, DELETE `/roles/{id}`; PUT, DELETE `/members/{userId}`                                                                                                          |
+| Invitations        | GET, POST `/invitations`; DELETE `/invitations/{id}`                                                                                                                                    |
+| Webhooks           | GET, POST `/webhooks`; PUT, DELETE `/webhooks/{id}`; POST `/{id}/rotate-secret`, `/{id}/test`; GET `/{id}/deliveries`; POST `/{id}/deliveries/{deliveryId}/retry`                       |
 
 Array-valued GET responses use `{ items, total, nextOffset }`; default limit 100,
 maximum 1000, offset 0. Object responses are unchanged. Asset lists keep their
@@ -270,7 +295,7 @@ Errors use `{ error: { code, message, details? } }`:
 | 423    | An editor holds a conflicting lease; retry after it is released             |
 | 503    | Service unavailable; inspect state before retrying a non-idempotent write   |
 
-Account-level space creation, sign-in, management token issuance/revocation, and
+Account-level space creation/cloning, sign-in, management token issuance/revocation, and
 interactive browser leases/preview sessions remain in the signed-in CMS. Database
 connection credentials are not exposed.
 

@@ -13,6 +13,14 @@ content merely to complete a checklist.
 - Verify each space role is denied CONNECT to the other databases. Exercise
   wrong-space CMS/delivery/management requests, media and preview routing, and
   independent migrations, unavailable spaces and interrupted provisioning retries.
+- Create protected production and two linked dev spaces. Check both block-library
+  parents and nested-block restrictions survive cloning, while bulk content/media,
+  members, tokens and webhooks do not. Review the schema-default dependencies.
+- Deploy in one dev, review/promote against production content, and confirm direct
+  production schema writes remain blocked. Verify drafts stay unpublished, the
+  second dev reports behind, and sync handles conflicting fields and parent moves.
+  Exercise the CLI with separate dev/production credentials and an interrupted
+  transfer retry; verify production-generated frontend types and environment switching.
 - Rehearse the legacy split and pre-write rollback with multiple spaces, histories,
   draft/published content, permissions, tokens, schedules and media references.
   Run both example sites with the migrated URLs and tokens.

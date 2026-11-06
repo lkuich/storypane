@@ -7,6 +7,17 @@ logs** show attempts and safe failure summaries; **Retry delivery** explicitly
 resends a failed or cancelled event with the current destination configuration.
 Secrets appear only when created or rotated. Configuration reads never return them.
 
+## Production and development spaces
+
+For the [recommended team workflow](development-workflow.md), configure live-site
+rebuild webhooks in **production**. Use separate endpoints for dev/test builds and
+validate the expected `spaceId` in each receiver. Cloning a space does not copy
+webhook destinations or signing secrets; configure them separately when needed.
+
+A schema promoted into production emits `schema.deployed` there. Deploying or
+syncing a dev schema affects that dev space's events. Keep generated frontend
+types aligned with the destination space before rebuilding the live site.
+
 ## Operator setup
 
 Run `pnpm admin migrate` before starting a new Node release; migration
@@ -132,7 +143,7 @@ pnpm exec vitest run packages/db/src/webhook-transport.test.ts packages/db/src/w
 pnpm exec playwright test --config playwright.webhooks.config.ts
 ```
 
-Database tests use isolated schemas in disposable local `blok_test`; all HTTP and
+Database tests use isolated schemas in disposable local test databases; all HTTP and
 DNS destinations are controlled test doubles. The sample receiver is exercised by
 a signed publication event and builds from token-authorized delivery content.
 The browser harness covers admin controls without requiring a Clerk sign-in;

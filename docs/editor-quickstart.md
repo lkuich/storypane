@@ -1,6 +1,7 @@
 # Your first page in Storypane
 
-Create a space, define reusable blocks, and publish a Home story using the editor.
+Create linked production and development spaces, define reusable blocks in dev,
+promote them, and publish a Home story in production using the editor.
 You will finish with a saved page containing text and an image, plus a published
 JSON snapshot you can inspect without connecting a website first.
 
@@ -12,8 +13,10 @@ marketing website, so use your own CMS address for this walkthrough.
 
 Use the installation administrator account to create the first space. You become
 that space's administrator, which gives you the schema and publishing permissions
-needed below. If you were invited into an existing installation and cannot create
-spaces, ask its installation administrator to create one for you.
+needed below. If you were invited into an existing production space with Page and
+Hero already deployed, skip to [Create and fill the Home story](#6-create-and-fill-the-home-story).
+Content editors do not need to create spaces or deploy schemas. Otherwise, ask
+your installation administrator to prepare the linked spaces.
 
 ## 1. Create your first space
 
@@ -22,17 +25,23 @@ together. Each space uses its own database.
 
 1. On the **Spaces** screen, choose **Create space**.
 2. Set **Space name** to `Marketing website`. The description is optional.
-3. Set **Environment** to **Development** and leave **Base space** set to
-   **Empty space**. Development lets you build and test the schema; new Production
-   spaces start with their schema read-only. This starts a new schema rather than
-   cloning another space. You can publish stories in Development for testing.
-4. Under **Database**, choose **Create a database**. The bundled Docker setup
-   provides the provisioning connection needed for this option. If your operator
-   uses existing infrastructure instead, they can choose **Attach an empty
-   database** and supply its restricted connection URL; see
+3. Set **Environment** to **Production** and **Base space** to **Empty space**.
+   New production spaces start with **Schema read-only** enabled; leave it enabled
+   so schema changes arrive through reviewed promotion.
+4. Expand **Database options** if needed. The bundled Docker setup uses **Create a
+   database**. Operators can instead attach a dedicated empty database; see
    [database preparation](self-hosting.md#existing-postgresql-and-object-storage).
-5. Choose **Create space**, wait for creation to finish, then choose **Open space**
-   on its card.
+5. Choose **Create space**. Then choose **Create space** again and name the new
+   space `Marketing website · Dev`. Select **Development** and choose
+   `Marketing website` as the **Base space**.
+6. Choose **Review clone**, inspect the review, then choose **Create space**. Open
+   the new dev space. Check the **Development** label beside its name in the header.
+
+The dev space starts with production's deployed schema. Clones exclude bulk content
+and media; dependencies required by schema defaults are shown in the review and
+copied stories stay unpublished. This empty project has none. For additional
+teammates, create a dedicated dev space per developer as described in the
+[team workflow](development-workflow.md).
 
 The main navigation includes **Content**, **Blocks**, **Assets**, and **Settings**.
 Use **Blocks** to define what editors can enter, then **Content** to create pages
@@ -73,11 +82,11 @@ are used by your website code. Use the names below consistently.
 5. In each field's expanded settings, check its **Label** and set **Required to
    publish** as shown. Expand an existing field again if you need to edit it.
 
-| Field name | Field type | Label | Required to publish |
-| --- | --- | --- | --- |
-| `title` | Text | Title | Yes |
-| `description` | Textarea | Description | No |
-| `image` | Asset | Image | No |
+| Field name    | Field type | Label       | Required to publish |
+| ------------- | ---------- | ----------- | ------------------- |
+| `title`       | Text       | Title       | Yes                 |
+| `description` | Textarea   | Description | No                  |
+| `image`       | Asset      | Image       | No                  |
 
 For Image, you can leave **Allowed file types** empty to accept supported assets.
 Use an image file when filling this story later.
@@ -98,10 +107,10 @@ Choose **New block** again and configure:
 
 In **Fields**, add:
 
-| Field name | Field type | Label | Required to publish |
-| --- | --- | --- | --- |
-| `title` | Text | Page title | Yes |
-| `body` | Blocks | Body | Yes |
+| Field name | Field type | Label      | Required to publish |
+| ---------- | ---------- | ---------- | ------------------- |
+| `title`    | Text       | Page title | Yes                 |
+| `body`     | Blocks     | Body       | Yes                 |
 
 In Body's expanded settings:
 
@@ -125,13 +134,25 @@ schema until an administrator deploys the migration.
 5. Check that **Current release** shows the deployed version and the workspace
    reports **All changes deployed**.
 
-Deploying a schema makes it available to editors; publishing a story is a separate
-step. For this first migration you should not need destructive deployment or data
-loss confirmation.
+This deployment makes the schema available in dev. For this first migration you
+should not need destructive deployment or data-loss confirmation.
+
+Now promote the schema so content editors can use it in production:
+
+1. In the dev space's environment panel, choose **Review promotion**.
+2. Confirm that **Promote to production** names `Marketing website · Dev` as the
+   source and `Marketing website` as the destination. Review Page, Hero, and Body's
+   nesting rules, then choose **Apply reviewed changes**.
+3. Choose the space name in the header. Under **This project**, select
+   `Marketing website`. Confirm the header now says **Production**.
+
+Continue below in production. Its schema remains read-only, but you can create,
+edit, and publish stories. Schema deployment and story publication are separate
+operations.
 
 ## 6. Create and fill the Home story
 
-1. Open **Content** and choose **New story**.
+1. Confirm you are in **Production**, then open **Content** and choose **New story**.
 2. Leave **Folder** as **Root**, set **Name** to `Home`, and set **URL slug** to
    `home`. Select **Page** under **Content type**.
 3. Choose **Create story**. On a fresh space, edit the **Default** locale.
@@ -226,20 +247,20 @@ when your integration needs a delivery token.
   prompts, maintained skills, and scoped API/CLI/MCP access. An agent can help
   implement the frontend for this `page` / `hero` model; review its changes and
   keep your CMS credentials private.
-- **Production:** when the model is ready, an installation administrator can
-  create a Production space using this Development space as its base. This links
-  the spaces for reviewed schema promotion. The [SDK migration guide](../packages/sdk/README.md#linked-development-and-production-spaces)
-  explains the workflow. Cloning a schema does not copy all your content; create
-  or import production stories separately and publish them there.
+- **Schema changes:** switch to your linked dev space, sync if production has
+  advanced, then edit, deploy, test, and promote. Other developers sync after a
+  promotion. Keep real content editing in production. The
+  [team workflow](development-workflow.md) covers conflicts, CLI access, and
+  generating the right frontend types.
 
 ## If something is missing
 
-| What you see | What to check |
-| --- | --- |
-| No Create space button | Sign in as an installation administrator, or ask one to create the space. |
-| No Page option when creating a story | Confirm Page is a Content type and its migration has been deployed. |
-| No Hero in the Body picker | Confirm Hero is Nestable, deploy its migration, and check Body's Allowed blocks selection. |
-| Fields or deployment controls are unavailable | Use a space administrator in a Development space. New Production spaces have their schema read-only; promote reviewed schema changes from Development. |
-| Changes need attention or Offline · edits preserved | Resolve the shown error or restore the connection. Wait for All changes saved before reviewing a publication. |
-| Connect your app in preview | Configure an SDK-enabled frontend and its preview URL, or hide preview while editing content. |
-| Published content does not change on the website | Confirm the correct locale was published, then rebuild or revalidate your frontend. |
+| What you see                                        | What to check                                                                                                                                          |
+| --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| No Create space button                              | Sign in as an installation administrator, or ask one to create the space.                                                                              |
+| No Page option when creating a story                | Confirm Page is a Content type and its migration has been promoted to production.                                                                      |
+| No Hero in the Body picker                          | Confirm Hero is Nestable, promote its migration, and check Body's Allowed blocks selection.                                                            |
+| Fields or deployment controls are unavailable       | Use a space administrator in a Development space. New Production spaces have their schema read-only; promote reviewed schema changes from Development. |
+| Changes need attention or Offline · edits preserved | Resolve the shown error or restore the connection. Wait for All changes saved before reviewing a publication.                                          |
+| Connect your app in preview                         | Configure an SDK-enabled frontend and its preview URL, or hide preview while editing content.                                                          |
+| Published content does not change on the website    | Confirm the correct locale was published, then rebuild or revalidate your frontend.                                                                    |

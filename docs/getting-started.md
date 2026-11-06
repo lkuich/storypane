@@ -9,7 +9,8 @@ not compatible with the current installation and per-space database layout.
 
 For a Docker installation, you need Docker Compose and Node 24.22+ within v24
 for the setup command. Clone the [CMS repository](https://github.com/lkuich/storypane),
-then generate the configuration from its root:
+then generate the configuration from its root. Repository access is required
+while the source repository is private:
 
 ```sh
 node scripts/setup-env.mjs
@@ -36,12 +37,30 @@ docker compose --env-file .env.production -f compose.node.yaml exec web \
 ```
 
 Open `http://localhost:3130`, sign in with that administrator, and create your
-first space. Continue with [Your first page in Storypane](editor-quickstart.md) for the
-editor walkthrough. There are no default credentials or public signup endpoint. See
+first **Production** space. Keep its schema read-only, then create a linked
+**Development** space for each developer using production as the base. Follow the
+[team development workflow](development-workflow.md) for setup, promotion, and sync,
+or [Your first page in Storypane](editor-quickstart.md) for a guided first schema
+and publication. There are no default credentials or public signup endpoint. See
 [Node installation and production setup](self-hosting.md) for external Postgres
 and object storage, invites, backup/restore, upgrades, and recovery.
 
+## Choose the right workspace
+
+For a new team, content editors work in production. Developers deploy and test
+schema changes in their own linked dev spaces, then promote reviewed migrations
+to production. Other developers explicitly sync before promoting their own work.
+Both the block library hierarchy and nested-block restrictions are included.
+
+Cloning copies the deployed schema without bulk content or media. The review lists
+any dependencies required by schema defaults; copied stories start unpublished.
+Use the environment label and space switcher in the header to move between spaces.
+See [Work with production and development spaces](development-workflow.md).
+
 ## Develop from source
+
+This section is for changing Storypane itself. To develop your website and schema,
+use the [team workflow](development-workflow.md) against an installed CMS.
 
 For source development, use Node 24.22+ within v24 and pnpm 12.4.2.
 Generate ignored `.env` with `--local`; it includes matching credentials and
@@ -85,7 +104,9 @@ start services, or verify a fresh deployment by itself.
 ## Build a website
 
 Storypane includes example sites for Astro and Next.js. After the CMS is running,
-configure `.env` and follow the [Astro integration guide](../apps/example-astro/README.md)
+connect the live frontend to **production** and a test frontend to **dev**. Use
+space-specific tokens and generate types from the same deployed space as each
+frontend. Configure `.env` and follow the [Astro integration guide](../apps/example-astro/README.md)
 or [Next.js integration guide](../apps/example-next/README.md). For published and
 preview data contracts, see the [SDK guide](../packages/sdk/README.md). Keep
 published and preview tokens on the server; never place them in browser code.

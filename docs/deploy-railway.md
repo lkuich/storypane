@@ -71,6 +71,11 @@ requires this explicit origin on every host. In Clerk mode, configure that origi
 in Clerk. New Railway buckets use virtual-hosted addressing; older buckets may require
 `S3_FORCE_PATH_STYLE=true`, as indicated in their Credentials tab.
 
+After sign-in, use the [recommended team setup](development-workflow.md): create
+production for content editors, leave its schema read-only, and create linked dev
+spaces for developers. These are Storypane spaces with separate databases inside
+one CMS installation; they are not Railway project environments.
+
 ## Build and operate
 
 ```sh

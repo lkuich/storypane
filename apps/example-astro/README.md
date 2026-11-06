@@ -1,6 +1,6 @@
 # Fieldwork · Astro example
 
-A complete, statically built website using `@storypane/sdk`: Astro routes, a typed
+A complete, statically built website using `@storypane/sdk`: Astro routes, typed
 React block components, pulled schema JSON, and generated TypeScript block props.
 Published pages render at build time; only the dedicated preview route hydrates React.
 
@@ -199,8 +199,8 @@ const image = (width: PublicImageOptions['width']) =>
 The HTML contains IDs and supported image options, never a token. Public URLs work
 only while an active publication uses the asset; draft preview still uses the
 authenticated editor route. Saving focal metadata updates cover crops globally.
-Public responses are not browser/CDN cached; the Worker rechecks eligibility and
-caches transformed bytes internally. Disabling the setting or removing the last
+Public responses are not browser/CDN cached; the Node runtime rechecks eligibility
+and computes variants on demand. Disabling the setting or removing the last
 live reference returns 404 on the next request. Already exported `/media/` files
 remain until a rebuild removes them. See the [SDK media contract](../../packages/sdk/README.md#public-media-urls)
 for supported variants, still-frame animation, and image size limits.
@@ -252,10 +252,15 @@ standalone preview authentication, and a public DAM/CDN are outside this example
 For authoring and CI/CD, the SDK also supports `storypane migrations pull`,
 `storypane migrations create "description"`, and `storypane migrations push
 --deploy --yes`. These use a separate management token issued by an admin in
-**Blocks → Schema migrations → CLI & CI access tokens**. See the
+**Blocks → Schema migrations → CLI access**. See the
 [SDK guide](../../packages/sdk/README.md#schema-migrations-and-generated-types).
 
 ## Working with linked dev spaces
+
+For a new team, follow the [recommended setup](../../docs/development-workflow.md):
+one production space for content editors, with schema protection enabled, and one
+linked dev space per developer. The seeded Fieldwork example is a local demo;
+cloning its schema does not copy its sample site content in bulk.
 
 Keep authoring CLI credentials pointed at a linked dev space and provide its
 production token separately as `STORYPANE_PRODUCTION_MANAGEMENT_TOKEN`. Deploy and
@@ -263,6 +268,12 @@ test schema changes in dev, then run `storypane migrations promote`. Use
 `storypane migrations status` and `storypane migrations sync` when another
 developer advances production. Block-library nesting and nested-block restrictions
 travel with the migration; content dependencies are reviewed and copied as drafts.
+
+Configure a local/test instance of this frontend with dev's space ID, tokens,
+and deployed types; create sample stories there and register its preview URL in
+dev. Configure the live frontend and its preview with production's credentials.
+The preview bridge is bound to one space, so a production-configured instance
+cannot preview a dev story. Clones do not copy preview targets or tokens.
 
 Before building this example for production, point its existing delivery/preview
 configuration at production and run `pnpm storypane:generate` from this app's

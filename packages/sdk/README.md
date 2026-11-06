@@ -22,7 +22,11 @@ install a packed archive or link `packages/sdk` into your app. Entrypoints:
 
 ## Configure the CMS
 
-In **Space settings → API & preview**, create a **Published content** token and
+For a team, start with [production for editors and a linked dev space per developer](../../docs/development-workflow.md).
+Use production credentials and production-generated types for the live website,
+and a separate dev configuration for schema and frontend testing.
+
+In the selected space’s **Settings → API & preview**, create a **Published content** token and
 set the application preview URL, e.g. `https://site.example/{locale}/{slug}`.
 The root locale contributes an empty path segment; the editor removes doubled
 slashes. `{slug}` is the selected locale's URL slug. Query placeholders also work:
@@ -339,7 +343,7 @@ A space has one shared active migration. CMS schema saves and CLI pushes update
 that migration; page editing and delivery keep using deployed schemas until an
 admin deploys it. New block types must be deployed before they can be inserted.
 
-In **Blocks → Schema migrations → CLI & CI access tokens**, an admin can issue a
+In your dev space, open **Blocks → Schema migrations → CLI access**. An admin can issue a
 management token with read, stage, or deploy capability. Set `STORYPANE_URL`,
 `STORYPANE_SPACE_ID`, and `STORYPANE_MANAGEMENT_TOKEN` in your terminal or CI secret
 store. Management tokens are never browser credentials. Revocation and the
@@ -393,9 +397,11 @@ apply intervening migrations; restore an older checkpoint before publishing it.
 
 ### Linked development and production spaces
 
-An installation admin can clone a space, or choose a base when creating one.
-Choose **Dev** for a developer workspace or **Prod** for production. One production
-space can have multiple linked dev spaces. Starting in dev is supported: creating
+For new teams, create **Production** first for content editors, keep its schema
+read-only, and create a dedicated **Development** space per developer using
+production as the base. Follow the [UI setup and promotion walkthrough](../../docs/development-workflow.md).
+An installation admin can clone a space or choose a base when creating one.
+One production space can have multiple linked dev spaces. Starting in dev is supported: creating
 production from an unlinked dev space establishes the link. New production spaces
 created with an explicit environment start with **Schema read-only** enabled;
 existing spaces retain their previous editing behavior.
@@ -415,8 +421,8 @@ history stay visible. Reviewed promotion from a linked dev space is still allowe
 Keep `STORYPANE_SPACE_ID` and `STORYPANE_MANAGEMENT_TOKEN` pointed at dev. Set
 `STORYPANE_PRODUCTION_MANAGEMENT_TOKEN` to a separate production token. Sync and
 promotion require a deploy-capable dev token; production needs read access for
-sync and deploy access for promotion. Scoped tokens need `read` and `admin`, with
-`schemas:write` as well for local migration authoring. Both issuers’ current
+sync and deploy access for promotion. Deploy-capable management tokens need `read`
+and `admin`; add `schemas:write` to the dev token for local migration authoring. Both issuers’ current
 membership and permissions are checked. Production is resolved from the link,
 within the same installation.
 
@@ -432,7 +438,8 @@ storypane migrations promote
 
 Promotion preserves the order of deployed dev migrations and applies the reviewed
 batch in one production transaction. It can copy missing required dependencies as
-unpublished drafts; existing production stories and media are never overwritten.
+unpublished drafts. Dependency copying does not overwrite existing production
+stories or media; schema migrations still transform affected content.
 A required datasource with different option values blocks the transfer until its
 configuration is reconciled explicitly. Active schema drafts are not promoted.
 
@@ -453,35 +460,51 @@ review is discarded so the next invocation can obtain a new review. Pull dev
 migrations after sync; divergent local active files must still be reconciled using
 a separate `--out` directory.
 
-Production and dev migration numbers can differ. Generate production application
+Production and dev migration numbers can differ. Set `PRODUCTION_SPACE_ID` to
+production’s UUID from **Settings → General**. Generate production application
 types from production, keeping its files separate from dev:
 
 ```sh
 STORYPANE_SPACE_ID="$PRODUCTION_SPACE_ID" \
 STORYPANE_MANAGEMENT_TOKEN="$STORYPANE_PRODUCTION_MANAGEMENT_TOKEN" \
   storypane migrations pull --out storypane/production-migrations
-# Substitute the deployed production version shown by migrations status.
+# Substitute the latest numbered production JSON file returned by this pull.
 storypane generate-types --input storypane/production-migrations/3.json \
   --out src/types/storypane.ts
 ```
 
 ### CI/CD
 
-Use a deploy-capable management token from your CI secret store:
+Use separate stages for dev validation and production promotion. The authoring
+stage targets dev with its deploy-capable token:
 
 ```sh
 storypane migrations push --deploy --yes
 storypane migrations pull
 storypane generate-types --out src/types/storypane.ts
-# Run your application's build/tests, then deploy it.
+# Run your application's build/tests against dev.
 ```
+
+After review, a release stage keeps `STORYPANE_SPACE_ID` pointed at dev and adds
+`STORYPANE_PRODUCTION_MANAGEMENT_TOKEN` from the CI secret store:
+
+```sh
+storypane migrations status
+storypane migrations promote --yes
+```
+
+If production has advanced, sync and resolve conflicts before this stage. Generate
+production types using the separate pull shown above, then build/deploy the live
+frontend with production's delivery configuration. Direct `push --deploy` to a
+read-only production space is rejected.
 
 `--yes` explicitly accepts the reviewed data loss for noninteractive deployment;
 validation and conflict checks still
 apply. A stale impact review or failed deployment exits nonzero. Retrying the
 same migration is safe, including after a lost response. The CLI does not commit
-files or deploy your application. On success, the local active file becomes a
-numbered deployed snapshot.
+files or deploy your application. A successful `push --deploy` turns the local
+active file into a numbered deployed snapshot. After promotion, pull again to
+refresh dev's files before further edits.
 
 ### Runtime version warnings
 
@@ -499,6 +522,20 @@ the locally pulled deployment; draft values can be incomplete. Rebuild static
 sites after publishing or deploying schemas.
 
 ### Existing schema-pull commands
+
+The original commands still work with `STORYPANE_PREVIEW_TOKEN`:
+
+```sh
+storypane pull-components --out storypane/components.json
+storypane generate-types --input storypane/components.json --out src/types/storypane.ts
+```
+
+The schema endpoint returns only the latest deployed metadata, without content,
+defaults, or source URLs. A published-only token cannot read schemas. Codegen is
+offline and writes atomically; invalid input preserves the previous output.
+Both workflows require the initial schema migration to be deployed first.
+
+## Media
 
 `client.getAsset(assetId)` returns a `Response` with the original asset bytes for
 server-side rendering or static export. It requires a valid delivery token and
@@ -557,19 +594,7 @@ request, including cached and conditional requests.
 Previously downloaded files and static copies cannot be recalled. Keep the existing
 authenticated `getAsset` integration for static export when public media is disabled.
 
-The original commands still work with `STORYPANE_PREVIEW_TOKEN`:
-
-```sh
-storypane pull-components --out storypane/components.json
-storypane generate-types --input storypane/components.json --out src/types/storypane.ts
-```
-
-The schema endpoint returns only the latest deployed metadata, without content,
-defaults, or source URLs. A published-only token cannot read schemas. Codegen is
-offline and writes atomically; invalid input preserves the previous output.
-Both workflows require the initial schema migration to be deployed first.
-
-### MCP
+## MCP
 
 Run `storypane mcp` (Node 20+) with `STORYPANE_URL`, `STORYPANE_SPACE_ID`, and a
 private `STORYPANE_MANAGEMENT_TOKEN`. The stdio adapter exposes read and write

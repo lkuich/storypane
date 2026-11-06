@@ -42,33 +42,26 @@ The current CMS runs on **Node.js and Docker**, backed by PostgreSQL and private
 S3-compatible storage. The Docker setup includes all three services. Built-in
 email/password sign-in is the default; Clerk and SMTP are optional.
 
-You need Git, Docker with Compose, and OpenSSL to generate secrets.
+You need Git, Docker with Compose, and Node.js 24.22+ within v24 for setup.
 
 ### 1. Get the source
 
 ```sh
 git clone https://github.com/lkuich/storypane.git
 cd storypane
-cp .env.production.example .env.production
-chmod 600 .env.production
+node scripts/setup-env.mjs
 ```
 
 ### 2. Configure your installation
 
-Edit `.env.production`. For a local installation, set the following values.
-Run each generation command separately for **each variable**, then paste its
-output into the file.
+The setup command creates ignored `.env.production` with private, generated
+credentials for the bundled services. It never prints secrets or overwrites an
+existing file. The default address is `http://localhost:3130`. For a remote
+installation, set `STORYPANE_APP_URL` to your HTTPS origin and configure a reverse
+proxy before inviting users.
 
-| Variable                                                                      | Value                                        |
-| ----------------------------------------------------------------------------- | -------------------------------------------- |
-| `STORYPANE_APP_URL`                                                           | `http://localhost:3130`                      |
-| `INSTALLATION_ENCRYPTION_KEY`, `BETTER_AUTH_SECRET`, `WEBHOOK_ENCRYPTION_KEY` | Generate each with `openssl rand -base64 32` |
-| `PROVISIONING_DB_PASSWORD`, `INSTALLATION_DB_PASSWORD`                        | Generate each with `openssl rand -hex 32`    |
-| `S3_ACCESS_KEY_ID`                                                            | Generate with `openssl rand -hex 8`          |
-| `S3_SECRET_ACCESS_KEY`                                                        | Generate with `openssl rand -hex 32`         |
-
-Compose supplies the database and storage connection settings. Keep
-`.env.production` private and retain its keys and the Docker volumes on upgrades.
+Keep the env file, encryption keys, and Docker volumes on upgrades. See the
+[self-hosting guide](docs/self-hosting.md) for external databases and storage.
 
 ### 3. Start Storypane
 
@@ -79,21 +72,46 @@ docker compose --env-file .env.production -f compose.node.yaml exec web \
 ```
 
 The bootstrap command prompts for the first administrator's name, email, and
-password. Open **[localhost:3130](http://localhost:3130)**, sign in, and create a
-space. Define your blocks, deploy the initial schema migration, and start writing.
+password. Open **[localhost:3130](http://localhost:3130)** and sign in. Set up your
+production and development spaces using the team workflow below, then follow the
+[editor quickstart](docs/editor-quickstart.md) to define blocks and publish a page.
 
 For an external database or object store, HTTPS, invitations, backups, and upgrades,
 follow the [self-hosting guide](docs/self-hosting.md). Existing shared-database
 installations should follow the [migration and rollback guide](docs/self-hosting.md#legacy-migration-and-rollback).
+
+## Recommended setup for teams
+
+Create one **Production** space for content editors and a linked **Development**
+space for each developer. Leave production's **Schema read-only** setting enabled.
+Editors write, preview, and publish in production while developers iterate on
+schemas in their own spaces.
+
+1. Create production, then create each dev space with production as its **Base space**.
+2. Change blocks in dev, deploy the migration there, and test with sample content.
+3. Choose **Review promotion** to inspect the impact on production content and apply
+   the reviewed migrations. Block-library parents and nested-block rules travel together.
+4. Other developers **Sync from production** before continuing and promoting their work.
+
+Clones do not copy content or media in bulk. Dependencies required by schema
+defaults are listed for review; copied stories start unpublished. Tokens, members,
+and integrations are configured separately in each space.
+
+![A development space shows its linked production, a migration ready for promotion, and nested definitions in the block library.](docs/images/development-space.png)
+
+The header identifies your environment on every screen. Choose the space name to
+switch between linked dev and production spaces. Follow the
+[complete team workflow](docs/development-workflow.md) for setup, cloning,
+promotion, sync conflicts, and CLI access.
 
 ## Bring your frontend
 
 Storypane delivers content as structured data. You own the markup, routing, and
 rendering, whether you build a static site or fetch content at request time.
 
-Create a **Published content** token in **Space settings → API & preview**. Use
-the SDK from your application's server code, with types generated from your
-deployed schema:
+In your **production space**, create a **Published content** token in
+**Settings → API & preview**. Use the SDK from your application's server code,
+with types generated from production's deployed schema:
 
 ```ts
 import { createStorypaneClient } from '@storypane/sdk';
@@ -132,13 +150,12 @@ example's design or routing.
 
 Use **Node.js 24.22+ within v24**, **pnpm 12.4.2**, and Docker Compose.
 
-Copy `.env.example` to `.env`, then configure the Node development variables using
-the [local development instructions](docs/self-hosting.md#backups-upgrades-and-health).
-They use separate installation and space databases; the fixture defaults at the
-top of `.env.example` are for legacy tests.
+Generate local configuration with the setup command below. This is for changing
+the CMS source; schema developers use the linked-space workflow above.
 
 ```sh
 pnpm install --frozen-lockfile
+node scripts/setup-env.mjs --local
 pnpm db:start
 node --env-file=.env --import tsx scripts/admin.ts migrate
 node --env-file=.env --import tsx scripts/admin.ts bootstrap
@@ -190,6 +207,9 @@ first using their integration guides above. Never commit session files or creden
 ## Documentation
 
 - [Getting started](docs/getting-started.md) — installation and first steps.
+- [Team development workflow](docs/development-workflow.md) — production for editors,
+  linked dev spaces for developers, reviewed promotion, and sync.
+- [Editor quickstart](docs/editor-quickstart.md) — model blocks and publish your first page.
 - [Self-hosting](docs/self-hosting.md) — configuration, authentication, operations,
   backups, and upgrades.
 - [SDK](packages/sdk/README.md) — delivery, live preview, media, and generated types.

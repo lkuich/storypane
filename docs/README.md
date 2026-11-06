@@ -1,7 +1,10 @@
 # Documentation index
 
-To use an installed CMS, follow [Your first page in Storypane](editor-quickstart.md).
-To install the CMS, start with [Install Storypane](getting-started.md).
+New teams should use [production for editors and linked dev spaces for developers](development-workflow.md).
+That guide covers cloning, environment switching, schema promotion, and keeping developers in sync.
+
+To install the CMS, start with [Install Storypane](getting-started.md). To build
+and publish your first page, follow the [editor quickstart](editor-quickstart.md).
 
 - [Node installations](self-hosting.md): Docker setup, external Postgres and storage,
   authentication, operator commands, upgrades, backups, and recovery.
@@ -18,7 +21,8 @@ To install the CMS, start with [Install Storypane](getting-started.md).
 - [SDK guide](../packages/sdk/README.md): delivery, preview, media, migrations,
   generated types, and management clients.
 
-`work-breakdown.md` and `tag-restriction-cleanup.md` contain historical
+[Initial implementation record](work-breakdown.md) and
+[local tag-restriction cleanup](tag-restriction-cleanup.md) contain historical
 plans or implementation records. They are not installation instructions or a source
 of current product behavior.
 

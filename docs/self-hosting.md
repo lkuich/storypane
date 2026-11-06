@@ -22,7 +22,9 @@ docker compose --env-file .env.production -f compose.node.yaml exec web \
 
 Bootstrap prompts for an email, name and hidden password. It refuses to create
 another initial administrator. There are no default accounts and no public signup
-or bootstrap endpoint. Sign in, then create your first space. Only installation
+or bootstrap endpoint. Sign in, then [create production and linked dev spaces](development-workflow.md).
+Keep production for content editors and its schema read-only; give developers
+dedicated dev spaces for schema changes and reviewed promotion. Only installation
 administrators see database provisioning and connection controls.
 Space settings → Database connection shows the saved URL with its password masked.
 Installation admins can explicitly reveal or copy the full URL; each action checks
@@ -80,7 +82,7 @@ node --env-file=.env.production --import tsx apps/web/src/node.ts
 
 ## Invitations and recovery
 
-Settings → Members produces a seven-day, single-use invitation URL. Share it
+Settings → Members & roles produces a seven-day, single-use invitation URL. Share it
 privately. Accepting an invitation creates an unverified account, or requires
 sign-in to the matching existing account. It never resets another person's
 password, verifies their email, or overwrites existing membership roles.
@@ -162,6 +164,21 @@ Back up the installation database, every space database, private originals,
 Restore a space with its media and the relevant installation identities, registry
 entry and keys; a database-only restore is incomplete. Run `pnpm admin migrate`
 before starting a new release. Never use local-only `db:setup` for deployment.
+Installation/database migrations are separate from the schema migrations that
+teams deploy and promote inside spaces.
+
+The linked-space release requires installation migration `002_space_environments`
+and space migration `026_space_environments`. The transactional operator runner
+applies both across registered spaces; restarting the server alone does not apply
+missing database migrations. Existing spaces keep their previous schema protection
+setting; enable **Schema read-only** on production when adopting the team workflow.
+
+For an existing local source installation, stop the dev server, run
+`node --env-file=.env --import tsx scripts/admin.ts migrate`, then restart with
+`pnpm dev`. For a production installation, use its `.env.production` through
+`pnpm admin migrate` before starting the new release. If Spaces fails to load
+following an upgrade, inspect server logs and the runner's result for missing
+migrations. Do not reset databases or regenerate encryption keys to fix it.
 
 `/api/ready` returns 503 when the installation database/provider is unavailable.
 A failed space produces 200 with `degraded: true` and an unavailable-space count,
