@@ -14,6 +14,11 @@ Already have an instance? Start with content and schemas below.
 - [Node installations](self-hosting.md): Docker setup, external Postgres and storage,
   authentication, operator commands, upgrades, backups, and recovery.
 
+## Migrate from Storyblok
+
+- [Agent-led Storyblok migration](migrate-from-storyblok.md): map familiar blocks,
+  import content, assets and locales, validate references, and plan the cutover.
+
 ## Content and schemas
 
 - [Production and development spaces](development-workflow.md): the recommended
