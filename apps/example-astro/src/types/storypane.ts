@@ -2,7 +2,7 @@
 
 // Describes this deployed migration. Outdated clients receive newer content with a warning.
 
-export const storypaneMigrationVersion = 5 as const;
+export const storypaneMigrationVersion = 6 as const;
 
 import type { StorypaneAsset, StorypaneLink, StorypaneRichText } from '@storypane/sdk';
 

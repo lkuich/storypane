@@ -2079,10 +2079,65 @@ export class StorypaneStore {
     client: PoolClient,
     actor: Actor,
     input: DefinitionInput,
+    incoming?: { id: string; schema: DefinitionInput }[],
   ): Promise<void> {
     const issues = validateFields(input, defaultFields(input));
     if (issues.length) throw new StorypaneError('invalid', 'Invalid default values', issues);
     await this.validateReferences(client, actor, input, defaultFields(input));
+    if (input.previewData) {
+      const definitions =
+        incoming ??
+        (await this.definitionHeads(client, actor.spaceId, true)).map((definition) => ({
+          id: definition.id,
+          schema: definitionInput(definition),
+        }));
+      const byName = new Map(
+        definitions.map((definition) => [
+          definition.schema.name,
+          {
+            ...definition,
+            schema: definition.schema.name === input.name ? input : definition.schema,
+          },
+        ]),
+      );
+      const visit = async (schema: DefinitionInput, values: Record<string, Json>) => {
+        const scalar = Object.fromEntries(
+          Object.entries(values).filter(
+            ([name]) => schema.fields.find((field) => field.name === name)?.type !== 'blocks',
+          ),
+        );
+        const issues = validateFields(schema, scalar);
+        if (issues.length) throw new StorypaneError('invalid', 'Invalid preview data', issues);
+        await this.validateReferences(client, actor, schema, scalar);
+        for (const field of schema.fields) {
+          if (field.type !== 'blocks' || values[field.name] === undefined) continue;
+          const children = values[field.name];
+          if (!Array.isArray(children))
+            throw new StorypaneError('invalid', 'Preview child blocks must be an array');
+          if (field.maxItems !== undefined && children.length > field.maxItems)
+            throw new StorypaneError('invalid', 'Preview child blocks exceed the field maximum');
+          for (const child of children) {
+            if (
+              !child ||
+              typeof child !== 'object' ||
+              Array.isArray(child) ||
+              typeof child._uid !== 'string' ||
+              typeof child.component !== 'string'
+            )
+              throw new StorypaneError('invalid', 'Preview child blocks need _uid and component');
+            const definition = byName.get(child.component);
+            if (!definition || !isBlockAllowed(field, { id: definition.id, ...definition.schema }))
+              throw new StorypaneError(
+                'invalid',
+                'A preview child block is not allowed in this field',
+              );
+            const { _uid, component, ...fields } = child;
+            await visit(definition.schema, fields);
+          }
+        }
+      };
+      await visit(input, input.previewData);
+    }
     for (const field of input.fields) {
       if (
         (field.type === 'option' || field.type === 'options') &&
@@ -2642,7 +2697,7 @@ export class StorypaneStore {
         for (const item of input.definitions) {
           const prior = old.find((definition) => definition.id === item.id);
           const schema = await this.identifyFields(client, item.id, item.schema, prior);
-          await this.validateDefinition(client, actor, schema);
+          await this.validateDefinition(client, actor, schema, input.definitions);
           if (prior && canonicalJson(definitionInput(prior)) === canonicalJson(schema)) {
             definitions.push({
               ...prior,

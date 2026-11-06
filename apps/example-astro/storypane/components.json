@@ -1,11 +1,11 @@
 {
-  "migrationVersion": 5,
+  "migrationVersion": 6,
   "components": [
     {
       "id": "c5b779c7-76d7-4cf1-b80f-50ba1084b0b9",
       "name": "feature",
       "kind": "nestable",
-      "version": 4,
+      "version": 5,
       "tags": [
         "rootComponent"
       ],
@@ -43,7 +43,7 @@
       "id": "b98f828c-b7fe-415a-be0a-9625c6e45e1c",
       "name": "feature_grid",
       "kind": "nestable",
-      "version": 1,
+      "version": 2,
       "tags": [],
       "fields": [
         {
@@ -67,7 +67,7 @@
       "id": "d8470d32-0be6-481c-aab0-9aaeec0d9c7e",
       "name": "footer",
       "kind": "universal",
-      "version": 2,
+      "version": 3,
       "tags": [],
       "fields": [
         {
@@ -87,7 +87,7 @@
       "id": "1ae60dba-4571-427f-821e-4b042ddf511b",
       "name": "hero",
       "kind": "nestable",
-      "version": 4,
+      "version": 5,
       "tags": [],
       "fields": [
         {

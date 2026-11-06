@@ -1,4 +1,5 @@
 import { existsSync, writeFileSync } from 'node:fs';
+import previewData from '../apps/example-astro/storypane/preview-data.json';
 import { seoBlockPreset } from '@storypane/core';
 import type {
   BlockDefinition,
@@ -149,6 +150,7 @@ if (existsSync(envPath)) {
     },
   ];
   for (const schema of schemas) {
+    schema.previewData = (previewData as Record<string, Record<string, Json>>)[schema.name];
     for (const field of schema.fields)
       if (field.type === 'blocks')
         field.allowedDefinitionIds = (

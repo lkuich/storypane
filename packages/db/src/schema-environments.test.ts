@@ -443,3 +443,75 @@ it('rolls back the entire batch when a later migration is blocked by production 
   expect((await pools[0].query('SELECT id FROM schema_transfers')).rows).toEqual([]);
   expect((await schemaStatus(stores[1], actors[1], stores[0], actors[0])).pending).toHaveLength(2);
 });
+
+it('validates nested preview samples, carries their media through promotion, and never seeds authored content with them', async () => {
+  const page = (await stores[1].listDefinitions(actors[1]))[0];
+  const child = await stores[1].createDefinition(actors[1], {
+    name: 'preview_card',
+    displayName: 'Preview card',
+    kind: 'nestable',
+    fields: [{ name: 'image', label: 'Image', type: 'asset', mimeTypes: ['image/*'] }],
+  });
+  const assetId = randomUUID();
+  await pools[1].query(
+    "INSERT INTO assets(id,space_id,object_key,filename,mime_type,byte_size,title) VALUES($1::uuid,$2,$1::text,'sample.png','image/png',10,'Sample')",
+    [assetId, actors[1].spaceId],
+  );
+  const fields = [
+    ...page.fields,
+    { name: 'body', label: 'Body', type: 'blocks' as const, allowedDefinitionIds: [child.id] },
+  ];
+  const previewData = {
+    title: 'Only in preview',
+    body: [{ _uid: 'preview-card', component: 'preview_card', image: { assetId } }],
+  };
+  for (const body of [
+    [{ _uid: 'bad', component: 'missing' }],
+    [{ _uid: 'bad', component: 'preview_card', image: { assetId: randomUUID() } }],
+    [{ _uid: 'bad', component: 'preview_card', image: 'wrong type' }],
+  ])
+    await expect(
+      stores[1].updateDefinition(actors[1], page.id, {
+        ...definitionInput(page),
+        fields,
+        previewData: { ...previewData, body },
+      }),
+    ).rejects.toMatchObject({ code: 'invalid' });
+  await stores[1].updateDefinition(actors[1], page.id, {
+    ...definitionInput(page),
+    fields,
+    previewData,
+  });
+  await deploy(1);
+  const promotion = await review(1, 'promote');
+  expect(promotion.dependencies.assets.map((asset) => asset.id)).toEqual([assetId]);
+  const copied: string[] = [];
+  await transferSchema(
+    stores[1],
+    actors[1],
+    stores[0],
+    actors[0],
+    {
+      id: promotion.id,
+      action: promotion.action,
+      reviewToken: promotion.token,
+      resolutions: promotion.resolutions,
+      ...(promotion.confirmation ? { confirmation: promotion.confirmation } : {}),
+    },
+    async (asset) => {
+      copied.push(asset.id);
+    },
+  );
+  expect(copied).toEqual([assetId]);
+  expect(
+    (await stores[0].listDefinitions(actors[0], true)).find((d) => d.id === page.id)?.previewData,
+  ).toEqual(previewData);
+  const story = await stores[0].createStory(actors[0], {
+    name: 'New page',
+    slug: 'new',
+    definitionId: page.id,
+  });
+  const snapshot = await stores[0].getSnapshot(actors[0], story.story.id, story.locale.id);
+  expect(snapshot.blocks).toHaveLength(1);
+  expect(snapshot.blocks[0].fields.title).not.toBe('Only in preview');
+});

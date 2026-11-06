@@ -62,6 +62,9 @@ export function SchemaDrawer({
   const canManage = can(space, 'schemas:write');
   const [error, setError] = useState<string | null>(null);
   const [tagText, setTagText] = useState(initialDefinition?.tags?.join(', ') ?? '');
+  const [previewText, setPreviewText] = useState(
+    initialDefinition?.previewData ? JSON.stringify(initialDefinition.previewData, null, 2) : '',
+  );
   const [draft, setDraft] = useState<DefinitionInput>(() =>
     initialDefinition
       ? structuredClone(definitionInput(initialDefinition))
@@ -180,6 +183,7 @@ export function SchemaDrawer({
           if (latest) {
             setOriginal(latest);
             setDraft(definitionInput(latest));
+            setPreviewText(latest.previewData ? JSON.stringify(latest.previewData, null, 2) : '');
             setTagText(latest.tags?.join(', ') ?? '');
           }
           setRemote(null);
@@ -205,7 +209,14 @@ export function SchemaDrawer({
   async function save() {
     if (!draft || !canManage || busy || baseVersion === null || remote || (original && !dirty))
       return;
-    const parsed = definitionInputSchema.safeParse(draft);
+    let previewData: unknown;
+    try {
+      previewData = previewText.trim() ? JSON.parse(previewText) : undefined;
+    } catch {
+      setError('Preview data must be valid JSON. Leave it empty to disable picker previews.');
+      return;
+    }
+    const parsed = definitionInputSchema.safeParse({ ...draft, previewData });
     if (!parsed.success) {
       setError(
         parsed.error.issues.map((issue) => `${issue.path.join('.')}: ${issue.message}`).join('. '),
@@ -226,6 +237,7 @@ export function SchemaDrawer({
         }),
       );
       setOriginal(result);
+      setDraft(definitionInput(result));
       setDirty(false);
       await onSave(result);
       setSaved(true);
@@ -370,6 +382,11 @@ export function SchemaDrawer({
                         if (remote.definition) {
                           setOriginal(remote.definition);
                           setDraft(definitionInput(remote.definition));
+                          setPreviewText(
+                            remote.definition.previewData
+                              ? JSON.stringify(remote.definition.previewData, null, 2)
+                              : '',
+                          );
                           setTagText(remote.definition.tags?.join(', ') ?? '');
                         }
                         setBaseVersion(remote.baseVersion);
@@ -569,6 +586,24 @@ export function SchemaDrawer({
                       blocks use the deployed schema until an admin deploys it.
                     </p>
                   )}
+                  <Field
+                    label="Picker preview data (JSON)"
+                    htmlFor="definition-preview-data"
+                    description="Optional sample field values, including populated nested blocks. Leave empty to hide the picker preview. Samples are never inserted into your content."
+                  >
+                    <textarea
+                      id="definition-preview-data"
+                      className="mono"
+                      rows={8}
+                      spellCheck={false}
+                      value={previewText}
+                      onChange={(event) => {
+                        setPreviewText(event.target.value);
+                        setDirty(true);
+                        setSaved(false);
+                      }}
+                    />
+                  </Field>
                   {original && canManage && (
                     <section className="schema-delete">
                       <h3>Delete block</h3>

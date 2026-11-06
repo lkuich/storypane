@@ -1797,7 +1797,7 @@ function LocaleEditor({
                   type="button"
                   key={item.id}
                   className="block-picker-item"
-                  data-preview-definition={item.id}
+                  data-preview-definition={item.previewData ? item.id : undefined}
                   aria-label={`Add ${item.displayName}`}
                   disabled={busy || !can(session.space, 'content:edit')}
                   onClick={() => {

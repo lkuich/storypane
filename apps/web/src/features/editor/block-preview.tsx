@@ -84,7 +84,7 @@ export function BlockPreview({
   const definition = definitions.find((item) => item.id === anchor?.dataset.previewDefinition);
   const block = preview.snapshot.blocks.find((item) => item.id === anchor?.dataset.previewBlock);
   const component = useMemo<ComponentPreview | undefined>(() => {
-    if (definition)
+    if (definition?.previewData)
       return {
         block: {
           ...defaultFields(definition),
@@ -93,6 +93,7 @@ export function BlockPreview({
               .filter((field) => field.type === 'blocks')
               .map((field) => [field.name, []]),
           ),
+          ...definition.previewData,
           _uid: definition.id,
           component: definition.name,
         },
@@ -140,7 +141,7 @@ export function BlockPreview({
     >
       <div className="block-hover-preview-heading">
         <strong>{definition?.displayName ?? blockTitle(preview.snapshot, block!)}</strong>
-        <span>{definition ? 'Schema defaults' : 'Saved content'}</span>
+        <span>{definition ? 'Sample content' : 'Saved content'}</span>
       </div>
       <PreviewPanel
         {...preview}

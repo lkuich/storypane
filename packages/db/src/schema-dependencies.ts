@@ -54,6 +54,9 @@ export async function collectSchemaDependencies(
     const storyIds = new Set<string>(),
       assetIds = new Set<string>(),
       datasourceIds = new Set<string>();
+    const byName = new Map(
+      definitions.map((definition) => [definition.schema.name, definition.schema]),
+    );
     function references(fields: FieldDefinition[], values: Record<string, Json>) {
       for (const field of fields) {
         if (
@@ -63,6 +66,27 @@ export async function collectSchemaDependencies(
           datasourceIds.add(field.source.datasourceId);
         const value = values[field.name];
         if (!value) continue;
+        if (field.type === 'blocks' && Array.isArray(value)) {
+          for (const child of value) {
+            if (
+              !child ||
+              typeof child !== 'object' ||
+              Array.isArray(child) ||
+              typeof child.component !== 'string'
+            )
+              throw new StorypaneError(
+                'invalid',
+                'A preview sample contains an invalid nested block',
+              );
+            const schema = byName.get(child.component);
+            if (!schema)
+              throw new StorypaneError(
+                'invalid',
+                'A preview sample references an unavailable block definition',
+              );
+            references(schema.fields, child);
+          }
+        }
         if (field.type === 'text' && field.format === 'richtext')
           for (const id of richTextAssetIds(value)) assetIds.add(id);
         if (typeof value === 'object' && !Array.isArray(value)) {
@@ -82,8 +106,11 @@ export async function collectSchemaDependencies(
             if (typeof id === 'string') storyIds.add(id);
       }
     }
-    for (const definition of definitions)
+    for (const definition of definitions) {
       references(definition.schema.fields, defaultFields(definition.schema));
+      if (definition.schema.previewData)
+        references(definition.schema.fields, definition.schema.previewData);
+    }
     const dependencies: SchemaDependencies = {
       locales: [],
       datasources: [],

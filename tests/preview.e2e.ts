@@ -42,6 +42,27 @@ test('a static app receives live drafts, selects blocks in the editor, and leave
       role: 'admin',
     };
     await store.seed(actor);
+    await page.goto(`/?space=${spaceId}&view=blocks`);
+    await page.getByRole('button', { name: 'Hero', exact: true }).click();
+    const schemaDrawer = page.locator('dialog.schema-drawer');
+    await schemaDrawer.getByRole('tab', { name: 'Config', exact: true }).click();
+    const sampleInput = schemaDrawer.getByLabel('Picker preview data (JSON)', { exact: true });
+    await sampleInput.fill('{bad json');
+    await schemaDrawer.getByRole('button', { name: 'Save to migration', exact: true }).click();
+    await expect(schemaDrawer.getByRole('alert')).toContainText('Preview data must be valid JSON');
+    await sampleInput.fill(JSON.stringify({ title: 'A populated picker sample.' }));
+    await sampleInput.press('ControlOrMeta+s');
+    await expect(schemaDrawer.getByRole('status')).toContainText('Saved to active migration');
+    await page.keyboard.press('Escape');
+    await page.getByRole('button', { name: 'Hero', exact: true }).click();
+    await schemaDrawer.getByRole('tab', { name: 'Config', exact: true }).click();
+    expect(JSON.parse(await sampleInput.inputValue())).toEqual({
+      title: 'A populated picker sample.',
+    });
+    await page.keyboard.press('Escape');
+    const migration = (await store.listMigrations(actor)).find((item) => item.status === 'active')!;
+    const review = await store.reviewMigration(actor, migration.id);
+    await store.deployMigration(actor, migration.id, review.token);
     const headers = { Origin: cmsUrl, 'x-storypane-space-id': spaceId! };
     const [story] = (await (
       await page.request.get('/api/cms/stories', { headers })
@@ -70,7 +91,7 @@ test('a static app receives live drafts, selects blocks in the editor, and leave
     await stagingRow.getByLabel('Preview name', { exact: true }).fill('Staging');
     await stagingRow
       .getByLabel('Application preview URL', { exact: true })
-      .fill('http://127.0.0.1:3133/{slug}?locale={locale}');
+      .fill('http://127.0.0.1:3153/{slug}?locale={locale}');
     await page.getByRole('button', { name: 'Add preview URL', exact: true }).click();
     const localRow = page.getByRole('group', { name: 'Preview URL 2', exact: true });
     await localRow.getByLabel('Preview name', { exact: true }).fill('Local');
@@ -164,7 +185,7 @@ test('a static app receives live drafts, selects blocks in the editor, and leave
           }
           const value = await preview.createPreviewSession({
             id: story!.id,
-            previewId: settings.previewUrls[request.socket.localPort === 3133 ? 0 : 1].id,
+            previewId: settings.previewUrls[request.socket.localPort === 3153 ? 0 : 1].id,
           });
           response
             .writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' })
@@ -186,7 +207,7 @@ test('a static app receives live drafts, selects blocks in the editor, and leave
         response.writeHead(500).end('Fixture error');
       }
     };
-    for (const port of [3131, 3133]) {
+    for (const port of [3131, 3153]) {
       const server = createServer(serve);
       servers.push(server);
       await new Promise<void>((resolve, reject) => {
@@ -295,7 +316,16 @@ test('a static app receives live drafts, selects blocks in the editor, and leave
     await picker.getByRole('searchbox', { name: 'Search blocks' }).focus();
     await page.keyboard.press('Tab');
     await expect(picker.getByRole('button', { name: 'Add Footer', exact: true })).toBeFocused();
-    await expect(blockFrame.locator('main')).toContainText('Made with Storypane.');
+    await expect(
+      picker.getByRole('button', { name: 'Add Footer', exact: true }),
+    ).not.toHaveAttribute('data-preview-definition');
+    await page.waitForTimeout(450);
+    await expect(hoverPreview).toHaveCount(0);
+    await page.keyboard.press('Tab');
+    await expect(picker.getByRole('button', { name: 'Add Hero', exact: true })).toBeFocused();
+    await expect(blockFrame.getByRole('heading', { level: 1 })).toHaveText(
+      'A populated picker sample.',
+    );
     await expect(blockFrame.locator('[data-storypane-id]')).toHaveCount(1);
     await page.keyboard.press('Escape');
     await expect(hoverPreview).toHaveCount(0);
@@ -309,7 +339,7 @@ test('a static app receives live drafts, selects blocks in the editor, and leave
     await page.keyboard.press('Tab');
     await expect(picker.getByRole('button', { name: 'Add Hero', exact: true })).toBeFocused();
     await expect(blockFrame.getByRole('heading', { level: 1 })).toHaveText(
-      'Build something worth sharing.',
+      'A populated picker sample.',
     );
     await expect(blockFrame.getByRole('heading', { level: 1 })).toBeVisible();
     expect(
@@ -346,7 +376,7 @@ test('a static app receives live drafts, selects blocks in the editor, and leave
     await expect(frame.locator('#status')).toHaveText('connected');
     await expect(page.locator('iframe[title="Live application preview"]')).toHaveAttribute(
       'src',
-      'http://127.0.0.1:3133/home?locale=&review=1',
+      'http://127.0.0.1:3153/home?locale=&review=1',
     );
     await expect(frame.getByRole('heading', { level: 1 })).toHaveText(
       'Updated live without rebuilding',
@@ -365,13 +395,13 @@ test('a static app receives live drafts, selects blocks in the editor, and leave
     await expect(switcher).toHaveValue(settings.previewUrls[0].id);
     await expect(page.locator('iframe[title="Live application preview"]')).toHaveAttribute(
       'src',
-      'http://127.0.0.1:3133/home?locale=fr&review=1',
+      'http://127.0.0.1:3153/home?locale=fr&review=1',
     );
     await expect(frame.locator('#status')).toHaveText('connected');
     await page.getByRole('tab', { name: 'Default', exact: true }).click();
     await expect(page.locator('iframe[title="Live application preview"]')).toHaveAttribute(
       'src',
-      'http://127.0.0.1:3133/home?locale=&review=1',
+      'http://127.0.0.1:3153/home?locale=&review=1',
     );
     await expect(frame.locator('#status')).toHaveText('connected');
     await expect(frame.getByRole('heading', { level: 1 })).toHaveText(

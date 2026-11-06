@@ -1,0 +1,35 @@
+{
+  "hero": {
+    "eyebrow": "A small studio for big ideas",
+    "title": "Make room for what’s next.",
+    "description": "Thoughtful design, from the first idea to the finished work."
+  },
+  "feature": {
+    "title": "Start with a good question.",
+    "tag": "Discover"
+  },
+  "footer": {
+    "text": "Have something in mind? We’d love to hear where you want to go.",
+    "link": {
+      "type": "email",
+      "email": "hello@example.com"
+    }
+  },
+  "feature_grid": {
+    "title": "A fresh perspective. A considered approach.",
+    "items": [
+      {
+        "_uid": "preview-discover",
+        "component": "feature",
+        "title": "Start with a good question.",
+        "tag": "Discover"
+      },
+      {
+        "_uid": "preview-create",
+        "component": "feature",
+        "title": "Give the idea a shape.",
+        "tag": "Create"
+      }
+    ]
+  }
+}

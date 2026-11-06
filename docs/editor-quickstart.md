@@ -267,8 +267,11 @@ This works in the block list, outline, breadcrumbs, and **Add a block** picker.
 ![Component preview beside the Add a block picker, showing the Hero renderer without the surrounding page](images/component-previews.png)
 
 Existing blocks show saved content, including their nested blocks. Picker entries
-show schema defaults with empty nested lists, so components without defaults may
-look sparse. Hovering does not insert, save, publish, or take an editing lock.
+only show a preview when their definition has **Config → Picker preview data (JSON)**.
+Add representative field values and populated nested blocks, then deploy the schema
+migration. Leave this setting empty to disable that picker preview. Samples are
+separate from the defaults used when inserting a block. Hovering does not insert,
+save, publish, or take an editing lock.
 Move away or press **Escape** to dismiss the preview; you can move the pointer
 onto the preview to keep it open.
 

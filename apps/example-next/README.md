@@ -153,8 +153,12 @@ image optimizer so authenticated draft images load in the browser.
 The preview component also enables [component hover previews](../../packages/sdk/README.md#block-hover-previews).
 Its `onComponent` callback selects a single block for the existing `StoryContent`
 renderer and hides the preview status bar. Hover or focus a block in the editor
-or picker to use it. Picker entries use schema defaults; this does not insert or
-publish content and needs no additional preview route or token.
+or picker to use it. Picker entries require the explicit samples in
+`storypane/preview-data.json`. Paste each sample into the matching block's
+**Config → Picker preview data (JSON)** and deploy the schema migration (the Astro
+setup script also installs these in a new shared example space). Blocks without
+samples have no picker preview. Samples never change inserted defaults. No
+additional preview route or token is needed.
 
 ## Run locally
 

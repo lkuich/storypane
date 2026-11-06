@@ -476,6 +476,13 @@ export const definitionInputSchema = z
     kind: z.enum(['nestable', 'content-type', 'universal']),
     tags: tagsSchema.optional(),
     fields: z.array(fieldDefinitionSchema).max(200),
+    previewData: z
+      .record(z.string(), jsonSchema)
+      .refine(
+        (value) => Object.keys(value).length > 0 && JSON.stringify(value).length <= 100_000,
+        'Provide a nonempty preview object smaller than 100 KB, or remove it to disable picker previews',
+      )
+      .optional(),
   })
   .strict()
   .superRefine((schema, ctx) => {
@@ -511,6 +518,35 @@ export const definitionInputSchema = z
       )
         ctx.addIssue({ code: 'custom', path: ['fields', i], message: 'Minimum exceeds maximum' });
     });
+    if (schema.previewData) {
+      const scalar = Object.fromEntries(
+        Object.entries(schema.previewData).filter(
+          ([name]) => schema.fields.find((field) => field.name === name)?.type !== 'blocks',
+        ),
+      );
+      for (const issue of validateFields(schema, scalar))
+        ctx.addIssue({ code: 'custom', path: ['previewData', issue.path], message: issue.message });
+      for (const field of schema.fields.filter((field) => field.type === 'blocks')) {
+        const value = schema.previewData[field.name];
+        if (
+          value !== undefined &&
+          (!Array.isArray(value) ||
+            value.some(
+              (child) =>
+                !child ||
+                typeof child !== 'object' ||
+                Array.isArray(child) ||
+                typeof child._uid !== 'string' ||
+                typeof child.component !== 'string',
+            ))
+        )
+          ctx.addIssue({
+            code: 'custom',
+            path: ['previewData', field.name],
+            message: 'Expected nested blocks with _uid and component',
+          });
+      }
+    }
   });
 export const definitionSaveSchema = z
   .object({

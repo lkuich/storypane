@@ -189,7 +189,7 @@ Component previews are available in current source builds. The published
 `0.1.0-rc.2` SDK predates this API; use the workspace SDK or pack the updated
 `packages/sdk` for your app until a newer SDK candidate includes it.
 
-The editor can preview saved blocks and the add-block picker's schema defaults in
+The editor can preview saved blocks and the add-block picker's sample content in
 one temporary iframe after a short hover or keyboard focus. It uses the selected
 preview URL and the same authenticated, read-only flow as the full preview.
 Escape dismisses the preview. Nothing is inserted or saved by hovering.
@@ -212,9 +212,33 @@ if (story) return <Block block={component ?? story.content} />;
 
 Use the generated `StorypaneComponent` union here: picker previews include nestable
 blocks as well as content types. Both example apps demonstrate this integration.
-Picker previews contain defaults and empty nested block lists; components without
-defaults need sensible empty-state rendering. Existing integrations without
-`onComponent` keep full-page preview and show a setup message for hover previews.
+Picker previews are opt-in per definition: set **Config → Picker preview data (JSON)**
+and deploy the schema migration. This stores an optional `previewData` object with
+sample field values; nested blocks use `{ _uid, component, ...fields }`. Use real
+representative content, including the nested items your renderer needs. A definition
+without sample data has no picker preview. Samples override defaults for this iframe
+only; inserting a block still uses its normal field defaults.
+
+For example, a feature grid can have this preview data:
+
+```json
+{
+  "title": "A fresh perspective",
+  "items": [
+    { "_uid": "preview-feature", "component": "feature", "title": "Start with a good question." }
+  ]
+}
+```
+
+Samples are validated against field types and allowed nested blocks, limited to
+100 KB per definition, and included in full schema migrations. Referenced original
+media follows the existing clone/sync/promotion dependency review. They are excluded
+from delivery schema metadata and generated component types. Both examples keep
+editable fixtures in `storypane/preview-data.json`; the Astro setup script installs
+them into newly seeded spaces. For an existing space, copy each fixture into that
+block's Config tab and deploy the migration.
+
+Existing integrations without `onComponent` keep full-page preview and show a setup message for hover previews.
 
 If you prefer preview on an existing published route, `useStorypaneStory(initial,
 options)` remains available. It starts with the publication and activates drafts

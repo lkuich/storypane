@@ -125,7 +125,11 @@ The preview island also enables [component hover previews](../../packages/sdk/RE
 It passes `onComponent` to the SDK and renders that block through the same `Content`
 renderer, without the preview status bar. Hover or focus an existing block or a
 picker entry in the editor; saved blocks use their content, and picker entries
-use schema defaults. No separate preview route or token is needed.
+use the samples in `storypane/preview-data.json`. The setup script installs these
+samples in new spaces. For an existing space, paste each sample into its block's
+**Config → Picker preview data (JSON)** and deploy the schema migration. Blocks
+without samples have no picker preview. Samples never change inserted defaults.
+No separate preview route or token is needed.
 
 ## Pull schemas and generate TypeScript
 
