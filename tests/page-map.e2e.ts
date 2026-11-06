@@ -82,7 +82,11 @@ test('page map supports keyboard navigation, URL restoration, read-only cards, t
   await expect(page.locator('.react-flow__node')).toHaveCount(2);
   for (const theme of ['dark', 'light']) {
     await page.getByRole('combobox', { name: /Appearance/ }).selectOption(theme);
-    await page.screenshot({ path: info.outputPath(`map-${theme}.png`) });
+    await page.screenshot({
+      animations: 'disabled',
+      fullPage: true,
+      path: info.outputPath(`map-${theme}.png`),
+    });
   }
   await page.getByRole('button', { name: 'Close details', exact: true }).click();
   for (const width of [390, 320]) {
@@ -93,7 +97,11 @@ test('page map supports keyboard navigation, URL restoration, read-only cards, t
     await card.focus();
     await page.keyboard.press('Enter');
     await expect(page.getByRole('dialog', { name: 'Page details', exact: true })).toBeVisible();
-    await page.screenshot({ path: info.outputPath(`map-${width}.png`) });
+    await page.screenshot({
+      animations: 'disabled',
+      fullPage: true,
+      path: info.outputPath(`map-${width}.png`),
+    });
     await page.keyboard.press('Escape');
     await expect(page.getByRole('dialog', { name: 'Page details', exact: true })).not.toBeVisible();
   }
