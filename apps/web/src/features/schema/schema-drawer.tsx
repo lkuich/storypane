@@ -12,6 +12,7 @@ import {
   type DefinitionInput,
   type SchemaMigration,
   definitionInput,
+  seoBlockPreset,
 } from '@storypane/core';
 import { Button, EmptyState, ErrorNotice, Field, Modal } from '@storypane/ui';
 import { api, errorMessage, fieldName, jsonRequest } from '../editor/api';
@@ -440,6 +441,37 @@ export function SchemaDrawer({
               </div>
               {tab === 'references' ? null : tab === 'config' ? (
                 <fieldset className="schema-config" disabled={!canManage || busy}>
+                  {!original && canManage && (
+                    <div className="notice">
+                      <p>
+                        Start with SEO &amp; AI fields for search metadata, social sharing, and
+                        Markdown mirrors.
+                      </p>
+                      <Button
+                        disabled={
+                          dirty ||
+                          availableDefinitions.some((item) => item.name === seoBlockPreset.name)
+                        }
+                        onClick={() => {
+                          change({
+                            ...structuredClone(seoBlockPreset),
+                            fields: seoBlockPreset.fields.map((field) => ({
+                              ...structuredClone(field),
+                              id: crypto.randomUUID(),
+                            })),
+                          });
+                          setError(null);
+                        }}
+                      >
+                        Use SEO &amp; AI preset
+                      </Button>
+                      {availableDefinitions.some((item) => item.name === seoBlockPreset.name) && (
+                        <p className="field-hint">
+                          An SEO block already exists. Reuse it in your page’s SEO field.
+                        </p>
+                      )}
+                    </div>
+                  )}
                   <div className="field-row">
                     <Field label="Display name" htmlFor="definition-display">
                       <input

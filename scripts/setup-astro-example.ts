@@ -1,4 +1,5 @@
 import { existsSync, writeFileSync } from 'node:fs';
+import { seoBlockPreset } from '@storypane/core';
 import type {
   BlockDefinition,
   Command,
@@ -71,6 +72,7 @@ if (existsSync(envPath)) {
     required,
   });
   const schemas: DefinitionInput[] = [
+    structuredClone(seoBlockPreset),
     {
       name: 'feature',
       displayName: 'Feature',
@@ -142,6 +144,7 @@ if (existsSync(envPath)) {
       fields: [
         text('title', 'Page title', 'Home', true),
         { name: 'body', label: 'Body', type: 'blocks' },
+        { name: 'seo', label: 'SEO & AI', type: 'blocks', maxItems: 1 },
       ],
     },
   ];
@@ -149,7 +152,11 @@ if (existsSync(envPath)) {
     for (const field of schema.fields)
       if (field.type === 'blocks')
         field.allowedDefinitionIds = (
-          schema.name === 'feature_grid' ? ['feature'] : ['hero', 'feature_grid', 'footer']
+          field.name === 'seo'
+            ? ['seo']
+            : schema.name === 'feature_grid'
+              ? ['feature']
+              : ['hero', 'feature_grid', 'footer']
         ).map((name) => definitions.get(name)!.id);
     definitions.set(
       schema.name,
@@ -221,6 +228,10 @@ if (existsSync(envPath)) {
       tag: 'Grow',
     });
     await insert(locale.rootBlockId, 'body', 'footer');
+    await insert(locale.rootBlockId, 'seo', 'seo', {
+      description: 'A small studio for big ideas.',
+      markdown_enabled: true,
+    });
     return {
       story,
       snapshot,
@@ -249,7 +260,10 @@ if (existsSync(envPath)) {
     payload: {
       sourceLocaleId: home.snapshot.locale.id,
       blockIds: home.snapshot.blocks
-        .filter((block) => block.parentId === home.snapshot.locale.rootBlockId)
+        .filter(
+          (block) =>
+            block.parentId === home.snapshot.locale.rootBlockId && block.parentField === 'body',
+        )
         .map((block) => block.id),
       parentId: root.id,
       parentField: 'body',

@@ -16,6 +16,7 @@ const references: SiteReferences = { paths: { about: '/fr/about' }, footers: { s
 const page: PageBlock = {
   _uid: 'page',
   component: 'page',
+  seo: [],
   title: 'Home',
   footer: 'shared',
   body: [

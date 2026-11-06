@@ -308,3 +308,10 @@ shown in the SDK guide. Both framework examples already include that integration
 | Changes need attention or Offline · edits preserved | Resolve the shown error or restore the connection. Wait for All changes saved before reviewing a publication.                                          |
 | Connect your app in preview                         | Configure an SDK-enabled frontend and its preview URL, or hide preview while editing content.                                                          |
 | Published content does not change on the website    | Confirm the correct locale was published, then rebuild or revalidate your frontend.                                                                    |
+
+## Add SEO & AI metadata
+
+Use **Blocks → New block → Config → Use SEO & AI preset** for a reusable metadata
+block. Add it to a dedicated `seo` field on your Page definition, with a maximum
+of one block. The [SEO & AI guide](seo-ai.md) covers the fields, schema promotion,
+frontend metadata, and optional published Markdown mirrors.

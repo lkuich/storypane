@@ -1,5 +1,5 @@
 {
-  "migrationVersion": 4,
+  "migrationVersion": 5,
   "components": [
     {
       "id": "c5b779c7-76d7-4cf1-b80f-50ba1084b0b9",
@@ -119,7 +119,7 @@
       "id": "a01cf275-8036-417c-a827-c0e7115ff1b9",
       "name": "page",
       "kind": "content-type",
-      "version": 4,
+      "version": 5,
       "tags": [],
       "fields": [
         {
@@ -142,6 +142,70 @@
         {
           "name": "footer",
           "type": "option",
+          "required": false
+        },
+        {
+          "name": "seo",
+          "type": "blocks",
+          "required": false,
+          "allowedDefinitionIds": [
+            "6174e0c3-a4b6-453d-a6e0-66c687b13e1b"
+          ],
+          "allowedTags": []
+        }
+      ]
+    },
+    {
+      "id": "6174e0c3-a4b6-453d-a6e0-66c687b13e1b",
+      "name": "seo",
+      "kind": "nestable",
+      "version": 1,
+      "tags": [],
+      "fields": [
+        {
+          "name": "title",
+          "type": "text",
+          "required": false,
+          "format": "singleline"
+        },
+        {
+          "name": "description",
+          "type": "text",
+          "required": false,
+          "format": "textarea"
+        },
+        {
+          "name": "canonical_url",
+          "type": "text",
+          "required": false,
+          "format": "singleline"
+        },
+        {
+          "name": "og_image",
+          "type": "asset",
+          "required": false
+        },
+        {
+          "name": "robots_index",
+          "type": "option",
+          "required": false,
+          "options": [
+            "index",
+            "noindex"
+          ]
+        },
+        {
+          "name": "robots_follow",
+          "type": "option",
+          "required": false,
+          "options": [
+            "follow",
+            "nofollow"
+          ]
+        },
+        {
+          "name": "markdown_enabled",
+          "type": "boolean",
           "required": false
         }
       ]

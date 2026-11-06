@@ -24,7 +24,7 @@ export function pageEntries(
     if (!path || !/^[\p{L}\p{N}_-]+(?:\/[\p{L}\p{N}_-]+)*$/u.test(path) || paths.has(path))
       throw new Error(`Invalid or duplicate page path: ${path}`);
     const prefix = path.split('/')[0]!;
-    if (['preview', 'media', '_astro'].includes(prefix))
+    if (['preview', 'media', 'llms', 'llms.txt', '_astro'].includes(prefix))
       throw new Error(`Reserved story path: ${path}`);
     if (!story.locale && localePrefixes.has(prefix))
       throw new Error(`Story path conflicts with a locale: ${path}`);

@@ -5,15 +5,17 @@ import { Content } from '../components/content';
 import Layout from '../layouts/Layout.astro';
 import { publishedPages } from '../lib/cms';
 import type { SiteReferences } from '../lib/content';
+import { pageMetadata } from '../lib/seo';
 export const getStaticPaths = publishedPages;
 interface Props {
   story: StorypaneStory<StorypaneContentType>;
   references: SiteReferences;
 }
 const { story, references } = Astro.props;
+const metadata = pageMetadata(story, import.meta.env.SITE_URL || Astro.url.origin);
 ---
 
-<Layout title={story.name} locale={story.locale}>
+<Layout title={metadata.title} locale={story.locale} metadata={metadata}>
   <Content block={story.content} references={references} />
 </Layout>
 

@@ -11,7 +11,7 @@ const story: StorypaneStory<StorypaneContentType> = {
   localeId: 'default',
   revision: 1,
   publishedAt: '2026-11-04T00:00:00Z',
-  content: { _uid: 'root', component: 'page', title: 'Home', body: [], footer: 'shared' },
+  content: { _uid: 'root', component: 'page', title: 'Home', seo: [], body: [], footer: 'shared' },
 };
 const locales = [
   { slug: '', isDefault: true },
@@ -31,9 +31,27 @@ it('builds nested/localized routes with the selected footer and rejects ambiguou
   expect(pages[2]?.params.path).toBe('fr/studio/home');
   expect(pages[2]?.props.references.footers.shared?.text).toBe('Contact us');
   expect(() => pageEntries([story, story], locales)).toThrow('duplicate');
-  for (const slug of ['', '../secret', 'bad?query', 'a//b', '/home', 'home/'])
+  for (const slug of [
+    '',
+    '../secret',
+    'bad?query',
+    'a//b',
+    '/home',
+    'home/',
+    'llms.txt',
+    'llms/home.md',
+  ])
     expect(() => pageEntries([{ ...story, slug }], locales)).toThrow('Invalid');
-  for (const slug of ['preview', 'preview/nested', 'media', 'media/asset', '_astro', '_astro/app'])
+  for (const slug of [
+    'preview',
+    'preview/nested',
+    'llms',
+    'llms/home',
+    'media',
+    'media/asset',
+    '_astro',
+    '_astro/app',
+  ])
     expect(() => pageEntries([{ ...story, slug }], locales)).toThrow('Reserved');
   // A configured locale reserves its prefix even before any translations are published.
   for (const slug of ['fr', 'fr/home'])

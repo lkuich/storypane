@@ -230,3 +230,24 @@ management tokens server-side and separate from delivery configuration. See the
 [linked-space workflow](../../packages/sdk/README.md#linked-development-and-production-spaces)
 for conflict resolution, CI, and generating from a separately pulled production
 migration file.
+
+## SEO and Markdown mirrors
+
+The Page schema has an optional `seo` blocks field (maximum one **SEO & AI**
+block). `src/lib/seo.ts` maps its title, description, canonical, social image,
+and robots settings into page metadata. Set `SITE_URL` to your public frontend
+origin before a production build.
+
+Enable **Markdown mirror enabled**, publish the page, and rebuild to generate
+`/llms/{locale}/{slug}.md`; omit the locale segment for the root locale. An
+alternate link in the HTML and `/llms.txt` advertise eligible mirrors. Mirrors
+require published, explicitly enabled, indexable pages. Missing/false settings,
+no-index pages, and non-page content types are excluded. New presets default to
+off; the fresh Astro setup opts its fictional default-locale Home page in.
+
+The serializer includes known visible body fields and plain rich-text content.
+Extend it alongside your renderers when adding components. An SEO block has no
+visible body renderer. Publishing an opt-out and rebuilding removes both the
+mirror and its discovery entry; deploy a complete fresh build to remove stale
+files. The [SEO & AI guide](../../docs/seo-ai.md) explains setup, hosting headers,
+and the limits of AI discovery.

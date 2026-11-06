@@ -44,7 +44,7 @@ pnpm --filter @storypane/example-astro dev
 ```
 
 Open **http://127.0.0.1:3132/home**. The setup command creates a separate
-**Fieldwork · Astro example** space, five schemas, a published Home story with
+**Fieldwork · Astro example** space, six schemas, a published Home story with
 Default and French locales, and an unpublished Work in progress story. It creates
 scoped API keys and writes them to an ignored, owner-readable `.env`. It only
 seeds a local CMS and preserves an existing `.env` and content on subsequent runs.
@@ -66,7 +66,7 @@ which may differ from the configured default.
 This example paginates publications for every configured locale, using
 `listAllStories()` for the default and `listAllStories({ locale: slug })` for the
 others. Route generation rejects
-invalid or duplicate paths, the reserved `preview`, `media`, and `_astro` prefixes,
+invalid or duplicate paths, the reserved `preview`, `media`, `llms`, and `_astro` prefixes,
 and Default slugs that occupy a configured locale prefix, such as `fr/home`.
 
 To use an existing space instead, copy `.env.example` to `.env`, configure its
@@ -315,3 +315,24 @@ management tokens server-side and separate from delivery configuration. See the
 [linked-space workflow](../../packages/sdk/README.md#linked-development-and-production-spaces)
 for conflict resolution, CI, and generating from a separately pulled production
 migration file.
+
+## SEO and Markdown mirrors
+
+The Page schema has an optional `seo` blocks field (maximum one **SEO & AI**
+block). `src/lib/seo.ts` maps its title, description, canonical, social image,
+and robots settings into page metadata. Set `SITE_URL` to your public frontend
+origin before a production build.
+
+Enable **Markdown mirror enabled**, publish the page, and rebuild to generate
+`/llms/{locale}/{slug}.md`; omit the locale segment for the root locale. An
+alternate link in the HTML and `/llms.txt` advertise eligible mirrors. Mirrors
+require published, explicitly enabled, indexable pages. Missing/false settings,
+no-index pages, and non-page content types are excluded. New presets default to
+off; the fresh Astro setup opts its fictional default-locale Home page in.
+
+The serializer includes known visible body fields and plain rich-text content.
+Extend it alongside your renderers when adding components. An SEO block has no
+visible body renderer. Publishing an opt-out and rebuilding removes both the
+mirror and its discovery entry; deploy a complete fresh build to remove stale
+files. The [SEO & AI guide](../../docs/seo-ai.md) explains setup, hosting headers,
+and the limits of AI discovery.

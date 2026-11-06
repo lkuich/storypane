@@ -29,7 +29,7 @@ export function staticStoryParams(
       throw new Error(`Invalid story path: ${path}`);
     }
 
-    if (['preview', 'media', '_next'].includes(prefix)) {
+    if (['preview', 'media', 'llms', 'llms.txt', '_next'].includes(prefix)) {
       throw new Error(`Reserved story path: ${path}`);
     }
 

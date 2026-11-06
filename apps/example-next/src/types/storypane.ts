@@ -2,7 +2,7 @@
 
 // Describes this deployed migration. Outdated clients receive newer content with a warning.
 
-export const storypaneMigrationVersion = 4 as const;
+export const storypaneMigrationVersion = 5 as const;
 
 import type { StorypaneAsset, StorypaneLink, StorypaneRichText } from '@storypane/sdk';
 
@@ -44,6 +44,19 @@ export interface PageBlock {
   "title": string;
   "body": Array<FeatureBlock | FooterBlock | HeroBlock>;
   "footer"?: string | null;
+  "seo": Array<SeoBlock>;
+}
+
+export interface SeoBlock {
+  _uid: string;
+  component: "seo";
+  "title"?: string | null;
+  "description"?: string | null;
+  "canonical_url"?: string | null;
+  "og_image"?: StorypaneAsset | null | "";
+  "robots_index"?: "index" | "noindex" | null | "";
+  "robots_follow"?: "follow" | "nofollow" | null | "";
+  "markdown_enabled"?: boolean | null | "";
 }
 
 export interface StorypaneComponentMap {
@@ -52,11 +65,12 @@ export interface StorypaneComponentMap {
   "footer": FooterBlock;
   "hero": HeroBlock;
   "page": PageBlock;
+  "seo": SeoBlock;
 }
 
-export type StorypaneComponent = FeatureBlock | FeatureGridBlock | FooterBlock | HeroBlock | PageBlock;
+export type StorypaneComponent = FeatureBlock | FeatureGridBlock | FooterBlock | HeroBlock | PageBlock | SeoBlock;
 
-export type StorypaneNestable = FeatureBlock | FeatureGridBlock | FooterBlock | HeroBlock;
+export type StorypaneNestable = FeatureBlock | FeatureGridBlock | FooterBlock | HeroBlock | SeoBlock;
 
 export type StorypaneContentType = FooterBlock | PageBlock;
 

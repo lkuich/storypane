@@ -1331,3 +1331,4 @@ export const cancelScheduleSchema = z
   .strict();
 export * from './media.js';
 export * from './releases.js';
+export * from './seo.js';

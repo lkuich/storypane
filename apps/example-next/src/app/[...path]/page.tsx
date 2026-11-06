@@ -5,6 +5,7 @@ import { StoryContent } from '@/components/story-content';
 import { storypane, getLocales, getPublishedStories } from '@/lib/storypane';
 import { referencesFor } from '@/lib/content';
 import { referenceForPath, staticStoryParams } from '@/lib/routes';
+import { pageMetadata } from '@/lib/seo';
 
 type Props = { params: Promise<{ path: string[] }> };
 
@@ -30,7 +31,29 @@ const getPage = cache(async (path: string) => {
 
 export async function generateMetadata({ params }: Props) {
   const story = await getPage((await params).path.join('/'));
-  return { title: story.name };
+  const seo = pageMetadata(story, process.env.SITE_URL || 'http://127.0.0.1:3133');
+  return {
+    title: seo.title,
+    description: seo.description,
+    alternates: {
+      canonical: seo.canonical,
+      ...(seo.markdownEnabled ? { types: { 'text/markdown': seo.markdownPath } } : {}),
+    },
+    robots: { index: seo.index, follow: seo.follow },
+    openGraph: {
+      title: seo.title,
+      description: seo.description,
+      url: seo.canonical,
+      type: 'website' as const,
+      images: seo.image ? [seo.image] : [],
+    },
+    twitter: {
+      card: seo.image ? ('summary_large_image' as const) : ('summary' as const),
+      title: seo.title,
+      description: seo.description,
+      images: seo.image ? [seo.image] : [],
+    },
+  };
 }
 
 export default async function Page({ params }: Props) {

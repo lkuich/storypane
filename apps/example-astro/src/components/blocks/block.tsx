@@ -16,6 +16,8 @@ export type RenderOptions = {
 export function Block({ block, ...options }: RenderOptions & { block: StorypaneComponent }) {
   const name = block.component;
   switch (block.component) {
+    case 'seo':
+      return null;
     case 'page':
       return <Page block={block} {...options} />;
     case 'hero':
