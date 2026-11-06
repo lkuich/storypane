@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import type { AssetUsagePage } from '@storypane/core';
 import { assetApi } from './api';
 import { selectedSpaceId } from '../../lib/space-url';
+import { PublicationStatus } from '../../components/publication-status';
 
 export function AssetUsage({ assetId }: { assetId: string }) {
   const [page, setPage] = useState<AssetUsagePage | null>(null);
@@ -77,7 +78,7 @@ export function AssetUsage({ assetId }: { assetId: string }) {
                   {item.localeName} · {item.blockName} · {item.fieldLabel}
                 </span>
               </a>
-              <span className="pill">{item.state === 'published' ? 'Published' : 'Draft'}</span>
+              <PublicationStatus status={item.state} />
             </li>
           );
         })}
