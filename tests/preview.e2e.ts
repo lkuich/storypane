@@ -212,6 +212,55 @@ test('a static app receives live drafts, selects blocks in the editor, and leave
       `${siteUrl}/home?locale=&review=1`,
     );
     await expect(frame.locator('#status')).toHaveText('connected');
+    const sizes = page.getByRole('group', { name: 'Preview size', exact: true });
+    const liveIframe = page.locator('iframe[title="Live application preview"]');
+    await expect(sizes.getByRole('button', { name: 'Tablet', exact: true })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+    const tabletWidth = await frame.locator('html').evaluate(() => innerWidth);
+    expect(tabletWidth).toBeGreaterThan(390);
+    await frame.locator('body').evaluate((body) => (body.dataset.resizeCheck = 'preserved'));
+    await sizes.getByRole('button', { name: 'Mobile', exact: true }).focus();
+    for (const [name, width] of [
+      ['Mobile', 390],
+      ['Tablet', tabletWidth],
+      ['Desktop', 1440],
+    ] as const) {
+      await expect(sizes.getByRole('button', { name, exact: true })).toBeFocused();
+      await page.keyboard.press('Space');
+      await expect(sizes.getByRole('button', { name, exact: true })).toHaveAttribute(
+        'aria-pressed',
+        'true',
+      );
+      await expect.poll(() => frame.locator('html').evaluate(() => innerWidth)).toBe(width);
+      expect(
+        await frame.locator('html').evaluate(() => matchMedia('(min-width: 1024px)').matches),
+      ).toBe(width >= 1024);
+      await expect(frame.locator('body')).toHaveAttribute('data-resize-check', 'preserved');
+      await expect(frame.locator('#status')).toHaveText('connected');
+      await page.keyboard.press('Tab');
+    }
+    await page.setViewportSize({ width: 390, height: 844 });
+    await expect.poll(() => frame.locator('html').evaluate(() => innerWidth)).toBe(1440);
+    await expect
+      .poll(async () => {
+        const bounds = await liveIframe.boundingBox();
+        return !!bounds && bounds.x >= 0 && bounds.x + bounds.width <= 390;
+      })
+      .toBe(true);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
+      true,
+    );
+    await page.getByRole('region', { name: 'Application preview' }).screenshot({
+      path: '/tmp/storypane-desktop-preview-on-mobile.png',
+    });
+    await sizes.getByRole('button', { name: 'Mobile', exact: true }).click();
+    await expect.poll(() => frame.locator('html').evaluate(() => innerWidth)).toBe(390);
+    await expect(frame.locator('body')).toHaveAttribute('data-resize-check', 'preserved');
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    await sizes.getByRole('button', { name: 'Tablet', exact: true }).click();
+    await expect.poll(() => frame.locator('html').evaluate(() => innerWidth)).toBe(tabletWidth);
     const editor = page.getByRole('region', { name: 'Block editor' });
     const heroButton = editor.getByRole('button', { name: 'Hero', exact: true });
     const hoverPreview = page.locator('.block-hover-preview');
@@ -228,6 +277,9 @@ test('a static app receives live drafts, selects blocks in the editor, and leave
     expect(previewSessions).toBe(0);
     await heroButton.hover();
     await expect(hoverPreview).toBeVisible();
+    await expect(
+      hoverPreview.getByRole('group', { name: 'Preview size', exact: true }),
+    ).toHaveCount(0);
     await expect(blockFrame.getByRole('heading', { level: 1 })).toHaveText(
       String(hero.fields.title),
     );

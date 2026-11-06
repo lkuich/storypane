@@ -1,11 +1,17 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
-import { ExternalLink, Monitor, RefreshCw } from 'lucide-react';
+import { ExternalLink, Monitor, RefreshCw, Smartphone, Tablet } from 'lucide-react';
 import { Button, ErrorNotice, Loading } from '@storypane/ui';
 import type { DeliverySettings, Json, LocaleSnapshot, PreviewSession } from '@storypane/core';
 import { api, errorMessage, jsonRequest } from './api';
 
 export type ComponentPreview = { blockId: string } | { block: Record<string, Json> };
+
+const previewSizes = [
+  { name: 'Mobile', width: 390, icon: Smartphone },
+  { name: 'Tablet', width: 0, icon: Tablet },
+  { name: 'Desktop', width: 1440, icon: Monitor },
+];
 
 export function PreviewPanel({
   settings,
@@ -32,6 +38,9 @@ export function PreviewPanel({
     [status, setStatus] = useState('Waiting for your app'),
     [generation, setGeneration] = useState(0);
   const [componentReady, setComponentReady] = useState(false);
+  const [previewSize, setPreviewSize] = useState(previewSizes[1]);
+  const [viewportWidth, setViewportWidth] = useState(0);
+  const viewport = useRef<HTMLDivElement>(null);
   const iframe = useRef<HTMLIFrameElement>(null),
     selected = useRef(selectedId),
     snapshotRef = useRef(snapshot),
@@ -72,6 +81,14 @@ export function PreviewPanel({
   const targetId = target?.id;
   const src = url?.href,
     origin = url?.origin;
+  useEffect(() => {
+    if (component || !src || !viewport.current) return;
+    const observer = new ResizeObserver(([entry]) => setViewportWidth(entry.contentRect.width));
+    observer.observe(viewport.current);
+    return () => observer.disconnect();
+  }, [component, src]);
+  const scale =
+    viewportWidth && previewSize.width ? Math.min(1, viewportWidth / previewSize.width) : 1;
   useEffect(() => {
     if (!origin || !targetId) return;
     setStatus('Waiting for your app');
@@ -213,6 +230,19 @@ export function PreviewPanel({
               )}
             </div>
           </header>
+          <div className="preview-size-switch" role="group" aria-label="Preview size">
+            {previewSizes.map((size) => (
+              <Button
+                key={size.name}
+                variant={previewSize === size ? 'primary' : 'ghost'}
+                aria-pressed={previewSize === size}
+                onClick={() => setPreviewSize(size)}
+                title={size.width ? `${size.width}px viewport` : 'Current panel width'}
+              >
+                <size.icon aria-hidden="true" /> {size.name}
+              </Button>
+            ))}
+          </div>
           {target && (
             <div className="preview-target-switch">
               <label htmlFor="preview-url">Preview</label>
@@ -240,15 +270,27 @@ export function PreviewPanel({
         <>
           {!component && <div className="preview-address">{src}</div>}
           {component && !componentReady && !error && <Loading label="Loading block preview…" />}
-          <iframe
-            ref={iframe}
-            key={`${target?.id}:${src}:${generation}`}
-            src={src}
-            title={component ? 'Block preview' : 'Live application preview'}
-            referrerPolicy="no-referrer"
-            tabIndex={component ? -1 : undefined}
-            style={component && (!componentReady || error) ? { visibility: 'hidden' } : undefined}
-          />
+          <div ref={viewport} className={component ? undefined : 'preview-viewport'}>
+            <iframe
+              ref={iframe}
+              key={`${target?.id}:${src}:${generation}`}
+              src={src}
+              title={component ? 'Block preview' : 'Live application preview'}
+              referrerPolicy="no-referrer"
+              tabIndex={component ? -1 : undefined}
+              style={
+                component
+                  ? !componentReady || error
+                    ? { visibility: 'hidden' }
+                    : undefined
+                  : {
+                      width: previewSize.width || '100%',
+                      height: `${100 / scale}%`,
+                      transform: `translateX(-50%) scale(${scale})`,
+                    }
+              }
+            />
+          </div>
         </>
       ) : (
         <div className="empty-state">

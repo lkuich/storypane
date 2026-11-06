@@ -2025,6 +2025,19 @@ hr {
   font-size: 11px;
   font-weight: 650;
 }
+.preview-size-switch {
+  display: flex;
+  gap: 4px;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--line);
+}
+.preview-size-switch .button {
+  flex: 1;
+  min-width: 0;
+  min-height: 34px;
+  padding: 6px 8px;
+  font-size: 11px;
+}
 .preview-target-switch {
   display: flex;
   align-items: center;
@@ -2063,6 +2076,20 @@ hr {
   background: white;
   color-scheme: normal;
 }
+.preview-viewport {
+  position: relative;
+  height: 72vh;
+  min-height: 450px;
+  overflow: hidden;
+  background: var(--bg);
+}
+.preview-viewport iframe {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  min-height: 0;
+  transform-origin: top center;
+}
 @media (max-width: 1050px) {
   .visual-workspace {
     grid-template-columns: minmax(0, 1fr);
@@ -2070,7 +2097,7 @@ hr {
   .preview-panel {
     position: static;
   }
-  .preview-panel iframe {
+  .preview-viewport {
     height: 50vh;
     min-height: 360px;
   }
