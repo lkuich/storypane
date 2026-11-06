@@ -6,7 +6,13 @@ import { StorypaneStore } from './store.js';
 import * as externalOptions from './external-options.js';
 import { migrate } from './migrate.js';
 import { acceptVerifiedEmailInvitations } from './invitations.js';
-import { createBlockClipboard, contentScopesSchema, definitionInput } from '@storypane/core';
+import {
+  createBlockClipboard,
+  contentScopesSchema,
+  definitionInput,
+  migrationChanges,
+  portableDefinitions,
+} from '@storypane/core';
 import type { Actor, BlockDraft, Command, Lease, LocaleSnapshot } from '@storypane/core';
 
 const databaseUrl =
@@ -3350,6 +3356,76 @@ describe('block definition references', () => {
 });
 
 describe('shared schema migrations', () => {
+  it('uses the frozen legacy hierarchy for migration diffs without hiding later moves', async () => {
+    const page = snapshot.definitions.find((item) => item.name === 'page')!;
+    const hero = snapshot.definitions.find((item) => item.name === 'hero')!;
+    await pool.query('UPDATE definitions SET parent_definition_id=$2 WHERE id=$1', [
+      hero.id,
+      page.id,
+    ]);
+    await pool.query(
+      'UPDATE spaces SET schema_hierarchy_baseline=(SELECT jsonb_object_agg(id::text,parent_definition_id) FROM definitions WHERE space_id=$1) WHERE id=$1',
+      [alice.spaceId],
+    );
+    await pool.query(
+      "UPDATE schema_migrations SET definitions=(SELECT jsonb_agg(d - 'parentDefinitionId') FROM jsonb_array_elements(definitions) d) WHERE space_id=$1 AND version=1",
+      [alice.spaceId],
+    );
+    const original = (
+      await pool.query(
+        'SELECT definitions FROM schema_migrations WHERE space_id=$1 AND version=1',
+        [alice.spaceId],
+      )
+    ).rows[0].definitions;
+    // Older workspaces could record existing nesting on only the edited block.
+    await pool.query(
+      "INSERT INTO schema_migrations(space_id,version,base_version,name,status,definitions) SELECT space_id,2,1,'Legacy workspace','active',(SELECT jsonb_agg(CASE WHEN d->>'id'=$2 THEN d || jsonb_build_object('parentDefinitionId',$3::text) ELSE d END) FROM jsonb_array_elements(definitions) d) FROM schema_migrations WHERE space_id=$1 AND version=1",
+      [alice.spaceId, hero.id, page.id],
+    );
+    const workspace = await store.listMigrations(alice, true);
+    expect(migrationChanges(workspace[0].definitions, workspace[1].definitions)).toEqual([]);
+    expect((await store.reviewMigration(alice, workspace[1].id)).changes).toEqual([]);
+    expect((await store.listMigrations(alice)).at(-2)).toEqual(workspace[0]);
+
+    await store.moveDefinition(alice, hero.id, {
+      parentDefinitionId: null,
+      expectedParentDefinitionId: page.id,
+    });
+    const moved = await store.listMigrations(alice, true);
+    const changes = [
+      {
+        definition: 'hero',
+        kind: 'changed',
+        before: { parentDefinitionId: page.id },
+        after: { parentDefinitionId: null },
+      },
+    ];
+    expect(migrationChanges(moved[0].definitions, moved[1].definitions)).toEqual(changes);
+    const review = await store.reviewMigration(alice, moved[1].id);
+    expect(review.changes).toEqual(changes);
+    expect(
+      await store.pushMigration(alice, {
+        formatVersion: 2,
+        id: moved[1].id,
+        spaceId: alice.spaceId,
+        version: 2,
+        baseVersion: 1,
+        name: moved[1].name,
+        status: 'active',
+        definitions: portableDefinitions(moved[1].definitions),
+        remoteRevision: moved[1].revision,
+        sourceHash: null,
+      }),
+    ).toEqual(moved[1]);
+    expect(
+      (
+        await pool.query(
+          'SELECT definitions FROM schema_migrations WHERE space_id=$1 AND version=1',
+          [alice.spaceId],
+        )
+      ).rows[0].definitions,
+    ).toEqual(original);
+  });
   it('stages unused block deletion, preserves history and promotes nested definitions', async () => {
     const root = snapshot.definitions.find((item) => item.name === 'page')!;
     const unused = await store.createDefinition(

@@ -262,7 +262,13 @@ const migrationRow = (row: Row): SchemaMigration => ({
   name: row.name,
   status: row.status,
   revision: row.revision,
-  definitions: row.definitions,
+  // Legacy snapshots omitted nesting; resolve it from the frozen upgrade baseline.
+  definitions: row.definitions.map((definition: BlockDefinition) =>
+    definition.parentDefinitionId === undefined &&
+    Object.hasOwn(row.schema_hierarchy_baseline ?? {}, definition.id)
+      ? { ...definition, parentDefinitionId: row.schema_hierarchy_baseline[definition.id] }
+      : definition,
+  ),
   contributors: row.contributors,
   createdAt: iso(row.created_at),
   deployedAt: row.deployed_at ? iso(row.deployed_at) : null,
@@ -1996,7 +2002,7 @@ export class StorypaneStore {
   private async deployedMigration(client: PoolClient, spaceId: string): Promise<SchemaMigration> {
     const row = (
       await client.query(
-        'SELECT m.* FROM schema_migrations m JOIN spaces s ON s.id=m.space_id AND s.schema_version=m.version WHERE s.id=$1',
+        'SELECT m.*,s.schema_hierarchy_baseline FROM schema_migrations m JOIN spaces s ON s.id=m.space_id AND s.schema_version=m.version WHERE s.id=$1',
         [spaceId],
       )
     ).rows[0];
@@ -2071,9 +2077,10 @@ export class StorypaneStore {
     // Serializes workspace saves while page editing remains concurrent.
     await client.query('SELECT id FROM spaces WHERE id=$1 FOR UPDATE', [actor.spaceId]);
     const row = (
-      await client.query("SELECT * FROM schema_migrations WHERE space_id=$1 AND status='active'", [
-        actor.spaceId,
-      ])
+      await client.query(
+        "SELECT m.*,s.schema_hierarchy_baseline FROM schema_migrations m JOIN spaces s ON s.id=m.space_id WHERE m.space_id=$1 AND m.status='active'",
+        [actor.spaceId],
+      )
     ).rows[0];
     if (row) return migrationRow(row);
     const base = await this.deployedMigration(client, actor.spaceId);
@@ -2345,7 +2352,7 @@ export class StorypaneStore {
       assertUnrestrictedRead(await this.contentAccess(client, actor));
       return (
         await client.query(
-          "SELECT * FROM schema_migrations WHERE space_id=$1 AND (NOT $2 OR status='active' OR version=(SELECT schema_version FROM spaces WHERE id=$1)) ORDER BY version",
+          "SELECT m.*,s.schema_hierarchy_baseline FROM schema_migrations m JOIN spaces s ON s.id=m.space_id WHERE m.space_id=$1 AND (NOT $2 OR m.status='active' OR m.version=s.schema_version) ORDER BY m.version",
           [actor.spaceId, workspace],
         )
       ).rows.map(migrationRow);
@@ -2496,10 +2503,10 @@ export class StorypaneStore {
       async (client) => {
         await client.query('SELECT id FROM spaces WHERE id=$1 FOR UPDATE', [actor.spaceId]);
         const found = (
-          await client.query('SELECT * FROM schema_migrations WHERE id=$1 AND space_id=$2', [
-            input.id,
-            actor.spaceId,
-          ])
+          await client.query(
+            'SELECT m.*,s.schema_hierarchy_baseline FROM schema_migrations m JOIN spaces s ON s.id=m.space_id WHERE m.id=$1 AND m.space_id=$2',
+            [input.id, actor.spaceId],
+          )
         ).rows[0];
         const previous = found ? migrationRow(found) : undefined;
         const same =
@@ -2529,7 +2536,7 @@ export class StorypaneStore {
           );
         const activeRow = (
           await client.query(
-            "SELECT * FROM schema_migrations WHERE space_id=$1 AND status='active'",
+            "SELECT m.*,s.schema_hierarchy_baseline FROM schema_migrations m JOIN spaces s ON s.id=m.space_id WHERE m.space_id=$1 AND m.status='active'",
             [actor.spaceId],
           )
         ).rows[0];
@@ -2684,7 +2691,7 @@ export class StorypaneStore {
     let current = await this.hydrateHistoricalDefinitions(client, snapshot);
     const migrations = (
       await client.query(
-        "SELECT * FROM schema_migrations WHERE space_id=$1 AND status='deployed' AND version>$2 ORDER BY version",
+        "SELECT m.*,s.schema_hierarchy_baseline FROM schema_migrations m JOIN spaces s ON s.id=m.space_id WHERE m.space_id=$1 AND m.status='deployed' AND m.version>$2 ORDER BY m.version",
         [actor.spaceId, snapshot.migrationVersion ?? 0],
       )
     ).rows.map(migrationRow);
@@ -2701,10 +2708,10 @@ export class StorypaneStore {
     destructive = false,
   ) {
     const row = (
-      await client.query('SELECT * FROM schema_migrations WHERE id=$1 AND space_id=$2', [
-        id,
-        actor.spaceId,
-      ])
+      await client.query(
+        'SELECT m.*,s.schema_hierarchy_baseline FROM schema_migrations m JOIN spaces s ON s.id=m.space_id WHERE m.id=$1 AND m.space_id=$2',
+        [id, actor.spaceId],
+      )
     ).rows[0];
     if (!row) throw new StorypaneError('not_found', 'Migration not found');
     const migration = migrationRow(row),
@@ -2908,10 +2915,10 @@ export class StorypaneStore {
         async (client) => {
           await this.assertSchemaEditable(client, actor);
           const existing = (
-            await client.query('SELECT * FROM schema_migrations WHERE id=$1 AND space_id=$2', [
-              id,
-              actor.spaceId,
-            ])
+            await client.query(
+              'SELECT m.*,s.schema_hierarchy_baseline FROM schema_migrations m JOIN spaces s ON s.id=m.space_id WHERE m.id=$1 AND m.space_id=$2',
+              [id, actor.spaceId],
+            )
           ).rows[0];
           if (existing?.status === 'deployed') {
             if (existing.review_token !== reviewToken)
@@ -3028,7 +3035,7 @@ export class StorypaneStore {
           return migrationRow(
             (
               await client.query(
-                "UPDATE schema_migrations SET status='deployed',deployed_at=clock_timestamp(),deployed_by=$2,review_token=$3,destructive=$4 WHERE id=$1 RETURNING *",
+                "UPDATE schema_migrations SET status='deployed',deployed_at=clock_timestamp(),deployed_by=$2,review_token=$3,destructive=$4 WHERE id=$1 RETURNING *,(SELECT schema_hierarchy_baseline FROM spaces WHERE spaces.id=schema_migrations.space_id) AS schema_hierarchy_baseline",
                 [id, actor.userId, reviewToken, destructive],
               )
             ).rows[0],
