@@ -3,6 +3,7 @@ import { expect, test, type Page } from '@playwright/test';
 const spaceId = '11111111-1111-4111-8111-111111111111';
 const home = '20000000-0000-4000-8000-000000000001';
 const about = '20000000-0000-4000-8000-000000000002';
+const aboutTitle = 'The botox + filler + biostimulator combo course';
 const english = '30000000-0000-4000-8000-000000000001';
 const french = '30000000-0000-4000-8000-000000000004';
 const blockId = '30000000-0000-4000-8000-000000000002';
@@ -10,7 +11,7 @@ const definitionId = '30000000-0000-4000-8000-000000000003';
 const createdAt = '2026-11-01T00:00:00Z';
 const stories = [home, about].map((id, i) => ({
   id,
-  name: i ? 'About' : 'Home',
+  name: i ? aboutTitle : 'Home',
   slug: i ? 'about/our-team-and-the-story-behind-our-work' : 'home',
   createdAt,
   updatedAt: createdAt,
@@ -199,13 +200,35 @@ test('map loads only when expanded below preview, follows the editor locale, and
   const card = page.locator('.map-card-title').filter({ hasText: 'Home' });
   await card.focus();
   await page.keyboard.press('Enter');
-  await expect(page.getByRole('dialog', { name: 'Page details' })).toContainText('Footer');
+  const details = page.getByRole('dialog', { name: 'Page details' });
+  await expect(details.getByText('No incoming links in this map.')).toBeVisible();
+  await expect(
+    details.getByRole('button', { name: `Show connections for ${aboutTitle}` }),
+  ).toBeVisible();
+  await expect(details.getByText(blockId, { exact: true })).toBeHidden();
+  const locations = details.locator('.map-link-locations > summary');
+  await locations.focus();
+  await page.keyboard.press('Enter');
+  await expect(details.getByText('Footer', { exact: true })).toBeVisible();
+  await expect(details.getByText(blockId, { exact: true })).toBeVisible();
+  await expect(
+    details.getByRole('button', { name: 'Copy block id for Footer · Link' }),
+  ).toBeVisible();
+  await expect(details.getByText('Showing 1 of 2 locations.')).toBeVisible();
+  await page.keyboard.press('Enter');
+  await expect(details.getByText(blockId, { exact: true })).toBeHidden();
   await page.keyboard.press('Escape');
   await page.keyboard.press('Delete');
   await expect(page.locator('.react-flow__node')).toHaveCount(2);
   for (const theme of ['dark', 'light']) {
     await page.getByRole('combobox', { name: /Appearance/ }).selectOption(theme);
-    await panel.screenshot({ animations: 'disabled', path: info.outputPath(`map-${theme}.png`) });
+    await card.focus();
+    await page.keyboard.press('Enter');
+    await details.screenshot({
+      animations: 'disabled',
+      path: info.outputPath(`details-${theme}.png`),
+    });
+    await page.keyboard.press('Escape');
   }
   for (const width of [390, 320]) {
     await page.setViewportSize({ width, height: 844 });
@@ -219,7 +242,17 @@ test('map loads only when expanded below preview, follows the editor locale, and
     expect(mapBounds!.y).toBeGreaterThanOrEqual(previewBounds!.y + previewBounds!.height);
     await card.focus();
     await page.keyboard.press('Enter');
-    await expect(page.getByRole('dialog', { name: 'Page details' })).toBeVisible();
+    await expect(details).toBeVisible();
+    await locations.focus();
+    await page.keyboard.press('Enter');
+    await expect(details.getByText(blockId, { exact: true })).toBeVisible();
+    expect(await details.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(
+      true,
+    );
+    await details.screenshot({
+      animations: 'disabled',
+      path: info.outputPath(`details-${width}.png`),
+    });
     await page.keyboard.press('Escape');
   }
   await toggle.click();
@@ -233,7 +266,7 @@ test('map loads only when expanded below preview, follows the editor locale, and
   await toggle.click();
   await expect(page.locator('.react-flow__node')).toHaveCount(2);
   expect(graphRequests[2].searchParams.get('locale')).toBe('fr');
-  await page.locator('.map-card-title').filter({ hasText: 'About' }).click();
+  await page.locator('.map-card-title').filter({ hasText: aboutTitle }).click();
   await page.getByRole('button', { name: 'Open page', exact: true }).click();
   await expect(page).toHaveURL(new RegExp(`story=${about}.*locale=fr`));
   await expect(panel).not.toHaveAttribute('open');
@@ -250,7 +283,7 @@ test('opening a connected page preserves unsaved edits when saving fails', async
   await page.locator('.page-map-panel > summary').click();
   await expect(page.locator('.react-flow__node')).toHaveCount(2);
   expect(graphRequests).toHaveLength(1);
-  await page.locator('.map-card-title').filter({ hasText: 'About' }).click();
+  await page.locator('.map-card-title').filter({ hasText: aboutTitle }).click();
   await page.getByRole('button', { name: 'Open page', exact: true }).click();
   await expect.poll(() => saves.length).toBeGreaterThan(0);
   await expect(

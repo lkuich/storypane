@@ -13,11 +13,13 @@ import {
   type Node,
 } from '@xyflow/react';
 import dagre from '@dagrejs/dagre';
+import { ArrowDownLeft, ArrowUpRight, ChevronRight } from 'lucide-react';
 import '@xyflow/react/dist/style.css';
 import './page-map.css';
 import { Button, ErrorNotice, Loading, Modal } from '@storypane/ui';
 import type { PageMapNode, PageMapResponse, Story } from '@storypane/core';
 import { api, errorMessage } from '../editor/api';
+import { CopyableValue } from '../../components/copyable-value';
 import { PublicationStatus } from '../../components/publication-status';
 
 type CardData = { page: PageMapNode; root: boolean; select: (id: string) => void };
@@ -132,50 +134,96 @@ export default function PageMap({
   }
   const details = detail && (
     <>
-      <h2>{detail.title}</h2>
-      <p>
-        /{detail.url} · {detail.localeName}
-        {detail.fallback ? ' (fallback)' : ''}
-      </p>
-      <div className="button-group">
-        <Button onClick={() => void open(detail)}>Open page</Button>
+      <div className="map-detail-summary">
+        <div className="map-detail-meta">
+          <PublicationStatus status={detail.status} />
+          <span>
+            {detail.localeName}
+            {detail.fallback ? ' · fallback' : ''}
+          </span>
+        </div>
+        <h3>{detail.title}</h3>
+        <p className="map-detail-url mono">/{detail.url}</p>
+        <Button variant="primary" onClick={() => void open(detail)}>
+          <ArrowUpRight aria-hidden="true" /> Open page
+        </Button>
       </div>
-      {(['incoming', 'outgoing'] as const).map((direction) => (
-        <section key={direction}>
-          <h3>{direction === 'incoming' ? 'Incoming' : 'Outgoing'} in this map</h3>
-          <ul className="map-connections">
-            {result!.edges
-              .filter((e) =>
-                direction === 'incoming' ? e.target === detail.id : e.source === detail.id,
-              )
-              .map((edge) => {
+      {(['incoming', 'outgoing'] as const).map((direction) => {
+        const connections = result!.edges.filter((edge) =>
+          direction === 'incoming' ? edge.target === detail.id : edge.source === detail.id,
+        );
+        const Icon = direction === 'incoming' ? ArrowDownLeft : ArrowUpRight;
+        return (
+          <section
+            className="map-connection-section"
+            key={direction}
+            aria-label={`${direction} connections`}
+          >
+            <h3>
+              <Icon aria-hidden="true" />
+              {direction === 'incoming' ? 'Incoming' : 'Outgoing'}
+              <span className="map-connection-count">{connections.length}</span>
+            </h3>
+            {!connections.length && (
+              <p className="map-connections-empty">No {direction} links in this map.</p>
+            )}
+            <ul className="map-connections">
+              {connections.map((edge) => {
                 const other = result!.nodes.find(
-                  (n) => n.id === (direction === 'incoming' ? edge.source : edge.target),
+                  (node) => node.id === (direction === 'incoming' ? edge.source : edge.target),
                 )!;
                 return (
                   <li key={`${edge.source}:${edge.target}:${edge.kind}`}>
-                    <button onClick={() => setSelected(other.id)}>{other.title}</button>
-                    <small>
-                      {edge.kind === 'reference' ? 'Content reference' : 'Page link'} · {edge.count}{' '}
-                      usage{edge.count === 1 ? '' : 's'}
-                    </small>
-                    <ul>
-                      {edge.usages.map((usage, i) => (
-                        <li key={i}>
-                          {usage.block} → {usage.label} <code>{usage.field}</code>{' '}
-                          <small>Block {usage.blockId}</small>
-                        </li>
-                      ))}
-                    </ul>
-                    {edge.count > edge.usages.length && (
-                      <p>Showing the first {edge.usages.length} usages.</p>
-                    )}
+                    <button
+                      className="map-connection-page"
+                      aria-label={`Show connections for ${other.title}`}
+                      onClick={() => setSelected(other.id)}
+                    >
+                      <span>
+                        <strong>{other.title}</strong>
+                        <small title={`/${other.url}`}>/{other.url}</small>
+                      </span>
+                      <ChevronRight aria-hidden="true" />
+                    </button>
+                    <details className="map-link-locations">
+                      <summary>
+                        <ChevronRight aria-hidden="true" />
+                        {edge.count} {edge.kind === 'reference' ? 'reference' : 'link'} location
+                        {edge.count === 1 ? '' : 's'}
+                      </summary>
+                      <ul>
+                        {edge.usages.map((usage, i) => (
+                          <li key={i}>
+                            <div className="map-location-context">
+                              <strong>{usage.block}</strong>
+                              <ChevronRight aria-hidden="true" />
+                              <span>{usage.label}</span>
+                            </div>
+                            <p className="map-location-field">
+                              Field <code>{usage.field}</code>
+                            </p>
+                            <CopyableValue
+                              value={usage.blockId}
+                              label="Block ID"
+                              name={`${usage.block} · ${usage.label}`}
+                            />
+                          </li>
+                        ))}
+                      </ul>
+                      {edge.count > edge.usages.length && (
+                        <p className="map-locations-limit">
+                          Showing {edge.usages.length} of {edge.count} locations.
+                        </p>
+                      )}
+                    </details>
                   </li>
                 );
               })}
-          </ul>
-        </section>
-      ))}
+            </ul>
+          </section>
+        );
+      })}
+      <p className="map-detail-scope">Only visible connections in this map are listed.</p>
     </>
   );
   return (
