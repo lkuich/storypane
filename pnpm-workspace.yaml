@@ -16,3 +16,7 @@ minimumReleaseAgeExclude:
   - '@better-auth/prisma-adapter@1.7.18'
   - '@better-auth/telemetry@1.7.18'
   - better-auth@1.7.18
+
+patchedDependencies:
+  # Use Sharp's real types instead of vinext's optional-dependency placeholder.
+  '@vinext/types@1.0.2': patches/@vinext__types@1.0.2.patch

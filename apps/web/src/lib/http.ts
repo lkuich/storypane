@@ -14,18 +14,25 @@ export async function readJson(request: Pick<Request, 'headers' | 'body'>): Prom
   const reader = request.body.getReader();
   const chunks: Uint8Array[] = [];
   let length = 0;
+  let timedOut = false;
+  const timeout = setTimeout(() => {
+    timedOut = true;
+    void reader.cancel().catch(() => {});
+  }, 30_000);
   try {
     while (true) {
       const { value, done } = await reader.read();
+      if (timedOut) throw new StorypaneError('invalid', 'Request body timed out');
       if (done) break;
       length += value.byteLength;
       if (length > limit) {
-        await reader.cancel();
+        void reader.cancel().catch(() => {});
         throw new StorypaneError('invalid', 'Request exceeds 2 MiB');
       }
       chunks.push(value);
     }
   } finally {
+    clearTimeout(timeout);
     reader.releaseLock();
   }
   const body = new Uint8Array(length);

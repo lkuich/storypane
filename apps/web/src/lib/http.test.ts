@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { assertOrigin, readJson, errorResponse } from './http';
 
 describe('CMS request boundary', () => {
@@ -34,6 +34,30 @@ describe('CMS request boundary', () => {
       });
     await expect(readJson(make('{'))).rejects.toThrow('Malformed');
     await expect(readJson(make('{"title":"Hero"}'))).resolves.toEqual({ title: 'Hero' });
+  });
+  it('times out and cancels a body even when its source never finishes cancelling', async () => {
+    vi.useFakeTimers();
+    const cancel = vi.fn(() => new Promise<void>(() => {}));
+    const body = new ReadableStream<Uint8Array<ArrayBuffer>>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode('{'));
+      },
+      cancel,
+    });
+    try {
+      const result = expect(
+        readJson({
+          headers: new Headers({ 'content-type': 'application/json' }),
+          body,
+        }),
+      ).rejects.toThrow('timed out');
+      await vi.advanceTimersByTimeAsync(30_000);
+      await result;
+      expect(cancel).toHaveBeenCalledOnce();
+      expect(body.locked).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

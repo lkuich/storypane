@@ -20,6 +20,9 @@ async function handle(request: Request, route: { params: Promise<{ resource: str
     const url = new URL(request.url),
       token = request.headers.get('authorization')?.replace(/^Bearer /i, '') ?? '';
     const spaceId = url.searchParams.get('space') ?? '';
+    const preview = resource === 'preview' && request.method === 'POST';
+    if (preview && !token) throw new StorypaneError('unauthenticated', 'Missing delivery token');
+    const input = preview ? await readJson(request) : undefined;
     await services.selectSpace(spaceId);
     if (resource === 'assets' && ['GET', 'HEAD'].includes(request.method)) {
       const id = url.searchParams.get('id') ?? '';
@@ -47,12 +50,9 @@ async function handle(request: Request, route: { params: Promise<{ resource: str
       });
       return cors(jsonResponse(result));
     }
-    if (resource === 'preview' && request.method === 'POST')
+    if (preview)
       return cors(
-        jsonResponse(
-          await services.store.createTokenPreview(token, spaceId, await readJson(request)),
-          201,
-        ),
+        jsonResponse(await services.store.createTokenPreview(token, spaceId, input), 201),
       );
     throw new StorypaneError('not_found', 'Delivery endpoint not found');
   } catch (error) {

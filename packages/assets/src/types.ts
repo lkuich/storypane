@@ -53,6 +53,7 @@ export interface AssetBucket {
   ): Promise<AssetMultipart>;
   resumeMultipartUpload(key: string, uploadId: string): AssetMultipart;
   head(key: string): Promise<AssetObject | null>;
+  delete(key: string): Promise<void>;
   get(
     key: string,
     options?: { range?: Headers | { offset: number; length: number } },

@@ -10,12 +10,12 @@
     "./scheduler": "./src/scheduler.ts"
   },
   "dependencies": {
-    "@storypane/assets": "workspace:*",
-    "@storypane/realtime": "workspace:*",
     "@aws-sdk/client-s3": "^3.0.0",
-    "sharp": "^0.34.0",
-    "ws": "^8.18.0",
-    "@storypane/db": "workspace:*"
+    "@storypane/assets": "workspace:*",
+    "@storypane/db": "workspace:*",
+    "@storypane/realtime": "workspace:*",
+    "sharp": "^0.35.5",
+    "ws": "^8.18.0"
   },
   "devDependencies": {
     "@types/ws": "^8.18.0"

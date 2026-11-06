@@ -1,48 +1,62 @@
-import type { Pool } from 'pg';
 import { dispatchWebhooks } from '@storypane/db';
+import type { Installation } from '@storypane/db/installation';
+import { minuteScheduler } from '@storypane/runtime-node/scheduler';
 
-/** Service-only work shared by the minute cron. No session or HTTP dispatch endpoint. */
-export async function runBackgroundTasks(options: {
-  db: Pool;
-  publish: () => Promise<Array<{ spaceId: string; storyId: string; localeId: string }>>;
+/** Independent ticks prevent slow webhook receivers from delaying publication. */
+export function startBackgroundTasks(options: {
+  installation: Pick<Installation, 'forEachSpace' | 'acquire'>;
   rooms: { getByName(name: string): { fetch(request: Request): Promise<Response> } };
   webhookEncryptionKey?: string;
   webhookHosts: string[];
-  dispatch?: typeof dispatchWebhooks;
+  report: (error: unknown) => void;
 }) {
-  const failures: unknown[] = [];
-  try {
-    const changed = await options.publish();
-    const notifications = await Promise.allSettled(
-      changed.map(async ({ spaceId, storyId, localeId }) => {
-        const response = await options.rooms.getByName(`${spaceId}:${storyId}:${localeId}`).fetch(
-          new Request('https://room/invalidate', {
-            method: 'POST',
-            signal: AbortSignal.timeout(10_000),
-            headers: {
-              'x-storypane-space-id': spaceId,
-              'x-storypane-story-id': storyId,
-              'x-storypane-locale-id': localeId,
-            },
-          }),
+  type Selected = Awaited<ReturnType<Installation['acquire']>>;
+  const jobs = {
+    publication: async (selected: Selected) => {
+      const changed = await selected.store.runScheduledPublications();
+      const notifications = await Promise.allSettled(
+        changed.map(async ({ spaceId, storyId, localeId }) => {
+          const response = await options.rooms.getByName(`${spaceId}:${storyId}:${localeId}`).fetch(
+            new Request('https://room/invalidate', {
+              method: 'POST',
+              signal: AbortSignal.timeout(10_000),
+              headers: {
+                'x-storypane-space-id': spaceId,
+                'x-storypane-story-id': storyId,
+                'x-storypane-locale-id': localeId,
+              },
+            }),
+          );
+          if (!response.ok) throw new Error('Scheduled publication room invalidation failed');
+        }),
+      );
+      const failures = notifications.filter((item) => item.status === 'rejected');
+      if (failures.length)
+        throw new AggregateError(
+          failures.map((item) => item.reason),
+          'Room invalidation failed',
         );
-        if (!response.ok) throw new Error('Scheduled publication room invalidation failed');
+    },
+    webhooks: (selected: Selected) =>
+      dispatchWebhooks(selected.db, {
+        encryptionKey: options.webhookEncryptionKey,
+        allowedHosts: options.webhookHosts,
       }),
-    );
-    failures.push(
-      ...notifications.filter((item) => item.status === 'rejected').map((item) => item.reason),
-    );
-  } catch (error) {
-    failures.push(error);
-  }
-  // Outbound delivery still runs if publishing or an editor-room notification failed.
-  try {
-    await (options.dispatch ?? dispatchWebhooks)(options.db, {
-      encryptionKey: options.webhookEncryptionKey,
-      allowedHosts: options.webhookHosts,
-    });
-  } catch (error) {
-    failures.push(error);
-  }
-  if (failures.length) throw new AggregateError(failures, 'Scheduled background work failed');
+  };
+  const stops = Object.entries(jobs).map(([name, run]) =>
+    minuteScheduler(async () => {
+      const failures = await options.installation.forEachSpace(async (id) => {
+        const selected = await options.installation.acquire(id);
+        try {
+          await run(selected);
+        } finally {
+          await selected.close();
+        }
+      });
+      if (failures.length) throw new Error(`Background ${name} failed for some spaces`);
+    }, options.report),
+  );
+  return async () => {
+    await Promise.all(stops.map((stop) => stop()));
+  };
 }

@@ -17,6 +17,9 @@ class MemoryBucket implements AssetBucket {
   objects = new Map<string, { bytes: Uint8Array; mime: string }>();
   uploads = new Map<string, { key: string; mime: string; parts: Map<number, Uint8Array> }>();
   completeCalls = 0;
+  async delete(key: string) {
+    this.objects.delete(key);
+  }
   async createMultipartUpload(key: string, options?: { httpMetadata?: { contentType?: string } }) {
     const id = crypto.randomUUID();
     this.uploads.set(id, { key, mime: options?.httpMetadata?.contentType ?? '', parts: new Map() });
@@ -643,6 +646,11 @@ describe('asset service with Postgres and R2 contract', () => {
     await send(upload.id, bytes);
     expect((await finish(upload.id)).status).toBe(415);
     expect((await call('GET', `/${upload.assetId}`)).status).toBe(404);
+    const bucket = context.bucket as MemoryBucket;
+    expect(bucket.objects.size).toBe(1);
+    expect((await call('DELETE', `/uploads/${upload.id}`)).status).toBe(200);
+    expect(bucket.objects.size).toBe(0);
+    expect((await call('DELETE', `/uploads/${upload.id}`)).status).toBe(200);
   });
   it('verifies stored metadata when multipart completion omits it', async () => {
     const upload = await begin();
@@ -680,6 +688,70 @@ describe('asset service with Postgres and R2 contract', () => {
     const upload = await begin();
     expect((await call('DELETE', `/uploads/${upload.id}`)).status).toBe(200);
     expect((await send(upload.id)).status).toBe(409);
+    expect((await finish(upload.id)).status).toBe(409);
+  });
+  it('retries cleanup after storage deletion fails without marking the upload cancelled', async () => {
+    const bytes = new TextEncoder().encode('not an image');
+    const upload = await begin(bytes);
+    await send(upload.id, bytes);
+    expect((await finish(upload.id)).status).toBe(415);
+    const bucket = context.bucket as MemoryBucket;
+    vi.spyOn(bucket, 'delete').mockRejectedValueOnce(new Error('Storage unavailable'));
+    expect((await call('DELETE', `/uploads/${upload.id}`)).status).toBe(503);
+    expect(bucket.objects.size).toBe(1);
+    expect(
+      (await db.query('SELECT status FROM asset_uploads WHERE id=$1', [upload.id])).rows[0].status,
+    ).toBe('uploading');
+    expect((await call('DELETE', `/uploads/${upload.id}`)).status).toBe(200);
+    expect(bucket.objects.size).toBe(0);
+  });
+  it('cleans up a finalized upload after a failed database insert while preserving completed originals', async () => {
+    const original = await begin();
+    await send(original.id);
+    expect((await finish(original.id)).status).toBe(200);
+    const upload = await begin();
+    await send(upload.id);
+    await db.query(
+      `CREATE FUNCTION reject_asset() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'test insert failure'; END; $$; CREATE TRIGGER reject_asset BEFORE INSERT ON assets FOR EACH ROW EXECUTE FUNCTION reject_asset();`,
+    );
+    try {
+      expect((await finish(upload.id)).status).toBe(503);
+    } finally {
+      await db.query('DROP TRIGGER reject_asset ON assets; DROP FUNCTION reject_asset();');
+    }
+    const bucket = context.bucket as MemoryBucket;
+    expect(bucket.objects.size).toBe(2);
+    expect((await call('DELETE', `/uploads/${upload.id}`)).status).toBe(200);
+    expect(bucket.objects.size).toBe(1);
+    expect((await call('DELETE', `/uploads/${original.id}`)).status).toBe(409);
+    expect(
+      new Uint8Array(await (await call('GET', `/${original.assetId}/content`)).arrayBuffer()),
+    ).toEqual(png);
+  });
+  it('removes objects left by previously cancelled uploads', async () => {
+    const bytes = new TextEncoder().encode('not an image');
+    const upload = await begin(bytes);
+    await send(upload.id, bytes);
+    expect((await finish(upload.id)).status).toBe(415);
+    await db.query("UPDATE asset_uploads SET status='cancelled' WHERE id=$1", [upload.id]);
+    expect((await call('DELETE', `/uploads/${upload.id}`)).status).toBe(200);
+    expect((context.bucket as MemoryBucket).objects.size).toBe(0);
+  });
+  it('retries cancellation when object deletion succeeds before the database update fails', async () => {
+    const bytes = new TextEncoder().encode('not an image');
+    const upload = await begin(bytes);
+    await send(upload.id, bytes);
+    expect((await finish(upload.id)).status).toBe(415);
+    await db.query(
+      `CREATE FUNCTION reject_cancel() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'test update failure'; END; $$; CREATE TRIGGER reject_cancel BEFORE UPDATE ON asset_uploads FOR EACH ROW EXECUTE FUNCTION reject_cancel();`,
+    );
+    try {
+      expect((await call('DELETE', `/uploads/${upload.id}`)).status).toBe(503);
+    } finally {
+      await db.query('DROP TRIGGER reject_cancel ON asset_uploads; DROP FUNCTION reject_cancel();');
+    }
+    expect((context.bucket as MemoryBucket).objects.size).toBe(0);
+    expect((await call('DELETE', `/uploads/${upload.id}`)).status).toBe(200);
     expect((await finish(upload.id)).status).toBe(409);
   });
   it('serializes concurrent part retries before they can overwrite the R2 receipt', async () => {

@@ -1,4 +1,4 @@
-import sharp from 'sharp/lib/index.js';
+import sharp from 'sharp';
 import type { AssetImages, AssetImageTransform } from '@storypane/assets';
 
 export function focalCrop(width: number, height: number, options: AssetImageTransform) {

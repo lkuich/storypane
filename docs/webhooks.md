@@ -22,10 +22,11 @@ types aligned with the destination space before rebuilding the live site.
 
 Run `pnpm admin migrate` before starting a new Node release; migration
 `016_webhooks` adds the endpoint, event, delivery, and attempt tables. The Node
-application starts a minute scheduler that runs immediately at startup and every
-60 seconds. It runs scheduled publications, invalidates changed editor rooms, and
-drains up to 25 webhook deliveries. Overlapping local runs are skipped; failures
-are logged and persisted work is retried on the next tick.
+application starts independent publication and webhook schedulers immediately at
+startup and every 60 seconds. Publication notifies changed editor rooms; webhook
+delivery drains up to 25 deliveries per space. Each job skips its own overlapping
+runs, so slow receivers cannot delay publication. Failures are logged and
+persisted work is retried on the next tick.
 
 Set `WEBHOOK_HOSTS` to a comma-separated list of exact, operator-approved public
 HTTPS hostnames in the build/deployment environment. Wildcards are unsupported.

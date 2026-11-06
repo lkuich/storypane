@@ -1,12 +1,11 @@
 import type { Server } from 'node:http';
 import { WebSocketServer } from 'ws';
 import { env, nodeRoom, releaseRoom } from '@storypane/runtime-node';
-import { minuteScheduler } from '@storypane/runtime-node/scheduler';
 import type { RoomSocket } from '@storypane/realtime/room';
 import { liveRequest } from './lib/live';
 import { errorResponse } from './lib/http';
 import { createServices } from './lib/context';
-import { runBackgroundTasks } from './lib/background';
+import { startBackgroundTasks } from './lib/background';
 
 export function attachNodeServices(server: Server) {
   const sockets = new WebSocketServer({
@@ -91,29 +90,16 @@ export function attachNodeServices(server: Server) {
       clearTimeout(timeout);
     }
   });
-  const stopBackground = minuteScheduler(
-    async () => {
-      const services = createServices();
-      const failures = await services.installation.forEachSpace(async (id) => {
-        const selected = await services.installation.acquire(id);
-        try {
-          await runBackgroundTasks({
-            db: selected.db,
-            publish: () => selected.store.runScheduledPublications(),
-            rooms: env.ROOMS,
-            webhookEncryptionKey: env.WEBHOOK_ENCRYPTION_KEY,
-            webhookHosts: env.WEBHOOK_HOSTS.split(',')
-              .map((host) => host.trim())
-              .filter(Boolean),
-          });
-        } finally {
-          await selected.close();
-        }
-      });
-      if (failures.length) throw new Error('Background work failed for some spaces');
-    },
-    () => console.error('Background tasks failed; pending work will retry on the next minute.'),
-  );
+  const stopBackground = startBackgroundTasks({
+    installation: createServices().installation,
+    rooms: env.ROOMS,
+    webhookEncryptionKey: env.WEBHOOK_ENCRYPTION_KEY,
+    webhookHosts: env.WEBHOOK_HOSTS.split(',')
+      .map((host) => host.trim())
+      .filter(Boolean),
+    report: () =>
+      console.error('Background tasks failed; pending work will retry on the next minute.'),
+  });
 
   return async () => {
     for (const socket of sockets.clients) socket.close(1012, 'Service restarting');

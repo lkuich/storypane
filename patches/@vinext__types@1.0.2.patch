@@ -1,0 +1,16 @@
+diff --git a/next/next-external-stubs.d.ts b/next/next-external-stubs.d.ts
+index f7db333c17598f1210e744ea76909158835f55d6..fad963efe7be608cc7fe6fd6316bb3b3c6a9fcae 100644
+--- a/next/next-external-stubs.d.ts
++++ b/next/next-external-stubs.d.ts
+@@ -7,11 +7,6 @@ declare module "@next/env" {
+   }>;
+ }
+ 
+-declare module "sharp" {
+-  const sharp: unknown;
+-  export default sharp;
+-}
+-
+ // This must remain an interface so it can merge with TypeScript's built-in
+ // declaration when consumers include a newer ES lib.
+ // oxlint-disable-next-line typescript/consistent-type-definitions

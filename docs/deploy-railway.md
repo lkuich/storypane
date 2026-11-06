@@ -8,7 +8,7 @@ The Node runtime reuses vinext's standalone production server, the frontend,
 Postgres model, local or Clerk authentication, HTTP APIs, asset authorization and shared
 room logic. The Docker image retains workspace source and the installed `tsx`
 loader for those internal runtime packages. It runs one application process for
-HTTP, WebSockets and the minute publishing/webhook scheduler. No Cloudflare
+HTTP, WebSockets and independent minute schedulers for publishing and webhooks. No Cloudflare
 account or service is required for this runtime.
 
 ## Services and references
@@ -98,11 +98,14 @@ fresh project passes; no template URL is invented in the website.
 
 Drafts, leases, schedules, upload IDs and webhook jobs are in Postgres. Restarting
 loses only connected sockets; clients reconnect and recover committed state. The
-scheduler runs immediately on startup and every minute, skips overlapping local
-runs, and retries persisted work through the existing database services.
+publication and webhook schedulers run immediately on startup and every minute.
+Each skips its own overlapping runs and retries persisted work through the existing
+database services. Slow webhook delivery does not hold up scheduled publishing.
 
 Original objects stay private and stream through authorized routes, including
-range requests. Multipart IDs and ETags retain the existing API shape. Sharp
+range requests. Grant the storage credential read, write, multipart-upload and
+delete permissions: discarding an unfinished upload removes its stored bytes,
+while completed originals are preserved. Multipart IDs and ETags retain the existing API shape. Sharp
 handles bounded image variants and focal crops. Variants currently recompute on
 demand; add a bounded cache if profiling shows it is needed. Images above 20 MiB
 keep original downloads but cannot be transformed.

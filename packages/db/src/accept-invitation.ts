@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import type { PoolClient } from 'pg';
 import { StorypaneError, parseInput } from '@storypane/core';
 import { createLocalAccount } from './local-auth.js';
 import { hashToken, type Installation } from './installation.js';
@@ -16,9 +17,11 @@ export async function acceptInvitation(installation: Installation, raw: unknown,
     raw,
   );
   const selected = await installation.acquire(input.spaceId);
-  const space = await selected.db.connect();
-  const control = await installation.pool.connect();
+  let space: PoolClient | undefined;
+  let control: PoolClient | undefined;
   try {
+    space = await selected.db.connect();
+    control = await installation.pool.connect();
     await space.query('BEGIN');
     const invitation = (
       await space.query(
@@ -68,12 +71,12 @@ export async function acceptInvitation(installation: Installation, raw: unknown,
     await space.query('COMMIT');
     return { ok: true, email: user.email };
   } catch (error) {
-    await space.query('ROLLBACK');
-    await control.query('ROLLBACK');
+    await space?.query('ROLLBACK');
+    await control?.query('ROLLBACK');
     throw error;
   } finally {
-    space.release();
-    control.release();
+    space?.release();
+    control?.release();
     await selected.close();
   }
 }

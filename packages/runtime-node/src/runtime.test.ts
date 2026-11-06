@@ -1,10 +1,12 @@
 import { describe, expect, it, vi, afterEach } from 'vitest';
-import sharp from 'sharp/lib/index.js';
+import sharp from 'sharp';
 import {
   S3Client,
   HeadObjectCommand,
   GetObjectCommand,
   UploadPartCommand,
+  AbortMultipartUploadCommand,
+  DeleteObjectCommand,
 } from '@aws-sdk/client-s3';
 import { S3Bucket } from './s3';
 import { images, focalCrop } from './images';
@@ -128,6 +130,38 @@ describe('Node runtime adapters', () => {
         .transform({ width: 160, fit: 'scale-down' })
         .output({ format: 'image/webp', anim: false }),
     ).rejects.toThrow('20 MiB');
+  });
+  it('decodes uploaded AVIF images with the upgraded native libraries', async () => {
+    const source = await sharp({
+      create: { width: 32, height: 16, channels: 3, background: 'blue' },
+    })
+      .avif()
+      .toBuffer();
+    const output = await images
+      .input(stream(source))
+      .transform({ width: 16, fit: 'scale-down' })
+      .output({ format: 'image/webp', anim: false });
+    expect(
+      await sharp(Buffer.from(await output.response().arrayBuffer())).metadata(),
+    ).toMatchObject({ width: 16, height: 8, format: 'webp' });
+  });
+  it('deletes canceled objects and treats missing multipart uploads as already aborted', async () => {
+    const send = vi.spyOn(S3Client.prototype, 'send').mockResolvedValue({} as never);
+    const bucket = new S3Bucket(new S3Client({ region: 'auto' }), 'private');
+    await bucket.delete('cancelled');
+    expect(send.mock.calls[0][0]).toBeInstanceOf(DeleteObjectCommand);
+    expect((send.mock.calls[0][0] as DeleteObjectCommand).input).toEqual({
+      Bucket: 'private',
+      Key: 'cancelled',
+    });
+    const upload = bucket.resumeMultipartUpload('cancelled', 'upload');
+    send.mockRejectedValueOnce({ $metadata: { httpStatusCode: 404 } });
+    await expect(upload.abort()).resolves.toBeUndefined();
+    expect(send.mock.calls[1][0]).toBeInstanceOf(AbortMultipartUploadCommand);
+    send.mockRejectedValueOnce(new Error('Storage unavailable'));
+    await expect(upload.abort()).rejects.toThrow('Storage unavailable');
+    send.mockRejectedValueOnce(new Error('Access denied'));
+    await expect(bucket.delete('cancelled')).rejects.toThrow('Access denied');
   });
   it('runs immediately, prevents overlapping ticks, retries failures and drains on stop', async () => {
     vi.useFakeTimers();

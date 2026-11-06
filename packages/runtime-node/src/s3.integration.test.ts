@@ -41,6 +41,10 @@ describe.skipIf(!process.env.STORYPANE_TEST_S3_ENDPOINT)('S3 transport integrati
       expect(await bucket.head('missing')).toBeNull();
       const cancelled = await bucket.createMultipartUpload('cancelled');
       await bucket.resumeMultipartUpload('cancelled', cancelled.uploadId).abort();
+      await bucket.resumeMultipartUpload('cancelled', cancelled.uploadId).abort();
+      await bucket.delete('asset');
+      await bucket.delete('asset');
+      expect(await bucket.head('asset')).toBeNull();
     } finally {
       await client.send(new DeleteObjectCommand({ Bucket: name, Key: 'asset' }));
       await client.send(new DeleteBucketCommand({ Bucket: name }));

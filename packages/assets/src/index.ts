@@ -308,10 +308,14 @@ async function cancelUpload(context: AssetContext, id: string) {
     const row = await getUpload(context, id, db, true);
     if (row.status === 'complete')
       throw new AssetError(409, 'conflict', 'Completed assets must be archived');
+    const referenced = await db.query('SELECT 1 FROM assets WHERE object_key=$1', [row.object_key]);
+    if (referenced.rowCount)
+      throw new AssetError(409, 'conflict', 'Completed assets must be archived');
+    const exists = await context.bucket.head(row.object_key);
+    if (exists) await context.bucket.delete(row.object_key);
+    else if (row.status !== 'cancelled')
+      await context.bucket.resumeMultipartUpload(row.object_key, row.r2_upload_id).abort();
     if (row.status !== 'cancelled') {
-      const exists = await context.bucket.head(row.object_key);
-      if (!exists)
-        await context.bucket.resumeMultipartUpload(row.object_key, row.r2_upload_id).abort();
       await db.query("UPDATE asset_uploads SET status='cancelled',updated_at=now() WHERE id=$1", [
         id,
       ]);

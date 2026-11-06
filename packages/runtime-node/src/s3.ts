@@ -6,6 +6,7 @@ import {
   AbortMultipartUploadCommand,
   HeadObjectCommand,
   GetObjectCommand,
+  DeleteObjectCommand,
 } from '@aws-sdk/client-s3';
 import {
   PART_BYTES,
@@ -84,9 +85,16 @@ export class S3Bucket implements AssetBucket {
         return object;
       },
       abort: async () => {
-        await this.client.send(new AbortMultipartUploadCommand(input));
+        try {
+          await this.client.send(new AbortMultipartUploadCommand(input));
+        } catch (error) {
+          if (!missing(error)) throw error;
+        }
       },
     };
+  }
+  async delete(key: string): Promise<void> {
+    await this.client.send(new DeleteObjectCommand({ Bucket: this.bucket, Key: key }));
   }
   async head(key: string): Promise<AssetObject | null> {
     try {

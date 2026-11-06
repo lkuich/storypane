@@ -3,7 +3,7 @@
 This release uses one installation database and one PostgreSQL database per space.
 Built-in email/password authentication is the default. No Clerk keys or SMTP
 server are required. Run one Node application replica: it serves HTTP, in-memory
-collaboration rooms, and the minute publication/webhook scheduler.
+collaboration rooms, and independent minute schedulers for publication and webhooks.
 
 <aside class="agent-instructions" aria-labelledby="work-with-an-agent">
 
@@ -92,10 +92,15 @@ REVOKE ALL ON DATABASE storypane_installation FROM PUBLIC;
 
 Configure `S3_ENDPOINT`, `S3_REGION`, `S3_BUCKET`, `S3_ACCESS_KEY_ID`,
 `S3_SECRET_ACCESS_KEY`, and optionally `S3_FORCE_PATH_STYLE=true`. Use a private
-bucket. Space IDs prefix original object keys; routing and publication checks
+bucket with read, write, multipart-upload and delete permissions. Discarding an
+unfinished upload removes its stored bytes; completed originals are preserved.
+Space IDs prefix original object keys; routing and publication checks
 remain in the application. The installation uses a maximum of five control
 connections and sixteen active space handles with at most two connections each.
-The directory and background worker visit up to three databases concurrently.
+The directory and each background job visit up to three databases concurrently.
+Publication and webhook delivery run independently, so a slow webhook receiver
+cannot delay scheduled publication. Together the two jobs can hold six space
+handles within the same installation-wide limit.
 
 ```sh
 pnpm admin migrate
