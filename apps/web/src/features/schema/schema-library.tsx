@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
 import { Box, ChevronRight, GripVertical, Layers, Plus, Search } from 'lucide-react';
 import {
+  can,
   definitionInput,
   canonicalJson,
   type BlockDefinition,
@@ -15,21 +16,20 @@ import { EnvironmentPanel } from './environment-panel';
 import { MigrationPanel } from './migration-panel';
 import { SchemaDrawer } from './schema-drawer';
 import { definitionDescendants, definitionTreeRows } from './definition-tree';
+import type { CMSSession } from '../../components/cms-app';
 
 const kindLabels = { nestable: 'Nestable', 'content-type': 'Content type', universal: 'Universal' };
 const kindColors = { nestable: 'blue', 'content-type': 'green', universal: 'violet' };
 
 export function SchemaLibrary({
-  canManage,
-  canDeploy,
+  space,
   registerGuard,
-  spaceName,
 }: {
-  canManage: boolean;
-  canDeploy: boolean;
+  space: CMSSession['space'];
   registerGuard: RegisterGuard;
-  spaceName: string;
 }) {
+  const canManage = can(space, 'schemas:write');
+  const canDeploy = space.role === 'admin';
   const [deployed, setDeployed] = useState<BlockDefinition[]>([]);
   const [definitions, setDefinitions] = useState<BlockDefinition[]>([]);
   const [datasources, setDatasources] = useState<Datasource[]>([]);
@@ -150,7 +150,7 @@ export function SchemaLibrary({
           </Button>
         )}
       </div>
-      <EnvironmentPanel canDeploy={canDeploy} onApply={load} spaceName={spaceName} />
+      <EnvironmentPanel canDeploy={canDeploy} onApply={load} spaceName={space.name} />
       <MigrationPanel canDeploy={canDeploy && canManage} onDeploy={load} />
       <ErrorNotice
         message={moveError ?? error}
@@ -358,7 +358,7 @@ export function SchemaLibrary({
           initialParentId={editing === 'new' ? initialParentId : undefined}
           definitions={definitions}
           datasources={datasources}
-          canManage={canManage}
+          space={space}
           registerGuard={registerGuard}
           onClose={() => setEditing(null)}
           onSave={async () => setDefinitions(await api<BlockDefinition[]>('/definitions'))}

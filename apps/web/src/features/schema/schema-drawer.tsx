@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, type DragEvent, type FormEvent } from 'react';
 import { ArrowDown, ArrowUp, ChevronDown, GitBranch, GripVertical, Trash2 } from 'lucide-react';
 import {
+  can,
   canonicalJson,
   definitionInputSchema,
   fieldDefinitionSchema,
@@ -19,6 +20,8 @@ import { FieldSettings, newField } from './field-settings';
 import { ParentBlockPicker } from './parent-block-picker';
 import { DefinitionReferences } from './definition-references';
 import { FIELD_CHOICES, FieldTypePicker, choiceForField } from './field-type-picker';
+import type { CMSSession } from '../../components/cms-app';
+import { SchemaReadOnlyNotice } from './schema-read-only-notice';
 
 const kindLabels = { nestable: 'Nestable', 'content-type': 'Content type', universal: 'Universal' };
 const emptyDefinition: DefinitionInput = {
@@ -34,7 +37,7 @@ export function SchemaDrawer({
   initialParentId,
   definitions,
   datasources,
-  canManage,
+  space,
   registerGuard,
   onClose,
   onSave,
@@ -46,13 +49,14 @@ export function SchemaDrawer({
   initialParentId?: string;
   definitions: BlockDefinition[];
   datasources: Datasource[];
-  canManage: boolean;
+  space: CMSSession['space'];
   registerGuard: RegisterGuard;
   onClose: () => void;
   onSave: (definition: BlockDefinition) => Promise<void>;
   onDelete: () => void;
   description?: string;
 }) {
+  const canManage = can(space, 'schemas:write');
   const [error, setError] = useState<string | null>(null);
   const [tagText, setTagText] = useState(initialDefinition?.tags?.join(', ') ?? '');
   const [draft, setDraft] = useState<DefinitionInput>(() =>
@@ -323,9 +327,9 @@ export function SchemaDrawer({
         open
         closeOnBackdrop
         onClose={close}
-        title={original ? `Edit '${original.name}'` : 'New block'}
+        title={original ? `${canManage ? 'Edit' : 'View'} '${original.name}'` : 'New block'}
         className="schema-drawer"
-        description={description}
+        description={canManage ? description : undefined}
       >
         {draft && (
           <div
@@ -414,6 +418,7 @@ export function SchemaDrawer({
               role="tabpanel"
               aria-labelledby={`schema-tab-${tab}`}
             >
+              {!canManage && <SchemaReadOnlyNotice key={space.id} space={space} />}
               <ErrorNotice message={error} />
               <div hidden={tab !== 'references'}>
                 <DefinitionReferences
@@ -684,7 +689,7 @@ export function SchemaDrawer({
                               type="button"
                               className="schema-field-toggle"
                               id={`schema-field-${index}`}
-                              aria-label={`Edit ${item.name}`}
+                              aria-label={`${canManage ? 'Edit' : 'View'} ${item.name}`}
                               aria-describedby={
                                 pendingMigration ? `schema-field-migration-${index}` : undefined
                               }
@@ -807,7 +812,7 @@ export function SchemaDrawer({
                       ? original
                         ? 'All changes saved'
                         : 'Not saved yet'
-                      : 'Read only'}
+                      : 'Read-only schema'}
               </span>
               {canManage && (
                 <div className="button-group">

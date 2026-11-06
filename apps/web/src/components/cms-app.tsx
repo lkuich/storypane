@@ -362,12 +362,7 @@ export function CMSApp({ session: initialSession }: { session: CMSSession }) {
               />
             ))}
           {tab === 'blocks' && (
-            <SchemaLibrary
-              spaceName={session.space.name}
-              canDeploy={session.space.role === 'admin'}
-              canManage={can(session.space, 'schemas:write')}
-              registerGuard={registerGuard}
-            />
+            <SchemaLibrary space={session.space} registerGuard={registerGuard} />
           )}
           {tab === 'datasources' && (
             <DatasourceList canManage={can(session.space, 'datasources:write')} />

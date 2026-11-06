@@ -353,9 +353,12 @@ test('editors can inspect schema fields in the drawer without changing them', as
   await expect(page.getByRole('button', { name: 'New block', exact: true })).not.toBeVisible();
   await page.getByRole('button', { name: 'Hero', exact: true }).click();
   const drawer = page.locator('dialog.schema-drawer');
-  await expect(drawer.getByText('Read only', { exact: true })).toBeVisible();
+  await expect(drawer.getByText('Read-only schema', { exact: true })).toBeVisible();
+  await expect(
+    drawer.getByRole('heading', { name: 'Schema editing requires access' }),
+  ).toBeVisible();
   await expect(drawer.getByRole('button', { name: /^Choose field type:/ })).toHaveCount(0);
-  await drawer.getByRole('button', { name: 'Edit title', exact: true }).click();
+  await drawer.getByRole('button', { name: 'View title', exact: true }).click();
   await expect(drawer.getByLabel('Label', { exact: true })).toBeDisabled();
   await expect(drawer.getByRole('button', { name: 'Field type', exact: true })).toBeDisabled();
   await expect(drawer.getByRole('button', { name: 'Remove field', exact: true })).toHaveCount(0);

@@ -1532,7 +1532,7 @@ function LocaleEditor({
           initialFieldName={schema.fieldName}
           definitions={schema.definitions}
           datasources={schema.datasources}
-          canManage={can(session.space, 'schemas:write')}
+          space={session.space}
           registerGuard={registerSchemaGuard}
           onClose={() => {
             setSchema(null);
