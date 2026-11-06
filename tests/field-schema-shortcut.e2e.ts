@@ -118,6 +118,11 @@ test('field gears open the matching active schema with keyboard access and schem
     unexpected.push(path);
     return r.fulfill({ status: 404, json: { error: { message: `Unexpected route: ${path}` } } });
   });
+  await page
+    .context()
+    .route('https://storypane.dev/docs/', (route) =>
+      route.fulfill({ contentType: 'text/html', body: '<h1>Storypane documentation</h1>' }),
+    );
   await page.goto(`/?space=${spaceId}&story=${story.id}`);
   const editor = page.getByRole('region', { name: 'Block editor', exact: true });
   await expect(editor.getByRole('textbox', { name: 'Title', exact: true })).toHaveValue('Home', {
@@ -127,6 +132,22 @@ test('field gears open the matching active schema with keyboard access and schem
   const drawer = page.getByRole('dialog', { name: "Edit 'page'", exact: true });
   for (const width of [1440, 390]) {
     await page.setViewportSize({ width, height: 900 });
+    const sidebar = page.getByRole('complementary', { name: 'Workspace', exact: true });
+    const docs = sidebar.getByRole('link', { name: 'Docs (opens in a new tab)', exact: true });
+    if (width === 390) await sidebar.getByRole('button', { name: 'Toggle navigation' }).click();
+    await docs.focus();
+    await expect(docs).toBeFocused();
+    await expect(docs).toHaveAttribute('rel', 'noopener noreferrer');
+    const bounds = (await docs.boundingBox())!;
+    expect(bounds.y).toBeGreaterThan(800);
+    expect(bounds.y + bounds.height).toBeLessThanOrEqual(900);
+    const popupPromise = page.waitForEvent('popup');
+    await page.keyboard.press('Enter');
+    const popup = await popupPromise;
+    await expect(popup).toHaveURL('https://storypane.dev/docs/');
+    await expect(page).toHaveURL(new RegExp(`space=${spaceId}&story=${story.id}`));
+    await popup.close();
+    await page.keyboard.press('Escape');
     for (const field of definition.fields) {
       const gear = editor.getByRole('button', {
         name: `Edit schema for ${field.label}`,

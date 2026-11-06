@@ -4,11 +4,13 @@ import { AccountControl } from './account-control';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Box,
+  BookOpen,
   Boxes,
   Building2,
   ChevronsUpDown,
   ChevronRight,
   Database,
+  ExternalLink,
   FileText,
   ImageIcon,
   PanelLeftClose,
@@ -298,6 +300,20 @@ export function CMSApp({ session: initialSession }: { session: CMSSession }) {
             </button>
           ))}
         </nav>
+        <div className="sidebar-footer">
+          <a
+            className="sidebar-docs"
+            href="https://storypane.dev/docs/"
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-label="Docs (opens in a new tab)"
+            title="Docs (opens in a new tab)"
+          >
+            <BookOpen aria-hidden="true" />
+            <span>Docs</span>
+            <ExternalLink className="sidebar-docs-external" aria-hidden="true" />
+          </a>
+        </div>
       </aside>
       <div className="workspace-body">
         <header className="app-header">
