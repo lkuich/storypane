@@ -7,29 +7,24 @@ not compatible with the current installation and per-space database layout.
 
 ## Run a fresh installation
 
-For a Docker installation, you need Docker Compose. Clone the
-[CMS repository](https://github.com/lkuich/storypane):
+For a Docker installation, you need Docker Compose and Node 24.22+ within v24
+for the setup command. Clone the [CMS repository](https://github.com/lkuich/storypane),
+then generate the configuration from its root:
 
 ```sh
-cp .env.production.example .env.production
-chmod 600 .env.production
+node scripts/setup-env.mjs
 ```
 
-Set `STORYPANE_APP_URL` to the origin you will open in your browser. For a local
-install, use `http://localhost:3130`. Generate independent encryption and auth
-secrets; keep them in the ignored `.env.production` file:
+This creates ignored `.env.production` with owner-only permissions, independent
+encryption/authentication keys, database passwords, and private object-store
+credentials. Values are generated locally and never printed. The defaults use
+bundled Postgres/MinIO, local sign-in, and `http://localhost:3130`; Clerk and SMTP
+are optional. For a remote installation, change `STORYPANE_APP_URL` to your exact
+HTTPS origin and configure a reverse proxy before inviting users.
 
-```sh
-openssl rand -base64 32 # INSTALLATION_ENCRYPTION_KEY
-openssl rand -base64 32 # BETTER_AUTH_SECRET
-openssl rand -base64 32 # WEBHOOK_ENCRYPTION_KEY
-openssl rand -hex 32    # PROVISIONING_DB_PASSWORD
-openssl rand -hex 32    # INSTALLATION_DB_PASSWORD
-```
-
-Put each output in its named variable. Add random S3 access credentials for the
-private bundled MinIO service. Keep all keys and Docker volumes when upgrading.
-Local sign-in is the default; Clerk and SMTP are optional.
+The command never overwrites an existing file or rotates keys. Keep the file and
+Docker volumes on upgrades. If you already have configuration, review it instead
+of deleting it to rerun setup.
 
 Start Postgres, private media storage, and the CMS, then create the first
 installation administrator with the interactive CLI:
@@ -47,23 +42,44 @@ and object storage, invites, backup/restore, upgrades, and recovery.
 
 ## Develop from source
 
-For source development, use Node 24.22+ within v24 and pnpm 12.4.2. Configure the
-ignored `.env` as described in the local development section of the
-[self-hosting guide](self-hosting.md#backups-upgrades-and-health). Start local
-Postgres and object storage, then migrate and bootstrap the installation database:
+For source development, use Node 24.22+ within v24 and pnpm 12.4.2.
+Generate ignored `.env` with `--local`; it includes matching credentials and
+host URLs for local Postgres and object storage. Then migrate and bootstrap the
+installation database:
 
 ```sh
 pnpm install --frozen-lockfile
+node scripts/setup-env.mjs --local
 pnpm db:start
 node --env-file=.env --import tsx scripts/admin.ts migrate
 node --env-file=.env --import tsx scripts/admin.ts bootstrap
 pnpm dev
 ```
 
-Open `http://localhost:3130` and sign in with the administrator created by the
+Open `http://127.0.0.1:3130` and sign in with the administrator created by the
 CLI. The legacy `pnpm db:setup` command is for local fixture databases only; never
 use it for an installation or production database. See the
 [operator guide](self-hosting.md#operator-commands).
+
+## Set up with an agent
+
+Open the cloned repository in your coding agent. Ask it to read `AGENTS.md` and
+this guide first, or give it the maintained
+[Storypane deploy skill](https://storypane.dev/skills/). Copy this prompt:
+
+```text
+Set up a fresh local Storypane installation using docs/getting-started.md.
+Check Node and Docker prerequisites, run node scripts/setup-env.mjs, and
+start the bundled Compose services. Keep secrets in the ignored env file;
+never print them or replace existing configuration, keys, or volumes.
+Check readiness, then give me the administrator bootstrap command to run
+in my own terminal so I can enter my password privately.
+```
+
+For source development, tell your agent to use `node scripts/setup-env.mjs --local`
+and the source workflow above. An agent can prepare the installation; review its
+changes and enter passwords locally. The setup script does not create accounts,
+start services, or verify a fresh deployment by itself.
 
 ## Build a website
 

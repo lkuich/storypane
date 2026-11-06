@@ -7,14 +7,12 @@ collaboration rooms, and the minute publication/webhook scheduler.
 
 ## Fresh Docker installation
 
-Copy `.env.production.example` to ignored `.env.production` and protect it with
-`chmod 600 .env.production`. Set `STORYPANE_APP_URL` to the exact browser origin
-(`http://localhost:3130` for local testing; HTTPS behind a reverse proxy for users).
-Generate independent `INSTALLATION_ENCRYPTION_KEY`, `BETTER_AUTH_SECRET`, and
-`WEBHOOK_ENCRYPTION_KEY` values with `openssl rand -base64 32`. Generate URL-safe
-`PROVISIONING_DB_PASSWORD` and `INSTALLATION_DB_PASSWORD` with
-`openssl rand -hex 32`. Set `S3_ACCESS_KEY_ID` and `S3_SECRET_ACCESS_KEY` for the
-private object store. Keep these values on upgrades.
+Run `node scripts/setup-env.mjs` from the repository root using Node 24.22+
+within v24. It creates ignored `.env.production` with mode `600`, independent
+keys, random database passwords, and private object-store credentials for the
+bundled Compose services. It never prints secrets or overwrites an existing file.
+Set `STORYPANE_APP_URL` to the exact browser origin (`http://localhost:3130` by
+default; HTTPS behind a reverse proxy for remote users). Keep all values on upgrades.
 
 ```sh
 docker compose --env-file .env.production -f compose.node.yaml up --build -d
@@ -171,7 +169,8 @@ so healthy spaces keep serving requests. Individual space requests fail closed;
 background jobs continue processing other spaces. Health is not full acceptance.
 Follow [deployment verification](deployment-verification.md) before rollout.
 
-For local source development, put the same runtime settings in ignored `.env`.
+For local source development, run `node scripts/setup-env.mjs --local` to create
+ignored `.env` with matching credentials and local backing-service URLs.
 `pnpm db:start` starts private local backing services with the
 `compose.node.local.yaml` override: PostgreSQL on `127.0.0.1:55450`, S3 on
 `127.0.0.1:59120`. Point installation/provisioning URLs and `S3_ENDPOINT` at those
@@ -189,3 +188,22 @@ does not deploy to Workers. A previous Worker installation can be retired after
 its content, database, private media and encryption keys have been migrated or
 backed up, and the replacement has passed the relevant acceptance checks. See the
 [Cloudflare guide](deploy-cloudflare.md) before removing legacy resources.
+
+## Work with an agent
+
+Use the [getting-started agent prompt](getting-started.md#set-up-with-an-agent)
+for a first installation. For an upgrade, give your agent this task:
+
+```text
+Read AGENTS.md and docs/self-hosting.md before upgrading this installation.
+Identify the existing databases, media, configuration, and encryption keys;
+keep all values intact and verify backups before applying migrations.
+Use the transactional operator migration runner. Never rerun fresh setup
+over an existing env file or delete volumes to fix a failed upgrade.
+Report the changed files and verification results without printing secrets.
+```
+
+For external Postgres, storage, SMTP, or Clerk, configure credentials through your
+local secret manager or terminal; do not paste them into an agent conversation.
+The setup script configures bundled local services and cannot provision external
+provider credentials.
