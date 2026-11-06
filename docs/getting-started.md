@@ -65,7 +65,7 @@ use it for an installation or production database. See the
 
 Open the cloned repository in your coding agent. Ask it to read `AGENTS.md` and
 this guide first, or give it the maintained
-[Storypane deploy skill](https://storypane.dev/skills/). Copy this prompt:
+[Storypane deploy skill](https://storypane.dev/docs/agents/). Copy this prompt:
 
 ```text
 Set up a fresh local Storypane installation using docs/getting-started.md.
