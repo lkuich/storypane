@@ -270,6 +270,7 @@ export function CMSApp({ session: initialSession }: { session: CMSSession }) {
           className="workspace-card"
           onClick={() => setSwitcherOpen(true)}
           aria-label="Switch space"
+          title={session.space.name}
           aria-haspopup="dialog"
         >
           <span className="workspace-icon">
@@ -277,9 +278,7 @@ export function CMSApp({ session: initialSession }: { session: CMSSession }) {
           </span>
           <div>
             <strong>{session.space.name}</strong>
-            <span>
-              {session.space.environment === 'dev' ? 'Development' : 'Production'} · Switch space
-            </span>
+            <span>Switch space</span>
           </div>
           <ChevronsUpDown aria-hidden="true" />
         </button>

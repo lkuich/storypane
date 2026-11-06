@@ -156,6 +156,8 @@ export function SpacesScreen({ installationAdmin = false }: { installationAdmin?
                             <>
                               Production: <a href={`/?space=${production.id}`}>{production.name}</a>
                             </>
+                          ) : space.productionSpaceId ? (
+                            'Linked production space'
                           ) : (
                             'Standalone development space'
                           )}
@@ -270,6 +272,7 @@ export function SpacesScreen({ installationAdmin = false }: { installationAdmin?
         )}
       </main>
       <Modal
+        className="environment-dialog clone-space-dialog"
         open={creating}
         onClose={() => {
           if (!submitting) setCreating(false);
@@ -319,117 +322,123 @@ export function SpacesScreen({ installationAdmin = false }: { installationAdmin?
             }
           }}
         >
-          <label className="field">
-            Space name
-            <input
-              value={name}
-              onChange={(event) => setName(event.target.value)}
-              required
-              maxLength={120}
-              placeholder="e.g. Marketing website"
-              autoFocus
-            />
-          </label>
-          <label className="field">
-            Description{' '}
-            <span className="field-hint">Optional · Help your team recognize this space.</span>
-            <textarea
-              value={description}
-              onChange={(event) => setDescription(event.target.value)}
-              maxLength={1000}
-              placeholder="What will you create here?"
-            />
-          </label>
-          <label className="field">
-            Environment
-            <select
-              value={environment}
-              onChange={(event) => {
-                setEnvironment(event.target.value as 'prod' | 'dev');
-                setCloneReview(null);
-              }}
-            >
-              <option value="prod">Production</option>
-              <option value="dev">Development</option>
-            </select>
-          </label>
-          <div className="clone-guidance">
-            <EnvironmentBadge environment={environment} />
-            <p>
-              {environment === 'dev'
-                ? 'Build and test schema changes here before promoting them to production.'
-                : 'Schemas start read-only. Review and promote changes from a linked development space.'}
-            </p>
-          </div>
-          <label className="field">
-            Base space
-            <select
-              aria-label="Base space"
-              aria-describedby="base-space-guidance"
-              value={baseSpaceId}
-              onChange={(event) => {
-                setBaseSpaceId(event.target.value);
-                setCloneReview(null);
-              }}
-            >
-              <option value="">Empty space</option>
-              {spaces
-                .filter((s) => s.role && s.provisioningStatus === 'ready')
-                .map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.name} ({s.environment === 'dev' ? 'Dev' : 'Prod'})
-                  </option>
-                ))}
-            </select>
-            <span className="field-hint" id="base-space-guidance">
-              {baseSpaceId
-                ? (() => {
-                    const base = spaces.find((s) => s.id === baseSpaceId);
-                    const production =
-                      base?.environment === 'dev'
-                        ? spaces.find((s) => s.id === base.productionSpaceId)
-                        : base;
-                    return environment === 'dev' && production
-                      ? `Linked to production: ${production.name}.`
-                      : environment === 'prod' &&
-                          base?.environment === 'dev' &&
-                          !base.productionSpaceId
-                        ? `Links ${base.name} to this new production space.`
-                        : 'Creates an independent space from the deployed schema.';
-                  })()
-                : 'Start empty, or copy deployed blocks and their nesting from another space.'}
-            </span>
-          </label>
-          {baseSpaceId && (
-            <p className="small muted">
-              Content and media stay in the base space, except dependencies required by schema
-              defaults. Review these before creating.
-            </p>
-          )}
-          <details className="clone-database" open={mode === 'attach' || undefined}>
-            <summary>Database options</summary>
-            <label className="field">
-              Database
-              <select value={mode} onChange={(event) => setMode(event.target.value)}>
-                <option value="create">Create a database</option>
-                <option value="attach">Attach an empty database</option>
-              </select>
-            </label>
-            {mode === 'attach' && (
+          <div className="clone-fields">
+            <fieldset className="space-settings-fields" disabled={submitting}>
               <label className="field">
-                Database connection URL
+                Space name
                 <input
-                  type="password"
-                  autoComplete="off"
-                  value={connectionString}
-                  onChange={(event) => setConnectionString(event.target.value)}
-                  placeholder="postgresql://role:password@host/database"
+                  value={name}
+                  onChange={(event) => setName(event.target.value)}
+                  required
+                  maxLength={120}
+                  placeholder="e.g. Marketing website"
+                  autoFocus
                 />
               </label>
-            )}
-          </details>
-          {cloneReview && <DependencySummary review={cloneReview} />}
-          <p className="small muted">You’ll be the administrator of this space.</p>
+              <label className="field">
+                Description{' '}
+                <span className="field-hint">Optional · Help your team recognize this space.</span>
+                <textarea
+                  value={description}
+                  onChange={(event) => setDescription(event.target.value)}
+                  maxLength={1000}
+                  placeholder="What will you create here?"
+                />
+              </label>
+              <label className="field">
+                Environment
+                <select
+                  value={environment}
+                  onChange={(event) => {
+                    setEnvironment(event.target.value as 'prod' | 'dev');
+                    setCloneReview(null);
+                  }}
+                >
+                  <option value="prod">Production</option>
+                  <option value="dev">Development</option>
+                </select>
+              </label>
+              <div className="clone-guidance">
+                <EnvironmentBadge environment={environment} />
+                <p>
+                  {environment === 'dev'
+                    ? 'Build and test schema changes here before promoting them to production.'
+                    : 'Schemas start read-only. Review and promote changes from a linked development space.'}
+                </p>
+              </div>
+              <label className="field">
+                Base space
+                <select
+                  aria-label="Base space"
+                  aria-describedby="base-space-guidance"
+                  value={baseSpaceId}
+                  onChange={(event) => {
+                    setBaseSpaceId(event.target.value);
+                    setCloneReview(null);
+                  }}
+                >
+                  <option value="">Empty space</option>
+                  {spaces
+                    .filter((s) => s.role && s.provisioningStatus === 'ready')
+                    .map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.name} ({s.environment === 'dev' ? 'Dev' : 'Prod'})
+                      </option>
+                    ))}
+                </select>
+                <span className="field-hint" id="base-space-guidance">
+                  {baseSpaceId
+                    ? (() => {
+                        const base = spaces.find((s) => s.id === baseSpaceId);
+                        const production =
+                          base?.environment === 'dev'
+                            ? spaces.find((s) => s.id === base.productionSpaceId)
+                            : base;
+                        return environment === 'dev' && production
+                          ? `Linked to production: ${production.name}.`
+                          : environment === 'dev' && base?.productionSpaceId
+                            ? `Links to the same production space as ${base.name}.`
+                            : environment === 'prod' &&
+                                base?.environment === 'dev' &&
+                                !base.productionSpaceId
+                              ? `Links ${base.name} to this new production space.`
+                              : 'Creates an independent space from the deployed schema.';
+                      })()
+                    : 'Start empty, or copy deployed blocks and their nesting from another space.'}
+                </span>
+              </label>
+              {baseSpaceId && (
+                <p className="small muted">
+                  Content and media stay in the base space, except dependencies required by schema
+                  defaults. Review these before creating.
+                </p>
+              )}
+              <details className="clone-database" open={mode === 'attach' || undefined}>
+                <summary>Database options</summary>
+                <label className="field">
+                  Database
+                  <select value={mode} onChange={(event) => setMode(event.target.value)}>
+                    <option value="create">Create a database</option>
+                    <option value="attach">Attach an empty database</option>
+                  </select>
+                </label>
+                {mode === 'attach' && (
+                  <label className="field">
+                    Database connection URL
+                    <input
+                      type="password"
+                      autoComplete="off"
+                      value={connectionString}
+                      onChange={(event) => setConnectionString(event.target.value)}
+                      placeholder="postgresql://role:password@host/database"
+                    />
+                  </label>
+                )}
+              </details>
+              {cloneReview && <DependencySummary review={cloneReview} />}
+              <p className="small muted">You’ll be the administrator of this space.</p>
+            </fieldset>
+          </div>
           <ErrorNotice message={formError} />
           <div className="dialog-actions">
             <Button disabled={submitting} onClick={() => setCreating(false)}>

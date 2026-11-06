@@ -26,7 +26,9 @@ export function SpaceSwitcher({
   const [attempt, setAttempt] = useState(0);
   const [switching, setSwitching] = useState(false);
   const search = useRef<HTMLInputElement>(null);
-  useEffect(() => { search.current?.focus(); }, []);
+  useEffect(() => {
+    search.current?.focus();
+  }, []);
   useEffect(() => {
     let stopped = false;
     setLoading(true);
@@ -62,6 +64,7 @@ export function SpaceSwitcher({
   }
   return (
     <Modal
+      className="environment-dialog space-switch-dialog"
       open
       onClose={() => {
         if (!switching) onClose();
@@ -125,7 +128,9 @@ export function SpaceSwitcher({
                 </section>
               ) : null;
             })}
-            {![...groups.linked, ...groups.other].some(matches) && <p>No spaces match your search.</p>}
+            {![...groups.linked, ...groups.other].some(matches) && (
+              <p>No spaces match your search.</p>
+            )}
             {!query && groups.linked.length <= 1 && (
               <p className="small muted">No other linked spaces are available to your account.</p>
             )}

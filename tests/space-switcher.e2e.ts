@@ -72,6 +72,13 @@ test('keeps environment identity visible, switches linked spaces in both directi
   await prodTrigger.click();
   await dialog.getByRole('button', { name: `Open ${dev.name} (Development)`, exact: true }).click();
   await expect(page).toHaveURL(`${baseURL}/?space=${dev.id}&view=settings`);
+  await page.goto(`${baseURL}/?space=${prod.id}&view=content`);
+  await page.getByRole('button', { name: 'Homepage', exact: true }).click();
+  await expect(page.getByRole('textbox', { name: 'Title', exact: true })).toBeVisible();
+  await expect(prodTrigger).toBeVisible();
+  await prodTrigger.click();
+  await dialog.getByRole('button', { name: `Open ${dev.name} (Development)`, exact: true }).click();
+  await expect(page).toHaveURL(`${baseURL}/?space=${dev.id}&view=content`);
   await page.goto(`${baseURL}/?space=${dev.id}&view=blocks`);
   await expect(page.getByRole('region', { name: 'Space environment' })).toBeVisible();
   for (const theme of ['light', 'dark']) {

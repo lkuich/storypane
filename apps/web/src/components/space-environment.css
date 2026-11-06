@@ -65,6 +65,41 @@
   display: grid;
   gap: 22px;
 }
+.environment-dialog[open] {
+  display: flex;
+  flex-direction: column;
+  max-height: 90dvh;
+  overflow: hidden;
+}
+.environment-dialog .dialog-heading,
+.environment-dialog .dialog-actions,
+.environment-dialog .space-switch-search {
+  flex-shrink: 0;
+}
+.environment-dialog .dialog-actions {
+  margin-top: 18px;
+}
+.clone-space-dialog form {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.clone-fields,
+.transfer-review-body,
+.space-switch-groups {
+  overflow: auto;
+  min-height: 0;
+  scrollbar-width: thin;
+  padding: 2px 4px;
+}
+.clone-fields {
+  border: 0;
+  margin: 0;
+  min-width: 0;
+}
+.clone-fields textarea {
+  min-height: 72px;
+}
 .space-switch-groups h3 {
   color: var(--muted);
   font-size: 11px;
@@ -313,15 +348,37 @@
     flex: 1;
   }
   .app-shell .header-breadcrumb > strong,
-  .app-shell .header-breadcrumb > svg {
+  .app-shell[data-environment] .app-header .header-breadcrumb > svg {
     display: none;
   }
-  .app-shell .header-space-switch {
-    flex-wrap: wrap;
+  .app-shell .header-breadcrumb > .header-space-switch {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 14px;
     gap: 3px 7px;
+    width: 100%;
+    margin: 0;
   }
   .app-shell .header-space-switch .header-space-name {
-    max-width: 155px;
+    grid-column: 1;
+    grid-row: 2;
+    max-width: 100%;
+    text-align: left;
+  }
+  .app-shell .header-space-switch > svg {
+    grid-column: 2;
+    grid-row: 1 / span 2;
+  }
+  .app-shell .header-actions .theme-picker select {
+    width: 38px;
+    min-width: 38px;
+    padding: 0;
+    color: transparent;
+  }
+  .app-shell .header-actions .theme-picker option {
+    color: var(--ink);
+  }
+  .app-shell .header-actions .theme-picker-chevron {
+    display: none;
   }
   .app-shell .header-actions > .pill {
     display: none;

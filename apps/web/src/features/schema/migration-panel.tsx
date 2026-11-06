@@ -203,7 +203,7 @@ export function MigrationPanel({
           </span>
           <div>
             <h2>Schema migrations</h2>
-            <p>Track what’s live and what’s coming next.</p>
+            <p>Schema releases and pending changes in this space.</p>
           </div>
         </div>
         {canDeploy && (
@@ -280,7 +280,7 @@ export function MigrationPanel({
                   {active
                     ? active.name
                     : deployed?.version
-                      ? 'Your schema is up to date.'
+                      ? 'All schema changes are deployed to this space.'
                       : 'Add a block to start a migration.'}
                 </p>
                 {active && <MigrationChangeCount changes={pendingChanges} />}

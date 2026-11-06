@@ -127,7 +127,7 @@ export function EnvironmentPanel({
               {status.production && (
                 <span className="environment-state" data-behind={status.behind}>
                   <span aria-hidden="true">{status.behind ? <Clock3 /> : <CheckCircle2 />}</span>
-                  {status.behind ? 'Behind production' : 'Up to date'}
+                  {status.behind ? 'Behind production' : 'Synced with production'}
                 </span>
               )}
             </div>
@@ -189,6 +189,7 @@ export function EnvironmentPanel({
         )}
       </div>
       <Modal
+        className="environment-dialog"
         open={!!review}
         onClose={() => {
           if (!busy) setReview(null);
@@ -202,92 +203,94 @@ export function EnvironmentPanel({
       >
         {review && (
           <>
-            <div className="environment-route">
-              <EnvironmentBadge environment={review.action === 'sync' ? 'prod' : 'dev'} />
-              <strong>{review.action === 'sync' ? status?.production?.name : spaceName}</strong>
-              <ArrowRight aria-label="to" />
-              <EnvironmentBadge environment={review.action === 'sync' ? 'dev' : 'prod'} />
-              <strong>{review.action === 'sync' ? spaceName : status?.production?.name}</strong>
-            </div>
-            <DependencySummary review={review} />
-            {review.conflicts.map((conflict, index) => (
-              <fieldset className="transfer-conflict" key={conflict.path} disabled={busy}>
-                <legend>Conflict {index + 1} · Choose which change to keep</legend>
-                {conflict.path.endsWith('blocks.structure') && (
-                  <p>
-                    The combined changes have incompatible nesting or references. Choose the
-                    complete dev or production schema for this step.
-                  </p>
-                )}
-                <details>
-                  <summary>Compare changes</summary>
-                  <code>{conflict.path}</code>
-                  <pre style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>
-                    {JSON.stringify(
-                      { baseline: conflict.base, dev: conflict.dev, production: conflict.prod },
-                      null,
-                      2,
-                    )}
-                  </pre>
-                </details>
-                <label className="field">
-                  Resolution
-                  <select
-                    value={resolutions[conflict.path] ?? ''}
-                    onChange={(e) =>
-                      setResolutions({
-                        ...resolutions,
-                        [conflict.path]: e.target.value as 'dev' | 'prod',
-                      })
-                    }
-                  >
-                    <option value="" disabled>
-                      Choose a version
-                    </option>
-                    <option value="dev">Keep dev change</option>
-                    <option value="prod">Keep production change</option>
-                  </select>
-                </label>
-              </fieldset>
-            ))}
-            {review.steps.map((step, index) => (
-              <section className="transfer-step" key={step.id}>
-                <h3>
-                  <span>
-                    {index + 1} / {review.steps.length}
-                  </span>
-                  {step.name}
-                </h3>
-                <ul>
-                  {step.changes.map((change, i) => (
-                    <li key={i}>
-                      {change.kind}: {change.definition}
-                      {change.field ? ` / ${change.field}` : ''}
-                    </li>
-                  ))}
-                </ul>
-                {step.impacts
-                  .filter((i) => i.deletedValues + i.resetValues + i.deletedBlocks)
-                  .map((i) => (
-                    <p key={`${i.localeId}:${i.target}`}>
-                      {i.name} / {i.locale} ({i.target}): {i.deletedValues} deleted values,{' '}
-                      {i.resetValues} reset values, {i.deletedBlocks} deleted blocks.
+            <div className="transfer-review-body">
+              <div className="environment-route">
+                <EnvironmentBadge environment={review.action === 'sync' ? 'prod' : 'dev'} />
+                <strong>{review.action === 'sync' ? status?.production?.name : spaceName}</strong>
+                <ArrowRight aria-label="to" />
+                <EnvironmentBadge environment={review.action === 'sync' ? 'dev' : 'prod'} />
+                <strong>{review.action === 'sync' ? spaceName : status?.production?.name}</strong>
+              </div>
+              <DependencySummary review={review} />
+              {review.conflicts.map((conflict, index) => (
+                <fieldset className="transfer-conflict" key={conflict.path} disabled={busy}>
+                  <legend>Conflict {index + 1} · Choose which change to keep</legend>
+                  {conflict.path.endsWith('blocks.structure') && (
+                    <p>
+                      The combined changes have incompatible nesting or references. Choose the
+                      complete dev or production schema for this step.
                     </p>
-                  ))}
-              </section>
-            ))}
-            {blockers.map((b, i) => (
-              <p className="notice" key={i}>
-                {b.path}: {b.message}
-              </p>
-            ))}
-            {review.confirmation && (
-              <label className="field transfer-confirmation">
-                Type {review.confirmation} to accept data loss
-                <input value={confirmation} onChange={(e) => setConfirmation(e.target.value)} />
-              </label>
-            )}
-            <ErrorNotice message={error} />
+                  )}
+                  <details>
+                    <summary>Compare changes</summary>
+                    <code>{conflict.path}</code>
+                    <pre style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>
+                      {JSON.stringify(
+                        { baseline: conflict.base, dev: conflict.dev, production: conflict.prod },
+                        null,
+                        2,
+                      )}
+                    </pre>
+                  </details>
+                  <label className="field">
+                    Resolution
+                    <select
+                      value={resolutions[conflict.path] ?? ''}
+                      onChange={(e) =>
+                        setResolutions({
+                          ...resolutions,
+                          [conflict.path]: e.target.value as 'dev' | 'prod',
+                        })
+                      }
+                    >
+                      <option value="" disabled>
+                        Choose a version
+                      </option>
+                      <option value="dev">Keep dev change</option>
+                      <option value="prod">Keep production change</option>
+                    </select>
+                  </label>
+                </fieldset>
+              ))}
+              {review.steps.map((step, index) => (
+                <section className="transfer-step" key={step.id}>
+                  <h3>
+                    <span>
+                      {index + 1} / {review.steps.length}
+                    </span>
+                    {step.name}
+                  </h3>
+                  <ul>
+                    {step.changes.map((change, i) => (
+                      <li key={i}>
+                        {change.kind}: {change.definition}
+                        {change.field ? ` / ${change.field}` : ''}
+                      </li>
+                    ))}
+                  </ul>
+                  {step.impacts
+                    .filter((i) => i.deletedValues + i.resetValues + i.deletedBlocks)
+                    .map((i) => (
+                      <p key={`${i.localeId}:${i.target}`}>
+                        {i.name} / {i.locale} ({i.target}): {i.deletedValues} deleted values,{' '}
+                        {i.resetValues} reset values, {i.deletedBlocks} deleted blocks.
+                      </p>
+                    ))}
+                </section>
+              ))}
+              {blockers.map((b, i) => (
+                <p className="notice" key={i}>
+                  {b.path}: {b.message}
+                </p>
+              ))}
+              {review.confirmation && (
+                <label className="field transfer-confirmation">
+                  Type {review.confirmation} to accept data loss
+                  <input value={confirmation} onChange={(e) => setConfirmation(e.target.value)} />
+                </label>
+              )}
+              <ErrorNotice message={error} />
+            </div>
             <div className="dialog-actions">
               <Button disabled={busy} onClick={() => setReview(null)}>
                 Cancel
