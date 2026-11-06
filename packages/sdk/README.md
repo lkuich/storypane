@@ -651,7 +651,15 @@ authenticated `getAsset` integration for static export when public media is disa
 
 ## MCP
 
-Run `storypane mcp` (Node 20+) with `STORYPANE_URL`, `STORYPANE_SPACE_ID`, and a
-private `STORYPANE_MANAGEMENT_TOKEN`. The stdio adapter exposes read and write
+Launch the pinned package directly (Node 20+), with `STORYPANE_URL`,
+`STORYPANE_SPACE_ID`, and a private `STORYPANE_MANAGEMENT_TOKEN` configured in
+your MCP client's environment:
+
+```sh
+npx --yes --package=@storypane/sdk@0.1.0-rc.2 storypane mcp
+```
+
+If installed in your project, `pnpm exec storypane mcp` also works from its root.
+The stdio adapter exposes read and write
 tools over the management API; the same scopes, issuer permissions and revocation
 apply. See [MCP configuration and contracts](https://github.com/lkuich/storypane/blob/main/docs/management-api.md#mcp-adapter).

@@ -360,15 +360,16 @@ connection credentials are not exposed.
 
 `storypane mcp` runs a stdio MCP server using the same management client and API.
 The SDK CLI requires Node 20 or later; running the CMS itself requires Node 24.22+
-within v24. Configure your MCP client to launch the installed
-`storypane` executable with `args: ["mcp"]` and these private environment values:
+within v24. Launch the published, pinned SDK through `npx`; no CMS source
+checkout or global package installation is needed for remote content automation.
+Configure your MCP client with these private environment values:
 
 ```json
 {
   "mcpServers": {
     "storypane": {
-      "command": "storypane",
-      "args": ["mcp"],
+      "command": "npx",
+      "args": ["--yes", "--package=@storypane/sdk@0.1.0-rc.2", "storypane", "mcp"],
       "env": {
         "STORYPANE_URL": "http://127.0.0.1:3130",
         "STORYPANE_SPACE_ID": "your-space-id",
@@ -378,6 +379,11 @@ within v24. Configure your MCP client to launch the installed
   }
 }
 ```
+
+The MCP client must be able to find Node and `npx` in its environment; desktop
+clients may need the absolute path to `npx`. If the SDK is already installed in
+your project, `pnpm exec storypane mcp` is an alternative from that project root.
+The CMS editor itself still uses the Docker/source installation guide.
 
 The server exposes `storypane_read` (GET) and `storypane_write`
 (POST/PUT/PATCH/DELETE with a JSON body). Paths are relative to the configured

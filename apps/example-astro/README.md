@@ -10,6 +10,20 @@ its renderer, styles, schema snapshot, generated types, and publication helpers.
 
 Configuration uses server-only `STORYPANE_*` variables.
 
+## Add Storypane to an existing Astro app
+
+Install the published SDK in your Astro project:
+
+```sh
+npm install @storypane/sdk@0.1.0-rc.2
+```
+
+Use its delivery client in server-side page frontmatter with private space and
+delivery-token configuration. Follow the [SDK guide](../../packages/sdk/README.md)
+for generated types and the React-based live preview used by this example.
+Use `@storypane/sdk@rc` instead if you deliberately want to follow candidates.
+The monorepo example below keeps its workspace link for source development.
+
 ## Run it
 
 From the monorepo root, first configure local `.env` and start the current Node

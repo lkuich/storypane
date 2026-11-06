@@ -25,10 +25,15 @@ one `story.published` event per page; coalesce these when triggering builds.
 You don't need to adopt this example's layout or routing. The basic integration
 is one server client and a fetch in any Server Component.
 
-Install `@storypane/sdk` and `server-only`. This repository uses a workspace link;
-until the SDK is published to npm, build and pack `packages/sdk` and install the
-resulting archive in your app. Generate your schema types using the CLI described
-below, then configure the client:
+Install the published SDK and `server-only` in your Next.js project:
+
+```sh
+npm install @storypane/sdk@0.1.0-rc.2 server-only
+```
+
+This monorepo uses a workspace link for its example. In your own app, pin the
+published version, or use `@storypane/sdk@rc` to follow candidates. Generate your
+schema types using the CLI described below, then configure the client:
 
 ```ts
 // src/lib/storypane.ts
