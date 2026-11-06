@@ -142,9 +142,10 @@ Published reads return publication snapshots. Draft preview uses a separate,
 authenticated connection. Keep delivery and preview tokens on the server; rebuild
 or revalidate static pages when content is published.
 
-Install the matching SDK release tarball or build/link it from this workspace
-using the [SDK guide](packages/sdk/README.md). npm publication is gated separately;
-select an explicit candidate version when it becomes available.
+Install the matching SDK from npm with `npm install @storypane/sdk@0.1.0-rc.2`,
+or use `@storypane/sdk@rc` to follow candidates. The [SDK guide](packages/sdk/README.md)
+also covers the GitHub release archive and local builds. This remains a release
+candidate; an npm tag is not a stable-release or production-readiness guarantee.
 
 Explore a complete integration:
 

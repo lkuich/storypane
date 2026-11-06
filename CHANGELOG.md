@@ -2,6 +2,11 @@
 
 ## 0.1.0-rc.2 — 2026-11-06
 
+- Publish the verified SDK archive to npm and configure the GitHub trusted
+  publisher. A clean registry install loads all entrypoints and starts the CLI.
+  The `rc` tag points to this candidate; npm also assigned `latest` on first
+  publication. This does not change its release-candidate status.
+
 - Align three legacy database test guards/defaults with the documented
   `POSTGRES_DB` and `storypane_test` setup. Preserve the localhost/dedicated-test
   database restriction. Clean GitHub CI exposed the old hardcoded `blok_test` names.
@@ -26,7 +31,7 @@ not a stable production release or a fresh-hosted-install verification claim.
   and release guides, mirrored at https://storypane.dev/docs/.
 - CI for lint, type checks, database/isolation tests, production and Docker builds,
   and installation checks against the packed SDK. RC release artifacts and an
-  opt-in npm trusted-publishing workflow keep prereleases off the `latest` channel.
+  opt-in npm trusted-publishing workflow target the `rc` channel.
 
 - Update Vite to 8.3.5 and fflate to 0.7.5 to address dependency advisories found
   during the release review; preserve third-party service notices.

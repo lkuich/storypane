@@ -15,10 +15,13 @@ replica. Fresh hosted acceptance, an independent security audit, and production
 load benchmarks remain outstanding. Back up all databases, original media and
 keys before upgrades. See the acceptance checklist and known limits in the docs.
 
-The attached SDK tarball installs with `npm install ./storypane-sdk-0.1.0-rc.2.tgz`.
-Registry publication is separate and gated on npm scope/publisher setup; installing
-an RC from npm requires the explicit version or `rc` tag. The CMS is built from
-this source tag with Docker Compose. No prebuilt CMS image is required.
+Install the SDK from npm with `npm install @storypane/sdk@0.1.0-rc.2`, or follow
+candidates with `npm install @storypane/sdk@rc`. The attached verified tarball is
+also available. npm assigned `latest` to this first publication as well; the
+version remains an RC, not a stable release or production-readiness guarantee.
+The CMS is built from this source tag with Docker Compose. No prebuilt CMS image
+is required. GitHub trusted publishing is configured for future SDK candidates;
+its first OIDC publication has not yet been exercised.
 
 The production dependency review is clean after patch updates; a moderate
 development-only minimatch advisory remains documented in the release guide.

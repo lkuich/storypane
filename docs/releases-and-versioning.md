@@ -19,10 +19,16 @@ node scripts/setup-env.mjs
 
 Continue with [getting started](getting-started.md). The Docker Compose setup
 builds the checked-out source; it does not require an unpublished container image.
-Use the matching SDK tarball from the [GitHub release](https://github.com/lkuich/storypane/releases)
-or build/pack the SDK from the same tag. When npm publication is enabled, install
-the explicit version or `@storypane/sdk@rc`; RCs are never published as `latest`.
-Do not assume `npm install @storypane/sdk` installs a candidate.
+Install the SDK from npm with `npm install @storypane/sdk@0.1.0-rc.2`, or use
+`@storypane/sdk@rc` to follow candidates. The verified archive remains attached to
+the [GitHub release](https://github.com/lkuich/storypane/releases).
+
+CI publishes candidates with `--tag rc`. On this first publication, npm also
+assigned `latest` to `0.1.0-rc.2` and rejected removal of that tag. This matches
+[npm's documented first-publication behavior](https://github.com/npm/cli/issues/8490).
+Treat the version's `-rc` suffix and release notes as the stability indicator;
+`latest` does not mean this candidate is stable or production-verified. Prefer
+an explicit version or the `rc` channel in your integration.
 
 ## What CI checks
 
@@ -66,6 +72,17 @@ team grows.
 
 ### One-time npm setup
 
+**Completed November 6, 2026:** `@storypane/sdk@0.1.0-rc.2` was published from the
+verified GitHub archive, then installed from npm in an isolated consumer. All
+entrypoints and the CLI passed. The trusted publisher is configured for
+`lkuich/storypane` and `release.yml`, with publishing enabled and no environment.
+No npm token secret is required by CI. Its first actual OIDC publication remains
+to be exercised on a later candidate; do not republish this existing version.
+
+The steps below document the initial setup. Existing maintainers should verify
+the publisher configuration and use the next-version workflow rather than repeat
+the bootstrap publication.
+
 Only `@storypane/sdk` goes to npm. The CMS is installed from the source tag or
 Docker build; the root and internal workspace packages stay private.
 
@@ -105,7 +122,9 @@ Docker build; the root and internal workspace packages stay private.
    as a file rather than a GitHub shorthand.
 
    Complete any requested npm account/2FA checks. The version should be
-   `0.1.0-rc.2` and the `rc` tag should point to it. Keep candidates off `latest`.
+   `0.1.0-rc.2` and the `rc` tag should point to it. Inspect `latest` too; npm can
+   assign it on a first publication even when `--tag rc` is explicit. Document
+   the actual tags and keep the candidate status clear.
    The `@storypane` organization must grant your signed-in account publish access.
    Never paste credentials into a chat, workflow file, or repository.
 
@@ -128,9 +147,9 @@ Docker build; the root and internal workspace packages stay private.
    for the version you already bootstrapped; npm versions cannot be overwritten.
 
 Users can then install `npm install @storypane/sdk@rc`, or pin the exact version.
-Confirm registry availability before replacing the GitHub archive installation
-instructions. A package name in this source tree does not establish npm ownership
-or mean the package has already been published.
+Check the registry version and tags after every publication, then update the
+website and canonical installation guides together. Allow registry metadata
+propagation before assuming an immediately missing version failed to publish.
 
 Trusted publishing requires a GitHub-hosted runner and npm 11.5.1+ / Node 22.14+;
 the pinned Node 24.22 runtime meets that baseline. See the

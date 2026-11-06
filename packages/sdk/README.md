@@ -12,12 +12,21 @@ Start with the [Next.js integration guide](https://github.com/lkuich/storypane/b
 server-side fetching, typed block components, and a separate live preview route.
 An [Astro example](https://github.com/lkuich/storypane/blob/main/apps/example-astro/README.md) is also included.
 
-The current version is **0.1.0-rc.2**. Use the SDK tarball attached to the
-[matching GitHub prerelease](https://github.com/lkuich/storypane/releases), or build
-from this monorepo with `pnpm --filter @storypane/sdk build` and pack/link
-`packages/sdk`. npm publication is separately gated on publisher setup; when
-available, select the explicit RC version or `@storypane/sdk@rc`. See the
-[release guide](https://storypane.dev/docs/releases-and-versioning/). Install the release artifact without waiting for npm publication:
+The current version is **0.1.0-rc.2**, published on npm as a release candidate:
+
+```sh
+npm install @storypane/sdk@0.1.0-rc.2
+# Or follow the candidate channel:
+npm install @storypane/sdk@rc
+```
+
+Pin the explicit version for reproducible builds. npm also assigned `latest` to
+this first publication; that tag does not make it stable. See the
+[release guide](https://storypane.dev/docs/releases-and-versioning/) for status,
+upgrades, and known limits.
+
+You can also build from this monorepo with `pnpm --filter @storypane/sdk build`
+and pack/link `packages/sdk`, or install the verified GitHub archive:
 
 ```sh
 npm install https://github.com/lkuich/storypane/releases/download/v0.1.0-rc.2/storypane-sdk-0.1.0-rc.2.tgz
