@@ -32,6 +32,7 @@ test('fresh Compose configuration generates private independent secrets and matc
     for (const env of [production, local]) {
       for (const key of secrets) assert.equal(Buffer.from(env[key], 'base64').length, 32);
       assert.equal(new Set(secrets.map((key) => env[key])).size, 3);
+      assert.match(env.S3_ACCESS_KEY_ID, /^[a-f0-9]{20}$/);
       for (const key of [
         'PROVISIONING_DB_PASSWORD',
         'INSTALLATION_DB_PASSWORD',

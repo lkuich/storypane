@@ -15,7 +15,7 @@ export function setupEnvironment(directory, local = false) {
     WEBHOOK_ENCRYPTION_KEY: randomBytes(32).toString('base64'),
     PROVISIONING_DB_PASSWORD: hex(),
     INSTALLATION_DB_PASSWORD: hex(),
-    S3_ACCESS_KEY_ID: `storypane-${randomBytes(12).toString('hex')}`,
+    S3_ACCESS_KEY_ID: randomBytes(10).toString('hex'),
     S3_SECRET_ACCESS_KEY: hex(),
     S3_ENDPOINT: local ? 'http://127.0.0.1:59120' : 'http://media:9000',
     S3_REGION: 'us-east-1',
