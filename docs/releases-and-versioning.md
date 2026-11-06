@@ -93,10 +93,16 @@ Docker build; the root and internal workspace packages stay private.
    mkdir -p artifacts
    gh release download v0.1.0-rc.2 --repo lkuich/storypane \
      --pattern storypane-sdk-0.1.0-rc.2.tgz --dir artifacts --clobber
-   npm publish artifacts/storypane-sdk-0.1.0-rc.2.tgz --access public --tag rc
+   npm publish ./artifacts/storypane-sdk-0.1.0-rc.2.tgz --access public --tag rc
    npm view @storypane/sdk@rc version
    npm view @storypane/sdk dist-tags --json
    ```
+
+   If npm returns a 403 requiring two-factor authentication, enable account 2FA
+   (including publishing protection) in npm’s security settings, then retry from
+   your authenticated terminal. Signing in and owning the scope alone are not
+   sufficient. Keep the `./` prefix on the local archive path so npm treats it
+   as a file rather than a GitHub shorthand.
 
    Complete any requested npm account/2FA checks. The version should be
    `0.1.0-rc.2` and the `rc` tag should point to it. Keep candidates off `latest`.

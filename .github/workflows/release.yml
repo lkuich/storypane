@@ -43,7 +43,7 @@ jobs:
       - run: pnpm test:package
       - name: Publish SDK to the rc channel
         if: github.event_name == 'workflow_dispatch' && inputs.publish_npm
-        run: npm publish artifacts/*.tgz --access public --tag rc --provenance
+        run: npm publish ./artifacts/*.tgz --access public --tag rc --provenance
       - name: Publish GitHub prerelease
         env:
           GH_TOKEN: ${{ github.token }}
