@@ -30,6 +30,11 @@ Treat the version's `-rc` suffix and release notes as the stability indicator;
 `latest` does not mean this candidate is stable or production-verified. Prefer
 an explicit version or the `rc` channel in your integration.
 
+The [Railway template](deploy-railway.md) currently builds `main`, including the
+automatic installation setup added after rc.2. It is an evaluation path, not a
+pinned rc.2 deployment. Review the [hosted verification record](deployment-verification.md#railway-template-checks--2026-11-06)
+and retain backups before pulling newer source.
+
 ## What CI checks
 
 Pull requests and pushes to `main` run `.github/workflows/ci.yml`: frozen-lockfile

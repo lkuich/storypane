@@ -46,6 +46,11 @@ Storypane's MIT license does not cover third-party service charges.
 
 ## Set up local sign-in
 
+With the [Railway template](deploy-railway.md), enter your first administrator’s
+name, email, and password before deploying. Sign in when the app is healthy, then
+remove the three `STORYPANE_ADMIN_*` variables. You do not need the bootstrap CLI;
+redeploys preserve existing accounts and cannot reset their passwords.
+
 Follow [getting started](getting-started.md) to create configuration and start the
 services. `node scripts/setup-env.mjs` generates a private `BETTER_AUTH_SECRET`
 and the other installation keys without printing them. Keep these values on

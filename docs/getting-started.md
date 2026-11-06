@@ -120,8 +120,10 @@ published and preview tokens on the server; never place them in browser code.
 
 ## Choose where to run it
 
-The current CMS runtime is Node/Docker. Railway has a separate Node deployment
-guide, but has not passed fresh-install acceptance. Cloudflare hosts the static
+The current CMS runtime is Node/Docker. For hosted setup, use the
+[Deploy on Railway template](deploy-railway.md): it provisions the app, Postgres,
+and private storage, then creates your first administrator. See its recorded
+checks and remaining production acceptance. Cloudflare hosts the static
 marketing website; the current CMS runtime does not run on Workers. Retire a
 legacy Worker only after its content, database, media and keys have been migrated
 or backed up and the replacement installation is verified. See

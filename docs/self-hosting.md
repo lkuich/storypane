@@ -34,6 +34,10 @@ The example runs PostgreSQL and an AGPL-licensed MinIO service alongside the
 MIT-licensed CMS. Review [third-party notices](../THIRD_PARTY_NOTICES.md); external
 Postgres and S3 providers can be used instead.
 
+For a hosted installation without terminal setup, use the [Railway template](deploy-railway.md).
+It provisions PostgreSQL and private storage and bootstraps the administrator from
+your deployment inputs. The Docker instructions below are the self-managed path.
+
 ## Fresh Docker installation
 
 Run `node scripts/setup-env.mjs` from the repository root using Node 24.22+

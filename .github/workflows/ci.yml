@@ -14,7 +14,18 @@ jobs:
       POSTGRES_DB: storypane
       TEST_DATABASE_URL: postgresql://storypane:storypane@127.0.0.1:55432/storypane_test
       ISOLATION_TEST_DATABASE_URL: postgresql://storypane:storypane@127.0.0.1:55449/postgres
+      RAILWAY_TEST_DATABASE_URL: postgresql://storypane:storypane@127.0.0.1:55448/railway
     services:
+      railway:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: storypane
+          POSTGRES_PASSWORD: storypane
+          POSTGRES_DB: railway
+        ports: ['55448:5432']
+        options: >-
+          --health-cmd "pg_isready -U storypane -d railway"
+          --health-interval 5s --health-timeout 5s --health-retries 10
       postgres:
         image: postgres:18-alpine
         env:

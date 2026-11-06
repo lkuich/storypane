@@ -45,6 +45,15 @@ and see their changes in a live website preview.
 
 ## Get started
 
+[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/new/template/storypane?utm_medium=integration&utm_source=button&utm_campaign=storypane)
+
+For hosted setup, the [Railway template](docs/deploy-railway.md) provisions the app,
+PostgreSQL, and private media together. Enter your first administrator details,
+deploy, and sign in. Railway charges apply; optional edge image CDN setup is separate.
+The template tracks `main` and is for release-candidate evaluation.
+
+For local or self-managed Docker setup, continue below.
+
 The current CMS runs on **Node.js and Docker**, backed by PostgreSQL and private
 S3-compatible storage. The Docker setup includes all three services. Built-in
 email/password sign-in is the default; Clerk and SMTP are optional.
@@ -236,9 +245,9 @@ first using their integration guides above. Never commit session files or creden
   outstanding verification, and the installation acceptance checklist.
 
 Storypane is under active development. The current CMS targets Node/Docker;
-Cloudflare hosting in the guides applies to the separate static website. Fresh
-Railway deployment acceptance remains unverified. See the guides above before
-planning a hosted installation.
+Cloudflare hosting in the guides applies to the separate static website. Railway
+has a working deployment template; review the [recorded checks and outstanding
+production acceptance](docs/deployment-verification.md#railway-template-checks--2026-11-06).
 
 ## License
 

@@ -1,9 +1,11 @@
 # Fresh-install acceptance
 
-Deployment actions remain gated until this checklist is recorded against a fresh
-provider project, CMS revision, database and private bucket. Local unit/build
-checks do not count as fresh-deployment acceptance. Never test against production
-content merely to complete a checklist.
+Complete this checklist before declaring a deployment production-ready. Record
+the provider project, CMS revision, database, and private bucket. The public
+Railway release-candidate template has the scoped hosted checks recorded below;
+it is available for evaluation while broader acceptance remains outstanding.
+Local unit/build checks do not count as fresh-deployment acceptance. Never test
+against production content merely to complete a checklist.
 
 - Start fresh Docker with no Clerk keys or SMTP. Bootstrap through the hidden CLI
   prompt, sign in, create/attach two databases, accept an invitation, sign out,
@@ -57,8 +59,9 @@ content merely to complete a checklist.
   editing while scheduled jobs and uploads run. Cloudflare is the static marketing
   website host only; the CMS Worker runtime is unsupported by this layout.
 
-Record actual results, failures and evidence. Update the website provider status
-and deployment skill together only when every required step passes.
+Record actual results, failures, and evidence. Update the website provider status
+and deployment skill together, distinguishing scoped checks from full acceptance.
+Only claim full acceptance when every required step passes.
 
 ## Local verification — 2026-11-05
 
@@ -173,3 +176,45 @@ All 74 affected lifecycle/webhook tests passed against a new disposable cluster
 with no existing databases. The rc.2 packed SDK consumer check and lint passed.
 No rc.1 package was published; the failed tag remains in history. GitHub release
 CI must pass before publishing rc.2. This does not change hosted acceptance status.
+
+## Railway template checks — 2026-11-06
+
+Checked CMS revision `ab0da7a` with the real Storypane template `storypane` in a new
+Railway project, `storypane-template-acceptance`. The template builds `main`, not
+a pinned release. These checks establish a working RC deployment path; they do
+**not** complete the full production acceptance checklist above.
+
+- The actual template provisioned the application, PostgreSQL, and a new private
+  Railway bucket. Independent generated secrets and service references resolved;
+  the pre-deploy runner created the isolated installation database and first
+  administrator. `/api/ready` returned 200. No Clerk keys or SMTP were configured.
+- Browser acceptance passed local sign-in, creation of two spaces, manual
+  invitation and new-account acceptance, non-admin provisioning rejection,
+  sign-out, and invitation replay denial. Keyboard login and 390/768/1440px checks
+  passed without browser errors. A first attempt hit the local five-second
+  cold-page assertion timeout; the rerun used a 30-second hosted-page timeout.
+- HTTP acceptance on the new deployment passed original upload to its private
+  bucket, byte-identical download, HEAD, byte ranges, and a WebP thumbnail.
+  Anonymous access to the private asset was rejected.
+- Protected production and two linked dev spaces passed cloning of block-library
+  parents and nested-block restrictions without copying story content. A dev
+  migration deployed and promoted to production; direct production schema writes
+  were denied. The other dev reported behind and synced successfully.
+- Removing all three bootstrap administrator inputs and redeploying completed
+  successfully. The existing administrator session, spaces, promoted schemas,
+  story content, and original media remained intact. One app replica and sleeping
+  disabled are the template defaults.
+- Five focused PostgreSQL tests cover fresh setup, dedicated database/role checks,
+  refusal of shared databases, interrupted and concurrent bootstrap retries,
+  preserved passwords/sessions/migrations, and rejection of changed credentials.
+  CI runs these against its own fresh PostgreSQL service. Type checks, lint, and
+  the Node/SDK production build passed for the setup change.
+
+Still outstanding **on this Railway deployment**: the complete two-editor/reconnect
+workflow, preview and content-scope matrix, conflict resolution and dual CLI
+credentials, scheduled releases and webhooks, account recovery/provider switching,
+interrupted multipart resume, database outage recovery, and backup/restore rehearsal.
+Existing local coverage for several of these is recorded above; it does not count
+as hosted acceptance. Independent security review and production load benchmarks
+also remain outstanding. Cloudflare edge image optimization was not provisioned;
+origin image transformations were checked.

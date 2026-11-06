@@ -1,8 +1,11 @@
-# Railway readiness and setup
+# Deploy Storypane on Railway
 
-Status: Node runtime and Docker packaging are implemented locally; no fresh
-Railway installation or shareable hosted template has been verified. Do not enable
-a deploy button until [acceptance](deployment-verification.md) passes.
+[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/new/template/storypane?utm_medium=integration&utm_source=button&utm_campaign=storypane)
+
+Deploy the **release candidate** into your own Railway workspace. The template
+builds the public repository’s `main` branch; it does not pin a stable release.
+See [recorded hosted checks and remaining acceptance](deployment-verification.md#railway-template-checks--2026-11-06)
+before production use.
 
 The Node runtime reuses vinext's standalone production server, the frontend,
 Postgres model, local or Clerk authentication, HTTP APIs, asset authorization and shared
@@ -11,7 +14,31 @@ loader for those internal runtime packages. It runs one application process for
 HTTP, WebSockets and independent minute schedulers for publishing and webhooks. No Cloudflare
 account or service is required for this runtime.
 
-## Services and references
+## What the template sets up
+
+The template packages the CMS, PostgreSQL, and a private Railway bucket. You
+provide the first administrator’s name, email, and password in Railway before
+deployment. The application’s pre-deploy command creates an isolated installation
+database and unprivileged role, runs transactional migrations, and creates that
+administrator. There is no public signup or first-visitor-wins setup endpoint.
+
+Once deployed, open the application’s HTTPS URL and sign in with those credentials.
+Create a **Production** space for editors, then linked **Development** spaces for
+developers. Follow the [team setup guide](development-workflow.md).
+
+After signing in, remove `STORYPANE_ADMIN_NAME`, `STORYPANE_ADMIN_EMAIL`, and
+`STORYPANE_ADMIN_PASSWORD` from the app’s Railway variables. Redeploys preserve
+existing accounts and passwords; these fields cannot reset an account. Use
+**Account → Change password** or the [operator recovery command](authentication.md#password-changes-and-recovery)
+for subsequent changes. Keep the generated database passwords and encryption keys.
+
+Railway hosting and storage are billed to your Railway workspace. Cloudflare,
+Clerk, and SMTP are optional and are not needed to get started.
+
+## Template configuration
+
+These settings describe the maintained template and are also useful for auditing
+or recreating it. They are not additional steps for someone deploying the template.
 
 Create a Railway project with an application from this repository, Railway
 Postgres, and a private Storage Bucket. Name the supporting services `Postgres`
@@ -21,17 +48,17 @@ provider settings are not part of the application's default build configuration.
 Do not scale replicas without a shared room transport; in-memory recipients would
 otherwise miss notifications.
 
-| Service setting                  | Value                                             |
-| -------------------------------- | ------------------------------------------------- |
-| Root directory                   | Repository root                                   |
-| Builder                          | Dockerfile                                        |
-| Dockerfile path                  | `Dockerfile`                                      |
-| Pre-deploy command               | `node --import tsx scripts/migrate-production.ts` |
-| Start command                    | Use the Docker image's default command            |
-| Healthcheck path / timeout       | `/api/ready` / 120 seconds                        |
-| Restart policy / maximum retries | On failure / 10                                   |
-| Replicas                         | 1                                                 |
-| Sleeping                         | Disabled                                          |
+| Service setting                  | Value                                          |
+| -------------------------------- | ---------------------------------------------- |
+| Root directory                   | Repository root                                |
+| Builder                          | Dockerfile                                     |
+| Dockerfile path                  | `Dockerfile`                                   |
+| Pre-deploy command               | `node --import tsx scripts/prepare-railway.ts` |
+| Start command                    | Use the Docker image's default command         |
+| Healthcheck path                 | `/api/ready`                                   |
+| Restart policy / maximum retries | On failure / 10                                |
+| Replicas                         | 1                                              |
+| Sleeping                         | Disabled                                       |
 
 For existing deployments, save these settings in the dashboard and clear any
 custom config file path before upgrading. This repository no longer supplies
@@ -40,29 +67,42 @@ new installations should use the service settings above.
 
 Set application variables using Railway's reference syntax:
 
-| Application variable        | Value                                        |
-| --------------------------- | -------------------------------------------- |
-| `INSTALLATION_DATABASE_URL` | Dedicated installation database URL          |
-| `PROVISIONING_DATABASE_URL` | `${{Postgres.DATABASE_URL}}` (operator role) |
-| `S3_ENDPOINT`               | `${{Bucket.ENDPOINT}}`                       |
-| `S3_REGION`                 | `${{Bucket.REGION}}`                         |
-| `S3_BUCKET`                 | `${{Bucket.BUCKET}}`                         |
-| `S3_ACCESS_KEY_ID`          | `${{Bucket.ACCESS_KEY_ID}}`                  |
-| `S3_SECRET_ACCESS_KEY`      | `${{Bucket.SECRET_ACCESS_KEY}}`              |
+| Application variable        | Value                                                                                                                                |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| `INSTALLATION_DATABASE_URL` | `postgresql://storypane_installation:${{INSTALLATION_DB_PASSWORD}}@${{Postgres.PGHOST}}:${{Postgres.PGPORT}}/storypane_installation` |
+| `PROVISIONING_DATABASE_URL` | `${{Postgres.DATABASE_URL}}` (operator role)                                                                                         |
+| `S3_ENDPOINT`               | `${{Bucket.ENDPOINT}}`                                                                                                               |
+| `S3_REGION`                 | `${{Bucket.REGION}}`                                                                                                                 |
+| `S3_BUCKET`                 | `${{Bucket.BUCKET}}`                                                                                                                 |
+| `S3_ACCESS_KEY_ID`          | `${{Bucket.ACCESS_KEY_ID}}`                                                                                                          |
+| `S3_SECRET_ACCESS_KEY`      | `${{Bucket.SECRET_ACCESS_KEY}}`                                                                                                      |
 
-Follow [database preparation and bootstrap](self-hosting.md). Create a separate
-installation database and role on the Railway Postgres service; do not use the
-provisioning credential for ordinary requests. Space roles must have CONNECT only
-to their own database, including revoking PUBLIC CONNECT on the other databases.
-If the managed database does not allow role/database creation, attach dedicated
-empty databases instead and omit `PROVISIONING_DATABASE_URL`.
+The template generates `INSTALLATION_DB_PASSWORD` as a URL-safe secret and
+independent `BETTER_AUTH_SECRET`, `INSTALLATION_ENCRYPTION_KEY`, and
+`WEBHOOK_ENCRYPTION_KEY` values. Encryption keys must be canonical base64 for
+exactly 32 bytes. For Railway’s template variable functions, use this expression
+independently for each encryption key (the final character preserves base64 padding):
 
-Set `AUTH_PROVIDER=local` (the default), independent `BETTER_AUTH_SECRET`,
-`INSTALLATION_ENCRYPTION_KEY`, and `WEBHOOK_ENCRYPTION_KEY` values. Retain all keys
-on upgrades and keep backups. Clerk keys are required only when selecting
-`AUTH_PROVIDER=clerk`. SMTP is optional. Run the operator CLI `bootstrap` through
-an interactive Railway service shell; it reads the password without echo.
-Optional `WEBHOOK_HOSTS` and `EXTERNAL_OPTION_HOSTS` are exact approved hostnames.
+```text
+${{secret(42, "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/")}}${{secret(1, "AEIMQUYcgkosw048")}}=
+```
+
+Use `${{secret(64, "0123456789abcdef")}}` independently for
+`INSTALLATION_DB_PASSWORD` and `BETTER_AUTH_SECRET`. Mark `STORYPANE_ADMIN_NAME`,
+`STORYPANE_ADMIN_EMAIL`, and `STORYPANE_ADMIN_PASSWORD` as required deployment
+inputs with no shared defaults. The admin password must contain 12–128 characters.
+Set `AUTH_PROVIDER=local`, `PORT=3000`, and `S3_FORCE_PATH_STYLE=false`.
+
+`prepare-railway.ts` is only for a dedicated template PostgreSQL service. It
+refuses initial setup alongside unrelated databases, never changes existing role
+passwords or database ownership, and uses the same bootstrap lock as the operator
+CLI. Interrupted setup can be retried without recreating storage. On redeploy,
+it migrates every registered space and stops the deployment if any migration fails.
+
+For an **existing installation** with manually prepared databases, retain
+`node --import tsx scripts/migrate-production.ts` as the pre-deploy command.
+Do not switch it to automatic setup. Follow [database preparation](self-hosting.md)
+for external servers. Never replace the installation credential with a superuser.
 
 Generate the application's Railway public domain and set `STORYPANE_APP_URL`
 to its full HTTPS origin, without a trailing slash. You can reference it as
@@ -88,13 +128,13 @@ pnpm --filter @storypane/web start
 docker build -t storypane .
 ```
 
-The pre-deploy command runs `scripts/migrate-production.ts`. The runner
+The template pre-deploy command runs `scripts/prepare-railway.ts`. The runner
 uses separate transactional migration histories and visits every registered space.
 `/api/ready` reports installation readiness and degraded space availability;
-it does not prove sign-in, media or background publishing. Follow acceptance before
-publishing a template. The template should contain exactly these three services,
-wire the references above, generate the independent encryption/auth secrets once, and expose only the application. Save/share it from Railway only after the
-fresh project passes; no template URL is invented in the website.
+it does not prove sign-in, media or background publishing. The template contains exactly these three resources, wires their references,
+generates independent secrets per deployment, and exposes only the application.
+Use the [acceptance checklist](deployment-verification.md) before recommending a
+new template revision. Never copy verification-project secrets into a public template.
 
 Drafts, leases, schedules, upload IDs and webhook jobs are in Postgres. Restarting
 loses only connected sockets; clients reconnect and recover committed state. The
@@ -121,3 +161,25 @@ References: [Railway buckets](https://docs.railway.com/storage-buckets),
 [variables](https://docs.railway.com/variables),
 [vinext](https://github.com/cloudflare/vinext),
 [Sharp](https://sharp.pixelplumbing.com/api-resize/).
+
+## Optional Cloudflare image CDN
+
+Images work immediately using Storypane’s existing image service: private originals
+stay in the bucket, and Sharp resizes, crops, and compresses authorized requests.
+This happens on the application server. Cloudflare image transformations are a
+separate integration for edge optimization; the Railway button does not configure
+a Cloudflare account, domain, plan, or cache rules.
+
+Cloudflare can [transform images from a remote origin](https://developers.cloudflare.com/images/optimization/transformations/overview/),
+including resizing, quality control, and automatic format selection. Keep the
+Railway bucket private and use only Storypane’s authorized public-media route as
+the public source. Drafts, previews, private assets, and editor/API responses must
+retain their access checks and must not enter a shared public cache.
+
+Storypane currently sends `Cache-Control: no-store` on public-media responses.
+Do not override that with a broad “cache everything” rule: unpublishing an asset
+must not leave an accessible cached copy. Edge caching needs a separately verified
+invalidation policy and versioned image URLs before it is enabled. This is not a
+prerequisite for using the Railway installation. See
+[Cloudflare image options](https://developers.cloudflare.com/images/optimization/features/)
+and [pricing](https://developers.cloudflare.com/images/pricing/) when planning that setup.

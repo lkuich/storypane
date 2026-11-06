@@ -9,6 +9,8 @@ Follow the modules below in order, or jump to the topic you need.
 
 Already have an instance? Start with content and schemas below.
 
+- [Deploy on Railway](deploy-railway.md): provision the app, PostgreSQL, and private
+  media with a branded deployment button. Start with the release-candidate limits.
 - [Local setup](getting-started.md): run Storypane locally or develop from source,
   with copyable instructions for a coding agent.
 - [Node installations](self-hosting.md): Docker setup, external Postgres and storage,
@@ -60,7 +62,7 @@ Explore the SDK, then choose the integration guide for your framework.
 
 - [Cloudflare](deploy-cloudflare.md): Cloudflare Workers Static Assets for the static website and
   status of the previous CMS Worker runtime.
-- [Railway](deploy-railway.md): independent Node runtime status and deployment notes.
+- [Railway](deploy-railway.md): deployment template, operations, and optional image CDN setup.
 - [Deployment verification](deployment-verification.md): current acceptance status and
   requirements for hosted installations.
 
