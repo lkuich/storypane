@@ -11,32 +11,40 @@ The page you open is the starting point. The default view shows **Published
 content**, outgoing page links, and two hops. Select a locale, switch to saved
 drafts, choose one to four hops, or follow incoming links or both directions.
 The starting page and filters are stored in the URL; browser Back restores the
-previous exploration. Use **Refresh** after another editor changes content.
+previous exploration. Open a page in the editor and expand **Page map** below the application preview.
+It starts collapsed for each page and locale. The map code and graph request load
+only after expansion; collapsing cancels pending requests. Collapse and reopen to
+refresh the graph. If the preview is hidden, choose **Preview** to show the panel.
+
+## Explore connections
+
+The map starts from the open page and follows its **published page links** for
+two hops, using the editor’s selected locale. Changing the editor locale opens a
+fresh, collapsed panel. Pages without an accessible publication are unavailable
+in the map. Saved drafts and unsaved edits are outside this view.
 
 Cards show the page title, URL, resolved locale, publication status, and visible
-incoming/outgoing counts **within this map**. A fallback badge means the selected
-locale has no snapshot in this mode and the configured default locale was used.
-A restricted translation is not replaced with another locale to bypass access.
-Published mode uses the current published snapshot; Draft uses the latest saved
-checkpoint. Unsaved edits are outside the map.
+incoming/outgoing counts **within this map**. A fallback label means the selected
+locale has no publication and the configured default locale was used. A restricted
+translation is not replaced with another locale to bypass access.
 
-Select a card to inspect its incoming and outgoing connections, including the
-originating block and field. **Open page** opens its resolved locale in the editor.
-**Explore from here** makes it the new starting point. Use Tab to focus a card’s
-title and Enter to open its details; keyboard focus brings the card into view.
-Details appear beside the canvas on desktop and in a dismissible sheet on narrow
-screens. Use **List** to return to Content and choose another page.
+Select a card to inspect incoming and outgoing connections, including the
+originating block and field. Use Tab to focus a card’s title and Enter to open its
+details; keyboard focus brings the card into view. Details open in a dialog, or a
+bottom sheet on narrow screens. **Open page** opens its resolved locale in the
+editor, using the normal unsaved-change guard. Expand that page’s map to continue
+exploring.
 
-Solid arrows represent explicit story-link fields, including links in nested
-blocks. **Include content references** also shows story-backed option fields as
-dashed arrows. These references may embed shared content; they do not necessarily
-represent clickable navigation. Repeated links between the same pages and of the
-same kind share an edge with a usage count. Details show up to 100 usages per edge.
+Arrows represent explicit story-link fields, including links in nested blocks.
+Repeated links between the same pages share an edge with a usage count. Details
+show up to 100 usages per edge. Counts include only visible connections in this
+map. Story-backed option fields are content references and are excluded.
 
-Each map is limited to 100 nodes and 500 edges. A notice appears when either cap
-is reached. Select a boundary page and use **Explore from here** to continue.
-There are no saved layouts, screenshots, crawling, analytics, or inferred links
-from rich text, Markdown, or frontend code.
+The map is read-only: pan, zoom, and fit the canvas, but do not move cards, create
+links, or edit content there. Each map is limited to 100 nodes and 500 edges. A
+notice appears when either cap is reached. Open a boundary page to explore its
+links. There are no saved layouts, screenshots, crawling, analytics, or inferred
+links from rich text, Markdown, or frontend code.
 
 ## Upgrade existing instances
 

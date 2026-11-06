@@ -9,34 +9,13 @@
   --xy-controls-button-border-color: var(--border);
   --xy-attribution-background-color: var(--surface);
 }
-.map-toolbar {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 16px;
-  align-items: end;
-  margin-bottom: 20px;
-}
-.map-toolbar .field {
-  min-width: 120px;
-  flex: 1;
-  margin-bottom: 0;
-}
-.map-toolbar .checkbox-label {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-height: 40px;
-}
-.map-workspace {
-  display: flex;
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  overflow: hidden;
+.map-legend {
+  padding: 12px 14px;
+  margin: 0;
 }
 .map-canvas {
-  height: 580px;
+  height: 360px;
   min-width: 0;
-  flex: 1;
 }
 .map-card {
   width: 240px;
@@ -77,18 +56,6 @@
   height: 6px;
   background: var(--muted);
 }
-.map-details {
-  width: 340px;
-  padding: 18px;
-  overflow: auto;
-  max-height: 580px;
-  background: var(--surface);
-  border-left: 1px solid var(--border);
-}
-.map-details h2 {
-  font-size: 20px;
-  margin-top: 20px;
-}
 .map-connections {
   padding-left: 18px;
 }
@@ -103,22 +70,13 @@
 .map-connections code {
   overflow-wrap: anywhere;
 }
-.map-sheet {
-  width: 100%;
-  max-width: 100%;
-  margin: auto 0 0;
-  max-height: 85dvh;
-  border-radius: 16px 16px 0 0;
-}
 @media (max-width: 760px) {
-  .map-canvas {
-    height: 450px;
-  }
-  .map-toolbar {
-    gap: 10px;
-  }
-  .map-toolbar .field {
-    min-width: 135px;
+  .map-details-dialog {
+    width: 100%;
+    max-width: 100%;
+    margin: auto 0 0;
+    max-height: 85dvh;
+    border-radius: 16px 16px 0 0;
   }
 }
 

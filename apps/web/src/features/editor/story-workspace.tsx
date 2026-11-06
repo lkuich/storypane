@@ -27,7 +27,6 @@ import {
   LockKeyhole,
   Monitor,
   MoreHorizontal,
-  Network,
   Plus,
   RotateCcw,
   Search,
@@ -65,6 +64,7 @@ import { FieldInput } from './field-input';
 import type { NavigationGuard, RegisterGuard } from './navigation';
 import { useStoryEditor } from './use-story-editor';
 import { useBlockClipboard } from './use-block-clipboard';
+import { PageMapPanel } from '../page-map/page-map-panel';
 import { PreviewPanel } from './preview-panel';
 import { BlockPreview } from './block-preview';
 import { BlockNavigation, blockSummary, blockTitle, definitionFor } from './block-navigation';
@@ -97,13 +97,13 @@ export function StoryWorkspace({
   story,
   session,
   onBack,
-  onMap,
+  onOpen,
   registerGuard,
 }: {
   story: Story;
   session: CMSSession;
   onBack: () => void;
-  onMap: (locale: string) => void;
+  onOpen: (story: Story, locale?: string) => void;
   registerGuard: RegisterGuard;
 }) {
   const [locales, setLocales] = useState<StoryLocale[]>([]);
@@ -225,18 +225,10 @@ export function StoryWorkspace({
   }
   return (
     <>
-      <div className="story-workspace-heading">
-        <div className="breadcrumb">
-          <button onClick={() => void back()}>Content</button>
-          <ChevronRight size={12} />
-          <span>{story.name}</span>
-        </div>
-        <Button
-          disabled={!initialSnapshot || busy}
-          onClick={() => onMap(initialSnapshot!.locale.slug)}
-        >
-          <Network aria-hidden="true" /> View in map
-        </Button>
+      <div className="breadcrumb">
+        <button onClick={() => void back()}>Content</button>
+        <ChevronRight size={12} />
+        <span>{story.name}</span>
       </div>
       <ErrorNotice
         message={error}
@@ -250,6 +242,10 @@ export function StoryWorkspace({
             key={localeId}
             story={story}
             onDeleted={onBack}
+            onOpen={async (next, locale) => {
+              if (!switching.current && (!guard.current || (await guard.current())))
+                onOpen(next, locale);
+            }}
             initialSnapshot={initialSnapshot}
             previewOpen={previewOpen}
             onPreview={() => setPreviewOpen((value) => !value)}
@@ -281,6 +277,7 @@ export function StoryWorkspace({
 function LocaleEditor({
   story,
   onDeleted,
+  onOpen,
   initialSnapshot,
   previewOpen,
   onPreview,
@@ -301,6 +298,7 @@ function LocaleEditor({
   story: Story;
   initialSnapshot: LocaleSnapshot;
   onDeleted: () => void;
+  onOpen: (story: Story, locale?: string) => Promise<void>;
   previewOpen: boolean;
   onPreview: () => void;
   previewSettings: DeliverySettings | null;
@@ -1189,17 +1187,22 @@ function LocaleEditor({
             : undefined
         }
       >
-        {previewOpen && !snapshot.story.formOnly && snapshot.access?.preview !== false && (
-          <PreviewPanel
-            settings={previewSettings}
-            onSettings={onPreviewSettings}
-            previewId={previewId}
-            onPreviewId={onPreviewId}
-            snapshot={snapshot}
-            spaceId={session.space.id}
-            selectedId={editor.selectedId}
-            onSelect={editor.select}
-          />
+        {previewOpen && !snapshot.story.formOnly && (
+          <div className="story-preview-column">
+            {snapshot.access?.preview !== false && (
+              <PreviewPanel
+                settings={previewSettings}
+                onSettings={onPreviewSettings}
+                previewId={previewId}
+                onPreviewId={onPreviewId}
+                snapshot={snapshot}
+                spaceId={session.space.id}
+                selectedId={editor.selectedId}
+                onSelect={editor.select}
+              />
+            )}
+            <PageMapPanel storyId={story.id} locale={snapshot.locale.slug} onOpen={onOpen} />
+          </div>
         )}
         <div
           className="editor-layout"

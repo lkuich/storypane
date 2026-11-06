@@ -285,10 +285,12 @@ shown in the SDK guide. Both framework examples already include that integration
 
 ## Explore page connections
 
-Use the **View in map** icon beside a page in Content or the button at the top
-right of an open page. Start with published content and two hops, then inspect
-incoming and outgoing links. The map is read-only and respects content permissions. See the [page-map guide](page-map.md) for locale
-fallback, saved drafts, optional content references, limits, and upgrade details.
+Expand **Page map** below the application preview. It starts collapsed and loads
+only when opened, showing published page links two hops from the current page in
+the selected editor locale. Select a card to inspect its connections or open that
+page. Collapse and reopen to refresh. The map is read-only and respects content
+permissions. See the [page-map guide](page-map.md) for locale fallback, limits, and
+upgrade details.
 
 ## Continue with your team
 

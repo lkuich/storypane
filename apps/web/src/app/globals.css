@@ -254,24 +254,6 @@ hr {
   gap: 8px;
   flex-wrap: wrap;
 }
-.content-view-switch {
-  display: flex;
-  gap: 2px;
-  padding: 3px;
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  background: var(--surface-subtle);
-}
-.content-view-switch .button {
-  min-height: 32px;
-  padding: 6px 12px;
-  border-radius: 8px;
-}
-.content-view-switch .button[aria-pressed='true'] {
-  background: var(--accent-soft);
-  color: var(--accent);
-  border-color: var(--accent);
-}
 .muted {
   color: var(--muted);
 }
@@ -1011,25 +993,6 @@ hr {
 .back-button {
   margin-bottom: 18px;
   padding-left: 0;
-}
-.story-workspace-heading {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  margin-bottom: 18px;
-}
-.story-workspace-heading .breadcrumb {
-  min-width: 0;
-  margin-bottom: 0;
-}
-.story-workspace-heading .breadcrumb span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.story-workspace-heading > .button {
-  flex-shrink: 0;
 }
 .breadcrumb {
   font-size: 12px;
@@ -1998,6 +1961,46 @@ hr {
 .outline-drawer .tree-footer {
   display: block;
 }
+.story-preview-column {
+  position: sticky;
+  top: 18px;
+  min-width: 0;
+}
+.story-preview-column:has(.page-map-panel[open]) {
+  position: static;
+}
+.story-preview-column > .preview-panel {
+  position: static;
+}
+.page-map-panel > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px;
+  font-size: 13px;
+  font-weight: 650;
+  cursor: pointer;
+  list-style: none;
+}
+.page-map-panel > summary::-webkit-details-marker {
+  display: none;
+}
+.page-map-panel > summary span {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.page-map-panel > summary svg {
+  width: 16px;
+  height: 16px;
+}
+.page-map-panel[open] > summary {
+  border-bottom: 1px solid var(--line);
+}
+.page-map-panel[open] > summary > svg {
+  transform: rotate(90deg);
+}
 .preview-panel {
   position: sticky;
   top: 18px;
@@ -2128,6 +2131,7 @@ hr {
   .visual-workspace {
     grid-template-columns: minmax(0, 1fr);
   }
+  .story-preview-column,
   .preview-panel {
     position: static;
   }
