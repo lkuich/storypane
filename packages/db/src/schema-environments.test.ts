@@ -333,3 +333,113 @@ it('recognizes a committed promotion during sync even if its source acknowledgem
   expect((await schemaStatus(stores[1], actors[1], stores[0], actors[0])).pending).toEqual([]);
   expect((await captureSchema(stores[0], actors[0])).head.version).toBe(2);
 });
+
+it('copies required story cycles as drafts and preserves existing target stories on later promotions', async () => {
+  const page = (await stores[1].listDefinitions(actors[1]))[0];
+  await stores[1].updateDefinition(actors[1], page.id, {
+    ...definitionInput(page),
+    fields: [...page.fields, { name: 'related', label: 'Related', type: 'link' }],
+  });
+  await deploy(1);
+  const stories = [];
+  for (const slug of ['first', 'second', 'unrelated'])
+    stories.push(
+      await stores[1].createStory(actors[1], {
+        name: slug,
+        slug,
+        definitionId: page.id,
+      }),
+    );
+  for (const [index, target] of [
+    [0, 1],
+    [1, 0],
+  ])
+    await pools[1].query('UPDATE block_drafts SET fields=$2 WHERE id=$1', [
+      stories[index].locale.rootBlockId,
+      JSON.stringify({
+        title: 'Original',
+        related: { type: 'story', storyId: stories[target].story.id },
+      }),
+    ]);
+  await pools[1].query(
+    "INSERT INTO space_locales(space_id,name,slug) VALUES($1,'Unused locale','unused')",
+    [actors[1].spaceId],
+  );
+  await stores[1].createDefinition(actors[1], {
+    name: 'call_to_action',
+    displayName: 'Call to action',
+    kind: 'nestable',
+    fields: [
+      {
+        name: 'link',
+        label: 'Link',
+        type: 'link',
+        defaultValue: { type: 'story', storyId: stories[0].story.id },
+      },
+    ],
+  });
+  await deploy(1);
+  const promotion = await review(1, 'promote');
+  expect(promotion.dependencies.stories.map((s) => s.id).sort()).toEqual(
+    stories
+      .slice(0, 2)
+      .map((s) => s.story.id)
+      .sort(),
+  );
+  expect((await pools[0].query('SELECT id FROM stories')).rows).toEqual([]);
+  await apply(1, promotion);
+  const copied = await stores[0].getSnapshot(actors[0], stories[0].story.id, stories[0].locale.id);
+  expect(copied.locale.publishedVersionId).toBeNull();
+  expect(copied.blocks[0].fields.related).toEqual({ type: 'story', storyId: stories[1].story.id });
+  expect((await pools[0].query("SELECT id FROM space_locales WHERE slug='unused'")).rows).toEqual(
+    [],
+  );
+  await pools[1].query('UPDATE block_drafts SET fields=$2 WHERE id=$1', [
+    stories[0].locale.rootBlockId,
+    JSON.stringify({ title: 'Dev edit', related: { type: 'story', storyId: stories[2].story.id } }),
+  ]);
+  await edit(1, 'Next migration');
+  const next = await review(1, 'promote');
+  expect(next.dependencies.stories).toEqual([]);
+  await apply(1, next);
+  const preserved = await stores[0].getSnapshot(
+    actors[0],
+    stories[0].story.id,
+    stories[0].locale.id,
+  );
+  expect(preserved.blocks[0].fields.title).toBe('Original');
+  expect(preserved.blocks[0].fields.related).toEqual({
+    type: 'story',
+    storyId: stories[1].story.id,
+  });
+  expect(
+    (await pools[0].query('SELECT id FROM stories WHERE id=$1', [stories[2].story.id])).rows,
+  ).toEqual([]);
+});
+
+it('rolls back the entire batch when a later migration is blocked by production content', async () => {
+  const page = (await stores[1].listDefinitions(actors[1]))[0];
+  await stores[0].createStory(actors[0], {
+    name: 'Existing content',
+    slug: 'existing',
+    definitionId: page.id,
+  });
+  const before = await captureSchema(stores[0], actors[0]);
+  await edit(1, 'First step');
+  const changed = (await stores[1].listDefinitions(actors[1]))[0];
+  await stores[1].deleteDefinition(actors[1], page.id, {
+    expectedVersionId: changed.versionId,
+    baseVersion: 2,
+  });
+  await deploy(1);
+  const r = await review(1, 'promote');
+  expect(r.steps).toHaveLength(2);
+  expect(r.steps[0].blockers).toEqual([]);
+  expect(r.steps[1].blockers.length).toBeGreaterThan(0);
+  await expect(apply(1, r)).rejects.toMatchObject({ code: 'invalid' });
+  const after = await captureSchema(stores[0], actors[0]);
+  expect(after.deployed).toEqual(before.deployed);
+  expect(after.definitions).toEqual(before.definitions);
+  expect((await pools[0].query('SELECT id FROM schema_transfers')).rows).toEqual([]);
+  expect((await schemaStatus(stores[1], actors[1], stores[0], actors[0])).pending).toHaveLength(2);
+});

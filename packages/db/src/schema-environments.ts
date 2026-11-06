@@ -324,19 +324,6 @@ export async function transferSchema(
   }
   const dependencyStore = input.action === 'promote' ? devStore : prodStore;
   const dependencyActor = input.action === 'promote' ? dev : prod;
-  // Dev-only dependencies already live in dev; collect incoming production requirements on sync.
-  const dependencies = await Promise.all(
-    steps.map((step) =>
-      collectSchemaDependencies(
-        dependencyStore,
-        dependencyActor,
-        input.action === 'sync'
-          ? (production.deployed.find((d) => d.id === step.id)?.definitions ??
-              production.definitions)
-          : step.definitions,
-      ),
-    ),
-  );
   const review: SchemaTransferReview = {
     id: input.id,
     token: '',
@@ -360,12 +347,40 @@ export async function transferSchema(
       );
     }
   }
+  const targetStoryIds: string[] = await targetStore.readSchema(target, async (client) =>
+    (
+      await client.query('SELECT id FROM stories WHERE space_id=$1 ORDER BY id', [target.spaceId])
+    ).rows.map((row) => row.id),
+  );
+  // Dev-only dependencies already live in dev; collect incoming production requirements on sync.
+  const dependencies = await dependencyStore.readSchema(dependencyActor, async (_, scoped) => {
+    const collected: SchemaDependencies[] = [];
+    for (const step of steps)
+      collected.push(
+        await collectSchemaDependencies(
+          scoped,
+          dependencyActor,
+          input.action === 'sync'
+            ? (production.deployed.find((d) => d.id === step.id)?.definitions ??
+                production.definitions)
+            : step.definitions,
+          targetStoryIds,
+        ),
+      );
+    return collected;
+  });
   const simulate = async (preview: boolean) =>
     targetStore.schemaTransaction(
       target,
       async (scoped, client) => {
         const current = await captureSchema(scoped, target);
+        const currentStoryIds = (
+          await client.query('SELECT id FROM stories WHERE space_id=$1 ORDER BY id', [
+            target.spaceId,
+          ])
+        ).rows.map((row) => row.id);
         if (
+          schemaDigest(currentStoryIds) !== schemaDigest(targetStoryIds) ||
           current.head.id !== (input.action === 'promote' ? production.head.id : source.head.id) ||
           current.active?.migration.revision !==
             (input.action === 'promote'
@@ -456,6 +471,7 @@ export async function transferSchema(
           candidates,
           resolutions,
           dependencies,
+          targetStoryIds,
           contentHeads,
           summaries,
           settings: current.space,

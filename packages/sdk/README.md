@@ -439,7 +439,9 @@ configuration is reconciled explicitly. Active schema drafts are not promoted.
 Other dev spaces show **Behind production**. Use **Sync from production** in the
 Blocks screen or `storypane migrations sync`. Sync preserves deployed history,
 replays incoming production transformations, and reconciles local changes by block
-and field ID. The UI offers a choice for each conflict. The CLI prints conflict
+and field ID. The UI offers a choice for each conflict. If independent changes
+create invalid nesting or references, choose the complete dev or production schema
+for that step. The CLI prints conflict
 paths; put the choices in a JSON object mapping each path to `"dev"` or `"prod"`,
 then run `storypane migrations sync --input resolutions.json`. Review data loss
 before applying. Unresolved conflicts and stale reviews block application.

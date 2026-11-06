@@ -47,8 +47,10 @@ export async function collectSchemaDependencies(
   store: StorypaneStore,
   actor: Actor,
   definitions: PortableDefinition[],
+  existingStoryIds: readonly string[] = [],
 ): Promise<SchemaDependencies> {
   return store.readSchema(actor, async (client, scoped) => {
+    const existingStories = new Set(existingStoryIds);
     const storyIds = new Set<string>(),
       assetIds = new Set<string>(),
       datasourceIds = new Set<string>();
@@ -90,6 +92,7 @@ export async function collectSchemaDependencies(
       assets: [],
     };
     for (const id of storyIds) {
+      if (existingStories.has(id)) continue;
       if (storyIds.size > 100)
         throw new StorypaneError(
           'invalid',
@@ -186,9 +189,14 @@ export async function missingSchemaDependencies(
       (r) => r.id,
     ),
   );
+  const missingStories = deps.stories.filter((s) => !stories.has(s.row.id));
+  const localeIds = new Set(
+    missingStories.flatMap((s) => s.snapshots.map((snapshot) => snapshot.locale.spaceLocaleId)),
+  );
   return {
     ...deps,
-    stories: deps.stories.filter((s) => !stories.has(s.row.id)),
+    locales: deps.locales.filter((locale) => localeIds.has(locale.id)),
+    stories: missingStories,
     assets: deps.assets.filter((a) => !assets.has(a.id)),
   };
 }

@@ -2057,6 +2057,7 @@ export class StorypaneStore {
         const retained = field.id
           ? previous?.fields.find((old) => old.id === field.id)
           : previous?.fields.find((old) => old.name === field.name);
+        // Transfers preserve identities from immutable history when rebasing a developer branch.
         if (field.id && !retained && known.includes(field.id) && !this.incomingSchema)
           throw new StorypaneError(
             'invalid',

@@ -165,7 +165,19 @@ export function reconcileSchemas(
       conflicts.push({ path, base: b ?? null, dev: d ?? null, prod: p ?? null });
     return resolutions[path] === 'prod' ? p : d;
   }
-  const definitions = merge(base, dev, prod, 'blocks') as PortableDefinition[];
+  let definitions = merge(base, dev, prod, 'blocks') as PortableDefinition[];
+  if (!conflicts.length) {
+    // Independent parent moves or deletions can make an otherwise conflict-free merge invalid.
+    const path = 'blocks.structure';
+    if (resolutions[path]) definitions = resolutions[path] === 'prod' ? prod : dev;
+    else {
+      try {
+        validatePortableDefinitions(definitions);
+      } catch {
+        conflicts.push({ path, base, dev, prod });
+      }
+    }
+  }
   return { definitions, conflicts };
 }
 export function withoutExternalCredentials(definitions: PortableDefinition[]) {

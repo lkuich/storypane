@@ -18,6 +18,7 @@ import { Button, EmptyState, ErrorNotice, Loading, Modal } from '@storypane/ui';
 import { errorMessage, jsonRequest, requestJson } from '../editor/api';
 import './spaces.css';
 import { ThemePicker } from '../../components/theme-picker';
+import { EnvironmentBadge } from '../../components/environment-badge';
 
 export function SpacesScreen({ installationAdmin = false }: { installationAdmin?: boolean }) {
   const [mode, setMode] = useState('create');
@@ -87,6 +88,7 @@ export function SpacesScreen({ installationAdmin = false }: { installationAdmin?
               variant="primary"
               onClick={() => {
                 setOperationId(crypto.randomUUID());
+                setMode('create');
                 setConnectionString('');
                 setBaseSpaceId('');
                 setCloneReview(null);
@@ -125,14 +127,17 @@ export function SpacesScreen({ installationAdmin = false }: { installationAdmin?
           (filtered.length ? (
             <div className="spaces-grid">
               {filtered.map((space) => (
-                <article className="space-card" key={space.id} aria-label={space.name}>
+                <article
+                  className="space-card"
+                  key={space.id}
+                  aria-label={space.name}
+                  data-environment={space.environment === 'dev' ? 'dev' : 'prod'}
+                >
                   <div className="space-card-top">
                     <span className="space-emblem">
                       <Building2 aria-hidden="true" />
                     </span>
-                    <span className="pill pill--outline">
-                      {space.environment === 'dev' ? 'Dev' : 'Prod'} · {space.roleName}
-                    </span>
+                    <EnvironmentBadge environment={space.environment} />
                   </div>
                   <h2>
                     {space.role ? <a href={`/?space=${space.id}`}>{space.name}</a> : space.name}
@@ -140,6 +145,44 @@ export function SpacesScreen({ installationAdmin = false }: { installationAdmin?
                   <p className="space-description">
                     {space.description || 'Your stories, blocks, and assets in one place.'}
                   </p>
+                  {space.environment === 'dev' &&
+                    (() => {
+                      const production = spaces.find(
+                        (s) => s.id === space.productionSpaceId && s.role,
+                      );
+                      return (
+                        <p className="space-family">
+                          {production ? (
+                            <>
+                              Production: <a href={`/?space=${production.id}`}>{production.name}</a>
+                            </>
+                          ) : (
+                            'Standalone development space'
+                          )}
+                        </p>
+                      );
+                    })()}
+                  {space.environment !== 'dev' &&
+                    (() => {
+                      const linked = spaces.filter(
+                        (s) => s.productionSpaceId === space.id && s.role,
+                      );
+                      return linked.length ? (
+                        <details className="space-family">
+                          <summary>
+                            {linked.length} linked development{' '}
+                            {linked.length === 1 ? 'space' : 'spaces'}
+                          </summary>
+                          <ul>
+                            {linked.map((dev) => (
+                              <li key={dev.id}>
+                                <a href={`/?space=${dev.id}`}>{dev.name}</a>
+                              </li>
+                            ))}
+                          </ul>
+                        </details>
+                      ) : null;
+                    })()}
                   <div className="space-stats">
                     <span>
                       <FileText aria-hidden="true" />
@@ -232,7 +275,11 @@ export function SpacesScreen({ installationAdmin = false }: { installationAdmin?
           if (!submitting) setCreating(false);
         }}
         title="Create a space"
-        description="Give your next project a place to grow."
+        description={
+          baseSpaceId
+            ? 'Start with an existing schema, including block nesting.'
+            : 'Choose an environment and a starting point for your project.'
+        }
       >
         <form
           onSubmit={async (event) => {
@@ -306,9 +353,19 @@ export function SpacesScreen({ installationAdmin = false }: { installationAdmin?
               <option value="dev">Development</option>
             </select>
           </label>
+          <div className="clone-guidance">
+            <EnvironmentBadge environment={environment} />
+            <p>
+              {environment === 'dev'
+                ? 'Build and test schema changes here before promoting them to production.'
+                : 'Schemas start read-only. Review and promote changes from a linked development space.'}
+            </p>
+          </div>
           <label className="field">
             Base space
             <select
+              aria-label="Base space"
+              aria-describedby="base-space-guidance"
               value={baseSpaceId}
               onChange={(event) => {
                 setBaseSpaceId(event.target.value);
@@ -324,27 +381,54 @@ export function SpacesScreen({ installationAdmin = false }: { installationAdmin?
                   </option>
                 ))}
             </select>
+            <span className="field-hint" id="base-space-guidance">
+              {baseSpaceId
+                ? (() => {
+                    const base = spaces.find((s) => s.id === baseSpaceId);
+                    const production =
+                      base?.environment === 'dev'
+                        ? spaces.find((s) => s.id === base.productionSpaceId)
+                        : base;
+                    return environment === 'dev' && production
+                      ? `Linked to production: ${production.name}.`
+                      : environment === 'prod' &&
+                          base?.environment === 'dev' &&
+                          !base.productionSpaceId
+                        ? `Links ${base.name} to this new production space.`
+                        : 'Creates an independent space from the deployed schema.';
+                  })()
+                : 'Start empty, or copy deployed blocks and their nesting from another space.'}
+            </span>
           </label>
-          {cloneReview && <DependencySummary review={cloneReview} />}
-          <label className="field">
-            Database
-            <select value={mode} onChange={(event) => setMode(event.target.value)}>
-              <option value="create">Create a database</option>
-              <option value="attach">Attach an empty database</option>
-            </select>
-          </label>
-          {mode === 'attach' && (
-            <label className="field">
-              Database connection URL
-              <input
-                type="password"
-                autoComplete="off"
-                value={connectionString}
-                onChange={(event) => setConnectionString(event.target.value)}
-                placeholder="postgresql://role:password@host/database"
-              />
-            </label>
+          {baseSpaceId && (
+            <p className="small muted">
+              Content and media stay in the base space, except dependencies required by schema
+              defaults. Review these before creating.
+            </p>
           )}
+          <details className="clone-database" open={mode === 'attach' || undefined}>
+            <summary>Database options</summary>
+            <label className="field">
+              Database
+              <select value={mode} onChange={(event) => setMode(event.target.value)}>
+                <option value="create">Create a database</option>
+                <option value="attach">Attach an empty database</option>
+              </select>
+            </label>
+            {mode === 'attach' && (
+              <label className="field">
+                Database connection URL
+                <input
+                  type="password"
+                  autoComplete="off"
+                  value={connectionString}
+                  onChange={(event) => setConnectionString(event.target.value)}
+                  placeholder="postgresql://role:password@host/database"
+                />
+              </label>
+            )}
+          </details>
+          {cloneReview && <DependencySummary review={cloneReview} />}
           <p className="small muted">You’ll be the administrator of this space.</p>
           <ErrorNotice message={formError} />
           <div className="dialog-actions">

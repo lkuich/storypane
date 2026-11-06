@@ -28,13 +28,26 @@ import { AssetLibrary } from '../features/assets/asset-library';
 import { StoryWorkspace } from '../features/editor/story-workspace';
 import { SpaceSettings } from '../features/spaces/space-settings';
 import { ThemePicker } from './theme-picker';
+import { EnvironmentBadge } from './environment-badge';
+import { SpaceSwitcher } from './space-switcher';
 import type { NavigationGuard, RegisterGuard } from '../features/editor/navigation';
 
 export type CMSSession = {
   installationAdmin?: boolean;
   sessionId: string;
   user: { id: string; name: string; email: string };
-  space: Pick<Space, 'id' | 'name' | 'role' | 'roleName' | 'permissions' | 'contentScopes'>;
+  space: Pick<
+    Space,
+    | 'id'
+    | 'name'
+    | 'role'
+    | 'roleName'
+    | 'permissions'
+    | 'contentScopes'
+    | 'environment'
+    | 'productionSpaceId'
+    | 'schemaReadOnly'
+  >;
 };
 type Tab = 'content' | 'blocks' | 'datasources' | 'assets' | 'settings';
 const tabs = [
@@ -52,6 +65,7 @@ function tabFromUrl(url: URL): Tab {
 
 export function CMSApp({ session: initialSession }: { session: CMSSession }) {
   const [session, setSession] = useState(initialSession);
+  const [switcherOpen, setSwitcherOpen] = useState(false);
   useEffect(() => {
     setSession(initialSession);
   }, [initialSession]);
@@ -176,6 +190,7 @@ export function CMSApp({ session: initialSession }: { session: CMSSession }) {
     <div
       className={`app-shell${editingStory ? ' app-shell--editing' : ''}`}
       data-sidebar-pinned={sidebarPinned || undefined}
+      data-environment={session.space.environment === 'dev' ? 'dev' : 'prod'}
     >
       <a className="skip-link" href="#main-content">
         Skip to content
@@ -253,15 +268,18 @@ export function CMSApp({ session: initialSession }: { session: CMSSession }) {
         )}
         <button
           className="workspace-card"
-          onClick={() => void allSpaces()}
+          onClick={() => setSwitcherOpen(true)}
           aria-label="Switch space"
+          aria-haspopup="dialog"
         >
           <span className="workspace-icon">
             <Building2 aria-hidden="true" />
           </span>
           <div>
             <strong>{session.space.name}</strong>
-            <span>Switch space</span>
+            <span>
+              {session.space.environment === 'dev' ? 'Development' : 'Production'} · Switch space
+            </span>
           </div>
           <ChevronsUpDown aria-hidden="true" />
         </button>
@@ -289,7 +307,16 @@ export function CMSApp({ session: initialSession }: { session: CMSSession }) {
               Spaces
             </button>
             <ChevronRight aria-hidden="true" />
-            <span className="header-space-name">{session.space.name}</span>
+            <button
+              className="header-space-switch"
+              onClick={() => setSwitcherOpen(true)}
+              aria-label={`Switch space: ${session.space.name} (${session.space.environment === 'dev' ? 'Development' : 'Production'})`}
+              aria-haspopup="dialog"
+            >
+              <EnvironmentBadge environment={session.space.environment} />
+              <span className="header-space-name">{session.space.name}</span>
+              <ChevronsUpDown aria-hidden="true" />
+            </button>
             <ChevronRight aria-hidden="true" />
             <strong>{tabs.find((item) => item.id === tab)?.label}</strong>
             {story && (
@@ -337,6 +364,7 @@ export function CMSApp({ session: initialSession }: { session: CMSSession }) {
             ))}
           {tab === 'blocks' && (
             <SchemaLibrary
+              spaceName={session.space.name}
               canDeploy={session.space.role === 'admin'}
               canManage={can(session.space, 'schemas:write')}
               registerGuard={registerGuard}
@@ -356,6 +384,17 @@ export function CMSApp({ session: initialSession }: { session: CMSSession }) {
           )}
         </main>
       </div>
+      {switcherOpen && (
+        <SpaceSwitcher
+          current={session.space}
+          onClose={() => setSwitcherOpen(false)}
+          onAllSpaces={allSpaces}
+          onSelect={async (id) => {
+            if (guard.current && !(await guard.current())) return;
+            window.location.assign(`/?${new URLSearchParams({ space: id, view: tab })}`);
+          }}
+        />
+      )}
     </div>
   );
 }

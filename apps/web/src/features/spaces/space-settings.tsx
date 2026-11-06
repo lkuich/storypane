@@ -25,6 +25,7 @@ import { MemberSettings } from './member-settings';
 import { RoleSettings } from './role-settings';
 import { WebhookSettings } from './webhook-settings';
 import { DatabaseSettings } from './database-settings';
+import { EnvironmentBadge } from '../../components/environment-badge';
 
 const sections = [
   { id: 'general', label: 'General', icon: Building2 },
@@ -293,9 +294,9 @@ export function SpaceSettings({
                           </span>
                         </label>
                       </fieldset>
-                      <p>{space.environment === 'dev' ? 'Development' : 'Production'} space</p>
+                      <EnvironmentBadge environment={space.environment} />
                       {space.role === 'admin' && (
-                        <label className="field">
+                        <label className="field schema-protection">
                           <span>
                             <input
                               type="checkbox"
@@ -309,8 +310,9 @@ export function SpaceSettings({
                             Schema read-only
                           </span>
                           <span className="field-hint">
-                            Disable local schema edits and migration deployment. Reviewed transfers
-                            from linked spaces remain available.
+                            Protect this space from direct schema edits and deployments. You can
+                            still apply reviewed migrations from linked spaces. Content editing
+                            stays available.
                           </span>
                         </label>
                       )}

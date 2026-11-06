@@ -86,3 +86,34 @@ it('rejects hierarchy cycles and missing nesting references after reconciliation
   };
   expect(() => validatePortableDefinitions(defs)).toThrow('Missing block');
 });
+
+it('offers a complete schema choice when independent changes create a hierarchy cycle or dangling nested block', () => {
+  const b = structuredClone(base);
+  b.push({
+    id: randomUUID(),
+    parentDefinitionId: null,
+    schema: { name: 'child', displayName: 'Child', kind: 'nestable', fields: [] },
+  });
+  const dev = structuredClone(b),
+    prod = structuredClone(b);
+  dev[0].parentDefinitionId = b[1].id;
+  prod[1].parentDefinitionId = b[0].id;
+  const cycle = reconcileSchemas(b, dev, prod);
+  expect(cycle.conflicts.map((c) => c.path)).toEqual(['blocks.structure']);
+  expect(reconcileSchemas(b, dev, prod, { 'blocks.structure': 'prod' })).toEqual({
+    definitions: prod,
+    conflicts: [],
+  });
+  dev[0].parentDefinitionId = null;
+  dev[0].schema.fields[1] = {
+    ...dev[0].schema.fields[1],
+    type: 'blocks',
+    allowedDefinitionIds: [b[1].id],
+  };
+  prod.pop();
+  expect(reconcileSchemas(b, dev, prod).conflicts.map((c) => c.path)).toEqual(['blocks.structure']);
+  expect(reconcileSchemas(b, dev, prod, { 'blocks.structure': 'dev' })).toEqual({
+    definitions: dev,
+    conflicts: [],
+  });
+});

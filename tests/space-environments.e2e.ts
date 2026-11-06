@@ -1,4 +1,9 @@
 import { test, expect } from '@playwright/test';
+import { execFile } from 'node:child_process';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
+import { promisify } from 'node:util';
 import type { BlockDefinition, SchemaMigration, Space } from '@storypane/core';
 const baseURL = process.env.STORYPANE_ENVIRONMENTS_TEST_URL;
 test.skip(
@@ -53,7 +58,7 @@ test('clones a dev space, promotes a migration to protected production, and supp
   const definitions: BlockDefinition[] = await (
     await page.request.get(api('/definitions'), { headers })
   ).json();
-  const definition = definitions[0];
+  const definition = definitions.find((d) => d.name === 'page')!;
   const history: SchemaMigration[] = await (
     await page.request.get(api('/migrations'), { headers })
   ).json();
@@ -94,7 +99,7 @@ test('clones a dev space, promotes a migration to protected production, and supp
     ).ok(),
   ).toBe(true);
   await page.goto(`${baseURL}/?space=${dev.id}&view=blocks`);
-  const promote = page.getByRole('button', { name: 'Promote to production', exact: true });
+  const promote = page.getByRole('button', { name: 'Review promotion', exact: true });
   await expect(promote).toBeEnabled();
   await promote.click();
   const transfer = page.getByRole('dialog', { name: 'Promote to production', exact: true });
@@ -108,11 +113,89 @@ test('clones a dev space, promotes a migration to protected production, and supp
   const promoted: BlockDefinition[] = await (
     await page.request.get(api('/definitions?deployed=true'), { headers: prodHeaders })
   ).json();
-  expect(promoted[0].displayName).toBe(`Promoted ${name}`);
+  expect(promoted.find((d) => d.id === definition.id)?.displayName).toBe(`Promoted ${name}`);
   await page.goto(`${baseURL}/?space=${production.id}&view=settings`);
   await expect(page.getByRole('checkbox', { name: /Schema read-only/ })).toBeChecked();
   await page.goto(`${baseURL}/?space=${production.id}&view=blocks`);
-  await expect(page.getByText('Production · Schema read-only', { exact: true })).toBeVisible();
+  await expect(
+    page
+      .getByRole('region', { name: 'Space environment' })
+      .getByText('Schema read-only', { exact: true }),
+  ).toBeVisible();
   await expect(page.getByRole('button', { name: 'New block', exact: true })).toHaveCount(0);
+  const tokens: { id: string; token: string }[] = [];
+  for (const h of [headers, prodHeaders]) {
+    const response = await page.request.post(api('/management-tokens'), {
+      headers: h,
+      data: { name: 'Environment CLI test', capability: 'deploy' },
+    });
+    expect(response.ok()).toBe(true);
+    tokens.push(await response.json());
+  }
+  const directory = await mkdtemp(join(tmpdir(), 'storypane-environment-cli-'));
+  try {
+    const cli = (command: string) =>
+      promisify(execFile)(
+        process.execPath,
+        [
+          resolve('packages/sdk/bin/storypane.mjs'),
+          'migrations',
+          command,
+          ...(command === 'status' ? [] : ['--yes']),
+        ],
+        {
+          cwd: directory,
+          env: {
+            ...process.env,
+            STORYPANE_URL: baseURL,
+            STORYPANE_SPACE_ID: dev.id,
+            STORYPANE_MANAGEMENT_TOKEN: tokens[0].token,
+            STORYPANE_PRODUCTION_MANAGEMENT_TOKEN: tokens[1].token,
+          },
+        },
+      );
+    const status = JSON.parse((await cli('status')).stdout);
+    expect(status.production.id).toBe(production.id);
+    expect(status.behind).toBe(false);
+    const current: BlockDefinition[] = await (
+      await page.request.get(api('/definitions'), { headers })
+    ).json();
+    expect(
+      (
+        await page.request.post(api(`/definitions/${definition.id}/versions`), {
+          headers,
+          data: {
+            baseVersion: deployed.version + 1,
+            expectedVersionId: current.find((d) => d.id === definition.id)!.versionId,
+            schema: { ...schema, displayName: 'CLI promotion verified' },
+          },
+        })
+      ).ok(),
+    ).toBe(true);
+    const next: SchemaMigration[] = await (
+      await page.request.get(api('/migrations'), { headers })
+    ).json();
+    const pending = next.find((m) => m.status === 'active')!;
+    const inspected = await (
+      await page.request.get(api(`/migrations/${pending.id}/review`), { headers })
+    ).json();
+    expect(
+      (
+        await page.request.post(api(`/migrations/${pending.id}/deploy`), {
+          headers,
+          data: { reviewToken: inspected.token },
+        })
+      ).ok(),
+    ).toBe(true);
+    expect((await cli('promote')).stdout).toContain('Applied promote');
+    const final: BlockDefinition[] = await (
+      await page.request.get(api('/definitions?deployed=true'), { headers: prodHeaders })
+    ).json();
+    expect(final.find((d) => d.id === definition.id)?.displayName).toBe('CLI promotion verified');
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+    for (const [index, h] of [headers, prodHeaders].entries())
+      await page.request.delete(api(`/management-tokens/${tokens[index].id}`), { headers: h });
+  }
   expect(errors).toEqual([]);
 });

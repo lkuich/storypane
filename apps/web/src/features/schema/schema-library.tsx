@@ -23,10 +23,12 @@ export function SchemaLibrary({
   canManage,
   canDeploy,
   registerGuard,
+  spaceName,
 }: {
   canManage: boolean;
   canDeploy: boolean;
   registerGuard: RegisterGuard;
+  spaceName: string;
 }) {
   const [deployed, setDeployed] = useState<BlockDefinition[]>([]);
   const [definitions, setDefinitions] = useState<BlockDefinition[]>([]);
@@ -148,7 +150,7 @@ export function SchemaLibrary({
           </Button>
         )}
       </div>
-      <EnvironmentPanel canDeploy={canDeploy} onApply={load} />
+      <EnvironmentPanel canDeploy={canDeploy} onApply={load} spaceName={spaceName} />
       <MigrationPanel canDeploy={canDeploy && canManage} onDeploy={load} />
       <ErrorNotice
         message={moveError ?? error}
