@@ -4,6 +4,7 @@ import type { Pool, PoolClient } from 'pg';
 export async function migrate(
   pool: Pool,
   initialize?: (client: PoolClient) => Promise<void>,
+  included?: ReadonlySet<string>,
 ): Promise<void> {
   const client = await pool.connect();
   try {
@@ -41,7 +42,9 @@ export async function migrate(
       '023_default_locale',
       '024_management_api',
       '026_space_environments',
+      '027_content_releases',
     ]) {
+      if (included && !included.has(name)) continue;
       if (
         (await client.query('SELECT name FROM storypane_migrations WHERE name=$1', [name])).rowCount
       ) {

@@ -42,7 +42,7 @@ Never put a management token in a browser bundle, URL, or `NEXT_PUBLIC_*` variab
 | ------------------- | -------------------------------------------------------------------------------------- |
 | `read`              | Read content and ordinary configuration visible to the issuer; required on every token |
 | `content:edit`      | Create, edit, move, duplicate, and delete content and folders                          |
-| `content:publish`   | Publish, unpublish, and schedule publication                                           |
+| `content:publish`   | Publish, unpublish, and manage content releases                                        |
 | `assets:write`      | Upload, organize, change metadata, and archive media                                   |
 | `schemas:write`     | Stage schema changes in the active migration                                           |
 | `datasources:write` | Create and update datasources                                                          |
@@ -250,6 +250,54 @@ applies to direct migration API/CLI/MCP writes; incoming reviewed transfers use 
 separate authorized boundary. Version 2 migration files carry block parents beside
 their field schemas; older files remain accepted.
 
+## Content releases
+
+Use production for editorial releases. `GET /releases` returns authorized groups;
+`POST /releases` creates an empty group; `PUT /releases/{id}` renames, reschedules
+or resumes a group; `DELETE /releases/{id}` cancels it. Create/update inputs are:
+
+```json
+{
+  "requestId": "11111111-1111-4111-8111-111111111111",
+  "name": "Summer launch",
+  "localTime": "2027-06-01T09:00",
+  "timezone": "America/Vancouver",
+  "dueAt": "2027-06-01T16:00:00.000Z"
+}
+```
+
+Use a future time and an actual unique request ID. Updates also require the
+reviewed `revision`; cancellation requires `{ requestId, revision }`. Releases
+report `scheduled`, `held`, `published` or `cancelled`, plus `revision`, `error`,
+`canManage` and member metadata. Member responses include approved checkpoint
+revisions and `draftChanged`; they never contain raw content snapshots.
+
+Approve a page through `POST /stories/{id}/locales/{localeId}/schedules` with
+`requestId`, `checkpointId`, `referenceChoices`, `dueAt`, `timezone`, `localTime`,
+`expectedScheduleId` and `expectedRevision` (the last two are null for a page
+without an active schedule). Supply `releaseName` to create a release, or
+`release: { id, revision }` to join an existing one. For an existing release send
+its shared time and timezone. When changing an active membership, also send its
+`expectedReleaseRevision`. Linked pages selected for publication become members.
+
+A page locale belongs to at most one active release. Scheduling responses include
+`active`, `releaseId`, `releaseName`, `releaseRevision` and `releaseStatus`.
+`active` remains true when the release is held; its legacy schedule `status` is
+reported as `failed`. Old failed schedules from before this feature have
+`active: false` until explicitly resumed. Use `active` to identify membership.
+
+Remove a member with DELETE on its schedule, sending
+`{ requestId, revision, releaseRevision }`. To publish immediately, the
+`publishCheckpoint` command accepts `expectedScheduleId` and
+`expectedScheduleRevision`; send the reviewed membership or two nulls if none.
+Publishing removes that page's active membership. Other members stay scheduled.
+
+Whole-release changes require publish access to every member. Reads hide a group
+if any page locale is outside the caller's read scope. Stale reviews return 409;
+refresh before changing the request. Retry interrupted requests with the same
+ID and payload. The SDK's generic `management.request()` exposes these routes;
+there is no separate releases CLI command. See [the editor workflow](releases.md).
+
 ## HTTP v1 operations
 
 Prefix every path below with `/api/management/v1/spaces/{spaceId}`. JSON writes
@@ -263,6 +311,7 @@ editor. The source of these contracts is [`packages/core`](../packages/core/src/
 | Story locales      | GET, POST `/stories/{id}/locales`; GET `/stories/{id}/locales/{localeId}`                                                                                                               |
 | Content commands   | POST `/stories/{id}/locales/{localeId}/commands`                                                                                                                                        |
 | History            | GET `/stories/{id}/locales/{localeId}/checkpoints[/{checkpointId}]`                                                                                                                     |
+| Content releases   | GET, POST `/releases`; PUT, DELETE `/releases/{id}`                                                                                                                                     |
 | Scheduling         | GET, POST `/stories/{id}/locales/{localeId}/schedules`; DELETE `.../schedules/{scheduleId}`                                                                                             |
 | Folders            | GET, POST `/folders`; PUT, DELETE `/folders/{id}`                                                                                                                                       |
 | Space locales      | GET, POST `/locales`; PUT, DELETE `/locales/{id}`; PUT `/locales/{id}/default`                                                                                                          |

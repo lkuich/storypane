@@ -4,6 +4,7 @@ import { errorResponse, jsonResponse } from './http';
 const resources = new Set([
   'space',
   'stories',
+  'releases',
   'folders',
   'locales',
   'definitions',

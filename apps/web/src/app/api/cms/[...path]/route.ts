@@ -368,6 +368,19 @@ async function handle(request: Request, route: { params: Promise<{ path: string[
         }),
       );
     }
+    if (resource === 'releases' && !child) {
+      if (method === 'GET' && !id) return jsonResponse(await store.listReleases(actor));
+      if ((method === 'POST' && !id) || (method === 'PUT' && id)) {
+        const release = await store.saveRelease(actor, await readJson(request), id);
+        await Promise.all(release.items.map((item) => invalidate(item.storyId, [item.localeId])));
+        return jsonResponse(release, id ? 200 : 201);
+      }
+      if (method === 'DELETE' && id) {
+        const release = await store.cancelRelease(actor, id, await readJson(request));
+        await Promise.all(release.items.map((item) => invalidate(item.storyId, [item.localeId])));
+        return jsonResponse(release);
+      }
+    }
     if (resource === 'stories') {
       if (id === 'bulk' && method === 'POST') {
         const result = await store.bulkStoryAction(actor, await readJson(request));

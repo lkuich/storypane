@@ -13,7 +13,6 @@ import { Fragment, useCallback, useEffect, useRef, useState, type DragEvent } fr
 import {
   CalendarClock,
   Check,
-  ChevronDown,
   ChevronRight,
   Clock3,
   ClipboardPaste,
@@ -41,6 +40,7 @@ import type {
   Datasource,
   Checkpoint,
   PublicationReview,
+  PublicationSchedule,
   PublicationReferenceChoice,
   FieldDefinition,
   FieldIssue,
@@ -349,6 +349,7 @@ function LocaleEditor({
   const actionStories = useRef([story]);
   const [scheduleRefresh, setScheduleRefresh] = useState(0);
   const [scheduleOpen, setScheduleOpen] = useState(false);
+  const [reviewSchedule, setReviewSchedule] = useState<PublicationSchedule | null>(null);
   const [review, setReview] = useState<PublicationReview | null>(null);
   const [referenceChoices, setReferenceChoices] = useState<PublicationReferenceChoice[]>([]);
   const [reviewError, setReviewError] = useState<string | null>(null);
@@ -612,7 +613,12 @@ function LocaleEditor({
       if (!checkpointId) throw new Error('There is no saved checkpoint to review yet.');
       setScheduleOpen(false);
       setReferenceChoices([]);
-      setReview(await api<PublicationReview>(`${editor.base}/publication-review/${checkpointId}`));
+      const [nextReview, schedules] = await Promise.all([
+        api<PublicationReview>(`${editor.base}/publication-review/${checkpointId}`),
+        api<PublicationSchedule[]>(`${editor.base}/schedules`),
+      ]);
+      setReviewSchedule(schedules.find((item) => item.active) ?? null);
+      setReview(nextReview);
       setHistoryOpen(false);
     } catch (error) {
       editor.setError(errorMessage(error));
@@ -628,7 +634,12 @@ function LocaleEditor({
     try {
       await editor.runCommand({
         type: 'publishCheckpoint',
-        payload: { checkpointId: review.id, referenceChoices: referenceSelection.choices },
+        payload: {
+          checkpointId: review.id,
+          referenceChoices: referenceSelection.choices,
+          expectedScheduleId: reviewSchedule?.id ?? null,
+          expectedScheduleRevision: reviewSchedule?.revision ?? null,
+        },
       });
       setPublished(`Revision ${review.revision} published`);
       setScheduleRefresh((value) => value + 1);
@@ -1039,6 +1050,7 @@ function LocaleEditor({
         refresh={scheduleRefresh}
         canPublish={can(session.space, 'content:publish') && snapshot.access?.publish !== false}
         onReview={(id) => void openReview(id)}
+        onUpdate={() => void openReview()}
       />
       <div
         className={`publication-note story-publication-note${publicationStatus === 'published' ? ' publication-note--live' : ''}`}
@@ -1901,33 +1913,37 @@ function LocaleEditor({
                 }}
               />
             ) : (
-              <div className="dialog-actions publish-review-actions">
-                <Button disabled={busy} onClick={() => setReview(null)}>
-                  Keep editing
-                </Button>
-                <div className="publish-split-button" role="group" aria-label="Publish revision">
+              <div>
+                {reviewSchedule && (
+                  <p className="notice notice--warning">
+                    This page belongs to <strong>{reviewSchedule.releaseName}</strong>. Updating the
+                    release keeps its date. Publishing now removes this page from that release.
+                  </p>
+                )}
+                <div className="dialog-actions publish-review-actions">
+                  <Button disabled={busy} onClick={() => setReview(null)}>
+                    Keep editing
+                  </Button>
                   <Button
-                    variant="primary"
+                    variant={reviewSchedule ? 'primary' : 'secondary'}
+                    disabled={reviewPublishDisabled}
+                    onClick={() => setScheduleOpen(true)}
+                  >
+                    <CalendarClock aria-hidden="true" />
+                    {reviewSchedule ? 'Update release' : 'Add to release'}
+                  </Button>
+                  <Button
+                    variant={reviewSchedule ? 'secondary' : 'primary'}
                     disabled={reviewPublishDisabled}
                     onClick={() => void publish()}
                   >
                     <Upload aria-hidden="true" />
-                    {busy ? 'Publishing…' : `Publish revision ${review.revision}`}
+                    {busy
+                      ? 'Publishing…'
+                      : reviewSchedule
+                        ? 'Publish now & remove from release'
+                        : `Publish revision ${review.revision}`}
                   </Button>
-                  <ActionDropdown
-                    label="More publishing options"
-                    icon={<ChevronDown aria-hidden="true" />}
-                    primary
-                    disabled={reviewPublishDisabled}
-                  >
-                    <Button
-                      variant="ghost"
-                      disabled={reviewPublishDisabled}
-                      onClick={() => setScheduleOpen(true)}
-                    >
-                      <CalendarClock aria-hidden="true" /> Schedule this revision
-                    </Button>
-                  </ActionDropdown>
                 </div>
               </div>
             )}

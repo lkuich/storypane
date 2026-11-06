@@ -5,6 +5,8 @@ import {
   bulkStoryActionSchema,
   scheduleInputSchema,
   cancelScheduleSchema,
+  releaseInputSchema,
+  type ContentRelease,
   scheduleInstants,
   pathSlugSchema,
   type LifecycleReview,
@@ -145,7 +147,12 @@ const deliveredRow = (row: Row): DeliveredStory => ({
 });
 
 const scheduleRow = (row: Row): PublicationSchedule => ({
+  active: row.status === 'pending',
   id: row.id,
+  releaseId: row.release_id,
+  releaseName: row.release_name,
+  releaseRevision: Number(row.release_revision),
+  releaseStatus: row.release_status,
   storyId: row.story_id,
   localeId: row.locale_id,
   checkpointId: row.checkpoint_id,
@@ -153,12 +160,24 @@ const scheduleRow = (row: Row): PublicationSchedule => ({
   creatorId: row.creator_id,
   dueAt: iso(row.due_at),
   timezone: row.timezone,
-  status: row.status,
+  status: row.release_status === 'held' && row.status === 'pending' ? 'failed' : row.status,
   revision: row.revision,
   attemptCount: row.attempt_count,
   publicationId: row.publication_id,
   error: row.error,
 });
+
+function validateReleaseTime(input: { localTime: string; timezone: string; dueAt: string }) {
+  if (
+    !scheduleInstants(input.localTime, input.timezone).some(
+      (item) => item.instant === new Date(input.dueAt).toISOString(),
+    )
+  )
+    throw new StorypaneError(
+      'invalid',
+      'Choose a valid local date/time and explicit UTC offset for this timezone.',
+    );
+}
 
 type AccountActor = Pick<Actor, 'userId' | 'sessionId'>;
 async function spacesFor(
@@ -2978,7 +2997,11 @@ export class StorypaneStore {
               `Data loss requires explicit confirmation: ${review.confirmation}`,
             );
           await client.query(
-            "UPDATE publication_schedules SET status='failed',error='The schema changed; review and schedule a new checkpoint.',revision=revision+1,updated_at=clock_timestamp() WHERE space_id=$1 AND status='pending'",
+            "UPDATE content_releases SET status='held',error='The schema changed. Review and approve every page under the new schema.',revision=revision+1,updated_at=clock_timestamp() WHERE space_id=$1 AND status='scheduled' AND EXISTS(SELECT 1 FROM publication_schedules s WHERE s.release_id=content_releases.id AND s.status='pending')",
+            [actor.spaceId],
+          );
+          await client.query(
+            "UPDATE publication_schedules SET error='The schema changed; review and schedule a new checkpoint.',revision=revision+1,updated_at=clock_timestamp() WHERE space_id=$1 AND status='pending'",
             [actor.spaceId],
           );
           await client.query('UPDATE spaces SET schema_version=$2 WHERE id=$1', [
@@ -3459,7 +3482,7 @@ export class StorypaneStore {
           `SELECT s.*,f.form_only,u.name AS editor_name,v.definition_id AS content_type_id,v.schema->>'displayName' AS content_type_name,
       '/' || concat_ws('/',nullif(base.slug,''),base.url_slug) AS path,
       EXISTS(SELECT 1 FROM story_pins pin WHERE pin.story_id=s.id AND pin.user_id=$2) AS pinned,
-      coalesce((SELECT jsonb_agg(to_jsonb(job)) FROM (SELECT sch.*,cp.revision AS checkpoint_revision FROM publication_schedules sch JOIN checkpoints cp ON cp.id=sch.checkpoint_id WHERE sch.story_id=s.id AND sch.locale_id=ANY($3::uuid[]) AND sch.status IN ('pending','failed') ORDER BY sch.created_at DESC) job),'[]') AS schedules,
+      coalesce((SELECT jsonb_agg(to_jsonb(job)) FROM (SELECT sch.*,cp.revision AS checkpoint_revision,r.name AS release_name,r.revision AS release_revision,r.status AS release_status FROM publication_schedules sch JOIN checkpoints cp ON cp.id=sch.checkpoint_id JOIN content_releases r ON r.id=sch.release_id WHERE sch.story_id=s.id AND sch.locale_id=ANY($3::uuid[]) AND sch.status IN ('pending','failed') ORDER BY sch.created_at DESC) job),'[]') AS schedules,
       count(l.id)::integer AS locale_count,count(p.id)::integer AS published_count,
       (count(l.id) FILTER (WHERE ${pendingLocaleSql}))::integer AS pending_count,
       coalesce(jsonb_agg(jsonb_build_object('id',l.id,'name',l.name,'slug',l.slug) ORDER BY (l.slug='') DESC,l.name) FILTER (WHERE l.id IS NOT NULL AND (${pendingLocaleSql})),'[]'::jsonb) AS pending_locales
@@ -4540,6 +4563,22 @@ export class StorypaneStore {
           historical.snapshot.locale.rootBlockId,
         ]);
       } else if (command.type === 'publishCheckpoint') {
+        if (command.payload.expectedScheduleId !== undefined) {
+          const scheduled = (
+            await client.query(
+              "SELECT id,revision FROM publication_schedules WHERE locale_id=$1 AND status='pending'",
+              [localeId],
+            )
+          ).rows[0];
+          if (
+            (scheduled?.id ?? null) !== command.payload.expectedScheduleId ||
+            (scheduled?.revision ?? null) !== command.payload.expectedScheduleRevision
+          )
+            throw new StorypaneError(
+              'stale_revision',
+              'This page’s release changed. Review it again before publishing now.',
+            );
+        }
         publicationId = await this.publishCheckpointTx(
           client,
           actor,
@@ -4965,6 +5004,19 @@ export class StorypaneStore {
     for (const checkpoint of checkpoints) {
       const target = checkpoint.snapshot;
       await this.lockLocale(client, actor, target.story.id, target.locale.id);
+      if (
+        target.locale.id !== localeId &&
+        (
+          await client.query(
+            "SELECT 1 FROM publication_schedules WHERE locale_id=$1 AND status='pending'",
+            [target.locale.id],
+          )
+        ).rowCount
+      )
+        throw new StorypaneError(
+          'invalid',
+          `${target.story.name} belongs to a release. Publish it from its own page or update that release first.`,
+        );
       const publicationId = await this.publishSnapshotTx(client, actor, checkpoint);
       if (target.locale.id === localeId) rootPublicationId = publicationId;
       else {
@@ -5458,6 +5510,18 @@ export class StorypaneStore {
                 if (!locale)
                   throw new StorypaneError('invalid', 'Locale does not belong to this story');
                 if (input.action === 'publish') {
+                  if (
+                    (
+                      await client.query(
+                        "SELECT 1 FROM publication_schedules WHERE locale_id=$1 AND status='pending'",
+                        [locale.id],
+                      )
+                    ).rowCount
+                  )
+                    throw new StorypaneError(
+                      'invalid',
+                      'This page belongs to a release. Open its editor to update the release or publish now and remove it.',
+                    );
                   if (!target.checkpointId)
                     throw new StorypaneError('invalid', 'Review a saved checkpoint first');
                   await this.publishCheckpointTx(
@@ -5524,6 +5588,236 @@ export class StorypaneStore {
       }
     return results;
   }
+  private async releaseItems(client: PoolClient, release: Row) {
+    return (
+      await client.query(
+        `SELECT s.*,c.revision AS checkpoint_revision,coalesce(s.approved_snapshot,c.snapshot) AS approved,
+        st.name AS story_name,st.folder_id,st.deleted_at,l.name AS locale_name,l.slug AS locale_slug,
+        l.revision AS draft_revision,l.url_slug,draft.content AS draft_content,
+        r.name AS release_name,r.revision AS release_revision,r.status AS release_status
+       FROM publication_schedules s JOIN content_releases r ON r.id=s.release_id
+       JOIN checkpoints c ON c.id=s.checkpoint_id JOIN stories st ON st.id=s.story_id
+       JOIN story_locales l ON l.id=s.locale_id LEFT JOIN checkpoints draft ON draft.id=l.checkpoint_id
+       WHERE s.release_id=$1 AND (s.status<>'cancelled' OR s.cancelled_by_release) ORDER BY st.name,l.name,s.id`,
+        [release.id],
+      )
+    ).rows;
+  }
+  private async releaseView(
+    client: PoolClient,
+    actor: Actor,
+    release: Row,
+  ): Promise<ContentRelease | null> {
+    const access = await this.contentAccess(client, actor);
+    const items = await this.releaseItems(client, release);
+    // Release-wide names and actions are only visible when all member locales are readable.
+    if (
+      items.some((item) => !access.locales.some((locale) => locale.id === item.locale_id)) ||
+      (!items.length && !access.admin && release.creator_id !== actor.userId)
+    )
+      return null;
+    let canManage = access.permissions.includes('content:publish');
+    for (const item of items) {
+      try {
+        this.assertCompleteAccess(
+          access,
+          {
+            ...item.approved,
+            story: { ...item.approved.story, folderId: item.folder_id },
+          },
+          'content:publish',
+        );
+      } catch (error) {
+        if (!(error instanceof StorypaneError) || error.code !== 'forbidden') throw error;
+        canManage = false;
+      }
+    }
+    return {
+      id: release.id,
+      name: release.name,
+      dueAt: iso(release.due_at),
+      timezone: release.timezone,
+      status: release.status,
+      revision: release.revision,
+      error: release.error,
+      canManage,
+      items: items.map((item) => ({
+        ...scheduleRow(item),
+        storyName: item.story_name,
+        localeName: item.locale_name,
+        localeSlug: item.locale_slug,
+        draftRevision: Number(item.draft_revision),
+        draftChanged:
+          canonical(assembleContent(item.approved)) !== canonical(item.draft_content) ||
+          item.approved.locale.urlSlug !== item.url_slug,
+      })),
+    };
+  }
+  private async editableRelease(client: PoolClient, actor: Actor, id: string, revision: number) {
+    const row = (
+      await client.query('SELECT * FROM content_releases WHERE id=$1 AND space_id=$2 FOR UPDATE', [
+        id,
+        actor.spaceId,
+      ])
+    ).rows[0];
+    if (!row) throw new StorypaneError('not_found', 'Release not found');
+    const view = await this.releaseView(client, actor, row);
+    if (!view) throw new StorypaneError('not_found', 'Release not found');
+    if (!view.canManage)
+      throw new StorypaneError(
+        'forbidden',
+        'Publishing access to every page in this release is required.',
+      );
+    if (row.revision !== revision || !['scheduled', 'held'].includes(row.status))
+      throw new StorypaneError(
+        'stale_revision',
+        'This release changed. Refresh and review it before continuing.',
+      );
+    return row;
+  }
+  async listReleases(actor: Actor): Promise<ContentRelease[]> {
+    return this.tx(actor, async (client) => {
+      const rows = (
+        await client.query(
+          `SELECT * FROM content_releases WHERE space_id=$1
+        ORDER BY CASE WHEN status IN ('scheduled','held') THEN 0 ELSE 1 END,due_at DESC`,
+          [actor.spaceId],
+        )
+      ).rows;
+      const releases: ContentRelease[] = [];
+      for (const row of rows) {
+        const release = await this.releaseView(client, actor, row);
+        if (release) releases.push(release);
+      }
+      return releases;
+    });
+  }
+  async saveRelease(actor: Actor, raw: unknown, id?: string): Promise<ContentRelease> {
+    const input = parseInput(releaseInputSchema, raw);
+    if (id) parseInput(z.uuid(), id);
+    validateReleaseTime(input);
+    return this.tx(
+      actor,
+      async (client) => {
+        await this.lockPaths(client, actor.spaceId);
+        const result = await this.actionReceipt(
+          client,
+          actor,
+          input.requestId,
+          { releaseId: id ?? null, ...input },
+          async () => {
+            if (
+              !(
+                await client.query('SELECT $1::timestamptz>clock_timestamp() AS future', [
+                  input.dueAt,
+                ])
+              ).rows[0].future
+            )
+              throw new StorypaneError('invalid', 'Choose a future release time.');
+            let release: Row;
+            if (id) {
+              release = await this.editableRelease(client, actor, id, input.revision ?? 0);
+              const items = await this.releaseItems(client, release);
+              const deployed = await this.deployedMigration(client, actor.spaceId);
+              for (const item of items) {
+                if ((item.approved.migrationVersion ?? 0) !== deployed.version)
+                  throw new StorypaneError(
+                    'invalid',
+                    'Update every page to the current schema before resuming this release.',
+                  );
+                await this.validateSnapshot(client, actor, item.approved, true);
+                if (
+                  (
+                    await client.query(
+                      "SELECT 1 FROM publication_schedules WHERE locale_id=$1 AND status='pending' AND release_id<>$2",
+                      [item.locale_id, id],
+                    )
+                  ).rowCount
+                )
+                  throw new StorypaneError(
+                    'stale_revision',
+                    'A page has moved to another release. Remove it before resuming this release.',
+                  );
+              }
+              await client.query(
+                "UPDATE content_releases SET name=$2,due_at=$3,timezone=$4,status='scheduled',error=NULL,revision=revision+1,updated_at=clock_timestamp() WHERE id=$1",
+                [id, input.name, input.dueAt, input.timezone],
+              );
+              await client.query(
+                "UPDATE publication_schedules SET due_at=$2,timezone=$3,next_attempt_at=$2,status='pending',error=NULL,attempt_count=0,revision=revision+1,updated_at=clock_timestamp() WHERE release_id=$1 AND status IN ('pending','failed')",
+                [id, input.dueAt, input.timezone],
+              );
+            } else {
+              release = (
+                await client.query(
+                  'INSERT INTO content_releases(space_id,name,creator_id,due_at,timezone) VALUES($1,$2,$3,$4,$5) RETURNING *',
+                  [actor.spaceId, input.name, actor.userId, input.dueAt, input.timezone],
+                )
+              ).rows[0];
+            }
+            const current = (
+              await client.query('SELECT * FROM content_releases WHERE id=$1', [release.id])
+            ).rows[0];
+            return (await this.releaseView(client, actor, current))!;
+          },
+          true,
+        );
+        const current = (
+          await client.query('SELECT * FROM content_releases WHERE id=$1 AND space_id=$2', [
+            result.id,
+            actor.spaceId,
+          ])
+        ).rows[0];
+        const view = current && (await this.releaseView(client, actor, current));
+        if (!view) throw new StorypaneError('not_found', 'Release not found');
+        return view;
+      },
+      'content:publish',
+      true,
+    );
+  }
+  async cancelRelease(actor: Actor, id: string, raw: unknown): Promise<ContentRelease> {
+    parseInput(z.uuid(), id);
+    const input = parseInput(cancelScheduleSchema, raw);
+    return this.tx(
+      actor,
+      async (client) => {
+        await this.lockPaths(client, actor.spaceId);
+        const result = await this.actionReceipt(
+          client,
+          actor,
+          input.requestId,
+          { releaseId: id, ...input },
+          async () => {
+            await this.editableRelease(client, actor, id, input.revision);
+            await client.query(
+              "UPDATE publication_schedules SET status='cancelled',cancelled_by_release=true,revision=revision+1,updated_at=clock_timestamp() WHERE release_id=$1 AND status IN ('pending','failed')",
+              [id],
+            );
+            const release = (
+              await client.query(
+                "UPDATE content_releases SET status='cancelled',error=NULL,revision=revision+1,updated_at=clock_timestamp() WHERE id=$1 RETURNING *",
+                [id],
+              )
+            ).rows[0];
+            return (await this.releaseView(client, actor, release))!;
+          },
+          true,
+        );
+        const current = (
+          await client.query('SELECT * FROM content_releases WHERE id=$1 AND space_id=$2', [
+            result.id,
+            actor.spaceId,
+          ])
+        ).rows[0];
+        const view = current && (await this.releaseView(client, actor, current));
+        if (!view) throw new StorypaneError('not_found', 'Release not found');
+        return view;
+      },
+      'content:publish',
+      true,
+    );
+  }
   async listSchedules(
     actor: Actor,
     storyId: string,
@@ -5533,7 +5827,7 @@ export class StorypaneStore {
       await this.lockLocale(client, actor, storyId, localeId);
       return (
         await client.query(
-          'SELECT s.*,c.revision AS checkpoint_revision FROM publication_schedules s JOIN checkpoints c ON c.id=s.checkpoint_id WHERE s.locale_id=$1 ORDER BY s.created_at DESC LIMIT 20',
+          'SELECT s.*,c.revision AS checkpoint_revision,r.name AS release_name,r.revision AS release_revision,r.status AS release_status FROM publication_schedules s JOIN checkpoints c ON c.id=s.checkpoint_id JOIN content_releases r ON r.id=s.release_id WHERE s.locale_id=$1 ORDER BY s.created_at DESC LIMIT 20',
           [localeId],
         )
       ).rows.map(scheduleRow);
@@ -5546,39 +5840,20 @@ export class StorypaneStore {
     raw: unknown,
   ): Promise<PublicationSchedule> {
     const input = parseInput(scheduleInputSchema, raw);
-    if (
-      !scheduleInstants(input.localTime, input.timezone).some(
-        (item) => item.instant === new Date(input.dueAt).toISOString(),
-      )
-    )
-      throw new StorypaneError(
-        'invalid',
-        'Choose a valid local date/time and explicit UTC offset for this timezone.',
-      );
+    validateReleaseTime(input);
     return this.tx(
       actor,
       async (client) => {
         await this.lockPaths(client, actor.spaceId);
         await this.lockLocale(client, actor, storyId, localeId);
-        await this.requirePublicationAccess(
-          client,
-          actor,
-          (await this.readCheckpoint(client, localeId, input.checkpointId)).snapshot,
-        );
+        const checkpoint = await this.readCheckpoint(client, localeId, input.checkpointId);
+        await this.requirePublicationAccess(client, actor, checkpoint.snapshot);
         return this.actionReceipt(
           client,
           actor,
           input.requestId,
           { storyId, localeId, ...input },
           async () => {
-            if (
-              !(
-                await client.query('SELECT $1::timestamptz>clock_timestamp() AS future', [
-                  input.dueAt,
-                ])
-              ).rows[0].future
-            )
-              throw new StorypaneError('invalid', 'Choose a future publication time.');
             const pending = (
               await client.query(
                 "SELECT * FROM publication_schedules WHERE locale_id=$1 AND status='pending' FOR UPDATE",
@@ -5591,35 +5866,116 @@ export class StorypaneStore {
             )
               throw new StorypaneError(
                 'stale_revision',
-                'The schedule changed; refresh before replacing it.',
+                'The scheduled version changed. Refresh and review it before continuing.',
               );
-            const checkpoint = await this.readCheckpoint(client, localeId, input.checkpointId),
-              deployed = await this.deployedMigration(client, actor.spaceId);
-            if ((checkpoint.snapshot.migrationVersion ?? 0) !== deployed.version)
-              throw new StorypaneError(
-                'invalid',
-                'Review a checkpoint under the deployed schema before scheduling.',
+            let release: Row;
+            if (pending && input.expectedReleaseRevision !== undefined) {
+              const source = (
+                await client.query('SELECT revision FROM content_releases WHERE id=$1', [
+                  pending.release_id,
+                ])
+              ).rows[0];
+              if (source.revision !== input.expectedReleaseRevision)
+                throw new StorypaneError(
+                  'stale_revision',
+                  'The release changed. Refresh and review it before moving or updating this page.',
+                );
+            }
+            if (input.release)
+              release = await this.editableRelease(
+                client,
+                actor,
+                input.release.id,
+                input.release.revision,
               );
-            await this.publicationPlan(client, actor, checkpoint, input.referenceChoices ?? []);
-            await this.cancelPendingSchedules(client, localeId);
-            const row = (
-              await client.query(
-                'INSERT INTO publication_schedules(space_id,story_id,locale_id,checkpoint_id,schema_version,creator_id,due_at,timezone,next_attempt_at,reference_choices) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$7,$9) RETURNING *',
-                [
-                  actor.spaceId,
-                  storyId,
-                  localeId,
-                  input.checkpointId,
-                  deployed.version,
-                  actor.userId,
-                  input.dueAt,
-                  input.timezone,
-                  JSON.stringify(input.referenceChoices ?? []),
-                ],
-              )
-            ).rows[0];
-            return scheduleRow({ ...row, checkpoint_revision: checkpoint.revision });
+            else
+              release = (
+                await client.query(
+                  'INSERT INTO content_releases(space_id,name,creator_id,due_at,timezone) VALUES($1,$2,$3,$4,$5) RETURNING *',
+                  [
+                    actor.spaceId,
+                    input.releaseName ?? `${checkpoint.snapshot.story.name} release`.slice(0, 120),
+                    actor.userId,
+                    input.dueAt,
+                    input.timezone,
+                  ],
+                )
+              ).rows[0];
+            if (
+              release.status !== 'held' &&
+              !(
+                await client.query('SELECT $1::timestamptz>clock_timestamp() AS future', [
+                  release.due_at,
+                ])
+              ).rows[0].future
+            )
+              throw new StorypaneError('invalid', 'Choose a future release time.');
+            const deployed = await this.deployedMigration(client, actor.spaceId);
+            const plan = await this.publicationPlan(
+              client,
+              actor,
+              checkpoint,
+              input.referenceChoices ?? [],
+            );
+            const existingItems = await this.releaseItems(client, release);
+            if (
+              new Set([
+                ...existingItems.map((item) => item.locale_id),
+                ...plan.checkpoints.map((item) => item.snapshot.locale.id),
+              ]).size > 100
+            )
+              throw new StorypaneError('invalid', 'A release can contain up to 100 page locales.');
+            let rootId = '';
+            for (const approved of plan.checkpoints) {
+              const target = approved.snapshot;
+              await this.lockLocale(client, actor, target.story.id, target.locale.id);
+              const previous = (
+                await client.query(
+                  "SELECT * FROM publication_schedules WHERE locale_id=$1 AND status='pending'",
+                  [target.locale.id],
+                )
+              ).rows[0];
+              if (target.locale.id !== localeId && previous && previous.release_id !== release.id)
+                throw new StorypaneError(
+                  'invalid',
+                  `${target.story.name} belongs to another release. Move it separately before including it here.`,
+                );
+              await this.cancelPendingSchedules(client, target.locale.id);
+              const row = (
+                await client.query(
+                  `INSERT INTO publication_schedules
+            (space_id,story_id,locale_id,checkpoint_id,schema_version,creator_id,due_at,timezone,next_attempt_at,reference_choices,release_id,approved_snapshot)
+            VALUES($1,$2,$3,$4,$5,$6,$7,$8,$7,$9,$10,$11) RETURNING id`,
+                  [
+                    actor.spaceId,
+                    target.story.id,
+                    target.locale.id,
+                    approved.id,
+                    deployed.version,
+                    actor.userId,
+                    release.due_at,
+                    release.timezone,
+                    JSON.stringify(
+                      target.locale.id === localeId ? (input.referenceChoices ?? []) : [],
+                    ),
+                    release.id,
+                    JSON.stringify(target),
+                  ],
+                )
+              ).rows[0];
+              if (target.locale.id === localeId) rootId = row.id;
+            }
+            return scheduleRow(
+              (
+                await client.query(
+                  `SELECT s.*,c.revision AS checkpoint_revision,r.name AS release_name,r.revision AS release_revision,r.status AS release_status
+          FROM publication_schedules s JOIN checkpoints c ON c.id=s.checkpoint_id JOIN content_releases r ON r.id=s.release_id WHERE s.id=$1`,
+                  [rootId],
+                )
+              ).rows[0],
+            );
           },
+          true,
         );
       },
       'content:publish',
@@ -5660,18 +6016,31 @@ export class StorypaneStore {
           async () => {
             const row = (
               await client.query(
-                'SELECT s.*,c.revision AS checkpoint_revision FROM publication_schedules s JOIN checkpoints c ON c.id=s.checkpoint_id WHERE s.id=$1 AND s.locale_id=$2 FOR UPDATE OF s',
+                'SELECT s.*,c.revision AS checkpoint_revision,r.name AS release_name,r.revision AS release_revision,r.status AS release_status FROM publication_schedules s JOIN checkpoints c ON c.id=s.checkpoint_id JOIN content_releases r ON r.id=s.release_id WHERE s.id=$1 AND s.locale_id=$2 FOR UPDATE OF s',
                 [scheduleId, localeId],
               )
             ).rows[0];
             if (!row) throw new StorypaneError('not_found', 'Schedule not found');
-            if (row.status !== 'pending' || row.revision !== input.revision)
+            if (
+              !['pending', 'failed'].includes(row.status) ||
+              row.revision !== input.revision ||
+              (input.releaseRevision !== undefined &&
+                input.releaseRevision !== row.release_revision)
+            )
               throw new StorypaneError(
                 'stale_revision',
                 'This schedule already changed or completed.',
               );
-            await this.cancelPendingSchedules(client, localeId);
-            return scheduleRow({ ...row, status: 'cancelled', revision: row.revision + 1 });
+            await client.query(
+              "UPDATE publication_schedules SET status='cancelled',revision=revision+1,updated_at=clock_timestamp() WHERE id=$1",
+              [scheduleId],
+            );
+            return scheduleRow({
+              ...row,
+              status: 'cancelled',
+              revision: row.revision + 1,
+              release_revision: row.release_revision + 1,
+            });
           },
         );
       },
@@ -5684,7 +6053,10 @@ export class StorypaneStore {
   ): Promise<{ spaceId: string; storyId: string; localeId: string }[]> {
     const candidates = (
       await this.pool.query(
-        "SELECT id,space_id,story_id,locale_id FROM publication_schedules WHERE status='pending' AND due_at<=clock_timestamp() AND next_attempt_at<=clock_timestamp() ORDER BY next_attempt_at,id LIMIT $1",
+        `SELECT r.id,r.space_id,min(s.next_attempt_at) AS next_attempt_at
+      FROM content_releases r JOIN publication_schedules s ON s.release_id=r.id
+      WHERE r.status='scheduled' AND s.status='pending' AND s.due_at<=clock_timestamp() AND s.next_attempt_at<=clock_timestamp()
+      GROUP BY r.id ORDER BY next_attempt_at,r.id LIMIT $1`,
         [parseInput(z.number().int().min(1).max(100), limit)],
       )
     ).rows;
@@ -5697,81 +6069,176 @@ export class StorypaneStore {
           candidate.space_id,
         ]);
         await this.lockPaths(client, candidate.space_id);
-        await client.query('SELECT id FROM story_locales WHERE id=$1 FOR UPDATE', [
-          candidate.locale_id,
-        ]);
-        const row = (
+        const release = (
           await client.query(
-            "SELECT s.*,st.deleted_at FROM publication_schedules s JOIN stories st ON st.id=s.story_id WHERE s.id=$1 AND s.status='pending' AND s.due_at<=clock_timestamp() AND s.next_attempt_at<=clock_timestamp() FOR UPDATE OF s SKIP LOCKED",
+            `SELECT * FROM content_releases r WHERE id=$1 AND status='scheduled'
+          AND EXISTS(SELECT 1 FROM publication_schedules s WHERE s.release_id=r.id AND s.status='pending' AND s.due_at<=clock_timestamp() AND s.next_attempt_at<=clock_timestamp())
+          FOR UPDATE SKIP LOCKED`,
             [candidate.id],
           )
         ).rows[0];
-        if (!row) {
+        if (!release) {
           await client.query('ROLLBACK');
           continue;
         }
-        await client.query('SAVEPOINT publication_attempt');
+        const items = (await this.releaseItems(client, release)).filter(
+          (item) => item.status === 'pending',
+        );
+        const released: typeof changed = [];
+        await client.query('SAVEPOINT release_attempt');
         try {
-          await this.options.authorizeIdentity?.(row.creator_id);
-          const membership = (
-            await client.query(
-              'SELECT m.role,r.permissions FROM memberships m JOIN "user" u ON u.id=m.user_id JOIN space_roles r ON r.space_id=m.space_id AND r.id=m.role WHERE m.space_id=$1 AND m.user_id=$2',
-              [row.space_id, row.creator_id],
-            )
-          ).rows[0];
-          if (!membership || !membership.permissions.includes('content:publish'))
-            throw new StorypaneError(
-              'forbidden',
-              'The scheduler no longer has publishing permission.',
+          const approved = new Map<string, { checkpoint: CheckpointDetail; actor: Actor }>();
+          for (const item of items) {
+            await this.options.authorizeIdentity?.(item.creator_id);
+            const membership = (
+              await client.query(
+                `SELECT m.role,r.permissions FROM memberships m JOIN "user" u ON u.id=m.user_id
+              JOIN space_roles r ON r.space_id=m.space_id AND r.id=m.role WHERE m.space_id=$1 AND m.user_id=$2`,
+                [item.space_id, item.creator_id],
+              )
+            ).rows[0];
+            if (!membership?.permissions.includes('content:publish'))
+              throw new StorypaneError(
+                'forbidden',
+                'A contributor no longer has publishing permission. Review and approve their pages again.',
+              );
+            if (item.deleted_at)
+              throw new StorypaneError('not_found', 'A page in the release was deleted.');
+            const actor: Actor = {
+              spaceId: item.space_id,
+              userId: item.creator_id,
+              sessionId: '',
+              role: membership.role,
+            };
+            for (const choice of item.reference_choices as PublicationReferenceChoice[]) {
+              if (choice.action !== 'publish') continue;
+              const current = (
+                await client.query(
+                  'SELECT l.published_version_id,p.checkpoint_id FROM story_locales l LEFT JOIN publications p ON p.id=l.published_version_id WHERE l.id=$1',
+                  [choice.localeId],
+                )
+              ).rows[0];
+              if (
+                !current ||
+                (current.published_version_id !== (choice.publicationId ?? null) &&
+                  current.checkpoint_id !== choice.checkpointId)
+              )
+                throw new StorypaneError(
+                  'stale_revision',
+                  'A linked page has a newer publication. Review and approve the release again.',
+                );
+              const member = items.find((target) => target.locale_id === choice.localeId);
+              if (
+                item.approved_snapshot &&
+                (member
+                  ? member.checkpoint_id !== choice.checkpointId
+                  : current.checkpoint_id !== choice.checkpointId)
+              )
+                throw new StorypaneError(
+                  'stale_revision',
+                  'An approved linked page was changed or removed from this release. Review its references again.',
+                );
+            }
+            const original = await this.readCheckpoint(client, item.locale_id, item.checkpoint_id);
+            const checkpoints = item.approved_snapshot
+              ? [
+                  {
+                    ...original,
+                    snapshot: item.approved_snapshot,
+                    content: assembleContent(item.approved_snapshot),
+                  },
+                ]
+              : (await this.publicationPlan(client, actor, original, item.reference_choices))
+                  .checkpoints;
+            for (const checkpoint of checkpoints) {
+              const target = checkpoint.snapshot;
+              await this.lockLocale(client, actor, target.story.id, target.locale.id);
+              if (
+                (
+                  await client.query(
+                    "SELECT 1 FROM publication_schedules WHERE locale_id=$1 AND status='pending' AND release_id<>$2",
+                    [target.locale.id, release.id],
+                  )
+                ).rowCount
+              )
+                throw new StorypaneError(
+                  'stale_revision',
+                  'A linked page belongs to another release. Review the release contents.',
+                );
+              const previous = approved.get(target.locale.id);
+              if (
+                previous &&
+                canonical(previous.checkpoint.content) !== canonical(checkpoint.content)
+              )
+                throw new StorypaneError(
+                  'stale_revision',
+                  'This release contains conflicting versions of a linked page. Review the release contents.',
+                );
+              await this.requirePublicationAccess(client, actor, target);
+              const deployed = await this.deployedMigration(client, actor.spaceId);
+              if ((target.migrationVersion ?? 0) !== deployed.version)
+                throw new StorypaneError(
+                  'invalid',
+                  'The schema changed. Update the approved pages before resuming this release.',
+                );
+              await this.validateSnapshot(client, actor, target, true);
+              approved.set(target.locale.id, { checkpoint, actor });
+            }
+          }
+          for (const { checkpoint, actor } of approved.values()) {
+            const target = checkpoint.snapshot;
+            const publicationId = await this.publishSnapshotTx(client, actor, checkpoint);
+            await this.checkpoint(
+              client,
+              actor,
+              target.story.id,
+              target.locale.id,
+              `Released: ${release.name}`,
             );
-          if (row.deleted_at) throw new StorypaneError('not_found', 'The story was deleted.');
-          const actor: Actor = {
-            spaceId: row.space_id,
-            userId: row.creator_id,
-            sessionId: '',
-            role: membership.role,
-          };
-          const publicationId = await this.publishCheckpointTx(
-            client,
-            actor,
-            row.story_id,
-            row.locale_id,
-            row.checkpoint_id,
-            row.reference_choices,
-          );
-          await this.checkpoint(
-            client,
-            actor,
-            row.story_id,
-            row.locale_id,
-            'Scheduled publication',
-          );
+            await client.query(
+              "UPDATE publication_schedules SET status='published',publication_id=$2,attempt_count=attempt_count+1,revision=revision+1,updated_at=clock_timestamp(),error=NULL WHERE release_id=$1 AND locale_id=$3 AND status='pending'",
+              [release.id, publicationId, target.locale.id],
+            );
+            released.push({
+              spaceId: actor.spaceId,
+              storyId: target.story.id,
+              localeId: target.locale.id,
+            });
+          }
           await client.query(
-            "UPDATE publication_schedules SET status='published',publication_id=$2,attempt_count=attempt_count+1,revision=revision+1,updated_at=clock_timestamp(),error=NULL WHERE id=$1",
-            [row.id, publicationId],
+            "UPDATE content_releases SET status='published',error=NULL,revision=revision+1,updated_at=clock_timestamp() WHERE id=$1",
+            [release.id],
           );
         } catch (error) {
-          await client.query('ROLLBACK TO SAVEPOINT publication_attempt');
-          const terminal = error instanceof StorypaneError && error.code !== 'unavailable';
-          const attempts = row.attempt_count + 1,
-            failed = terminal || attempts >= 5;
+          await client.query('ROLLBACK TO SAVEPOINT release_attempt');
+          released.length = 0;
+          const attempts = Math.max(...items.map((item) => item.attempt_count), 0) + 1;
+          const held =
+            (error instanceof StorypaneError && error.code !== 'unavailable') || attempts >= 5;
           const message =
             error instanceof StorypaneError
               ? error.message
-              : 'Publication infrastructure is unavailable; retrying.';
+              : 'Publication infrastructure is unavailable; retrying the whole release.';
           await client.query(
-            "UPDATE publication_schedules SET status=$2,error=$3,attempt_count=$4,revision=revision+1,next_attempt_at=clock_timestamp()+($5::integer*interval '1 minute'),updated_at=clock_timestamp() WHERE id=$1",
-            [
-              row.id,
-              failed ? 'failed' : 'pending',
-              message,
-              attempts,
-              [1, 5, 15, 60][Math.min(attempts - 1, 3)],
-            ],
+            "UPDATE publication_schedules SET error=$2,attempt_count=$3,revision=revision+1,next_attempt_at=clock_timestamp()+($4::integer*interval '1 minute'),updated_at=clock_timestamp() WHERE release_id=$1 AND status='pending'",
+            [release.id, message, attempts, [1, 5, 15, 60][Math.min(attempts - 1, 3)]],
+          );
+          await client.query(
+            'UPDATE content_releases SET status=$2,error=$3,revision=revision+1,updated_at=clock_timestamp() WHERE id=$1',
+            [release.id, held ? 'held' : 'scheduled', message],
           );
         }
         await client.query('COMMIT');
-        changed.push({ spaceId: row.space_id, storyId: row.story_id, localeId: row.locale_id });
+        changed.push(
+          ...released,
+          ...items
+            .filter((item) => !released.some((page) => page.localeId === item.locale_id))
+            .map((item) => ({
+              spaceId: item.space_id,
+              storyId: item.story_id,
+              localeId: item.locale_id,
+            })),
+        );
       } catch (error) {
         await client.query('ROLLBACK');
         throw error;

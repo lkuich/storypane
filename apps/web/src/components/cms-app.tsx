@@ -3,6 +3,7 @@
 import { AccountControl } from './account-control';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
+  CalendarClock,
   Box,
   BookOpen,
   Boxes,
@@ -23,6 +24,7 @@ import { Button, ErrorNotice, Loading } from '@storypane/ui';
 import { api, errorMessage } from '../features/editor/api';
 import { setStoryLocation } from '../lib/space-url';
 import { can, type Space, type Story } from '@storypane/core';
+import { ReleasesScreen } from '../features/releases/releases-screen';
 import { ContentList } from '../features/content/content-list';
 import { SchemaLibrary } from '../features/schema/schema-library';
 import { DatasourceList } from '../features/datasources/datasource-list';
@@ -51,9 +53,10 @@ export type CMSSession = {
     | 'schemaReadOnly'
   >;
 };
-type Tab = 'content' | 'blocks' | 'datasources' | 'assets' | 'settings';
+type Tab = 'content' | 'releases' | 'blocks' | 'datasources' | 'assets' | 'settings';
 const tabs = [
   { id: 'content', label: 'Content', icon: FileText },
+  { id: 'releases', label: 'Releases', icon: CalendarClock },
   { id: 'blocks', label: 'Blocks', icon: Box },
   { id: 'datasources', label: 'Datasources', icon: Database },
   { id: 'assets', label: 'Assets', icon: ImageIcon },
@@ -377,6 +380,12 @@ export function CMSApp({ session: initialSession }: { session: CMSSession }) {
                 onBlocks={() => void navigate('blocks')}
               />
             ))}
+          {tab === 'releases' && (
+            <ReleasesScreen
+              canPublish={can(session.space, 'content:publish')}
+              onContent={() => void navigate('content')}
+            />
+          )}
           {tab === 'blocks' && (
             <SchemaLibrary space={session.space} registerGuard={registerGuard} />
           )}

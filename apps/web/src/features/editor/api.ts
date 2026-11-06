@@ -76,8 +76,9 @@ export function fieldName(value: string): string {
     .replace(/^_+|_+$/g, '')
     .replace(/^[^a-z]+/, '');
 }
-export function dateLabel(value: string): string {
+export function dateLabel(value: string, timeZone?: string): string {
   return new Intl.DateTimeFormat(undefined, {
+    timeZone,
     month: 'short',
     day: 'numeric',
     hour: 'numeric',

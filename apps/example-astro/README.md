@@ -61,6 +61,11 @@ Adjust the block components to match that space's schemas. Do not put either
 token in a `PUBLIC_` variable. Preview tokens are used only by schema tooling;
 published tokens are used only by the Astro build/server.
 
+Content editors can group approved production pages into [content releases](../../docs/releases.md).
+The existing SDK reads need no changes: only published revisions reach this site.
+Rebuild static pages or revalidate cached routes after a release. Webhooks emit
+one `story.published` event per page; coalesce these when triggering builds.
+
 ## Try live editing
 
 Sign in to the CMS, open **Fieldwork · Astro example → Home → Preview**, then edit

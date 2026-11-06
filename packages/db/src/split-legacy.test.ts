@@ -8,9 +8,9 @@ import { splitLegacy } from './split-legacy.js';
 import { verifyMigratedExamples } from '../../../tests/migrated-examples';
 
 const url = process.env.ISOLATION_TEST_DATABASE_URL;
-it.skipIf(!url)(
-  'copies and validates multiple legacy spaces, preserving source rollback, history, tokens and asset references',
-  async () => {
+it.skipIf(!url).each([false, true])(
+  'copies and validates legacy spaces, releases, tokens and media (pre-release schema: %s)',
+  async (legacySchedules) => {
     if (new URL(url!).hostname !== '127.0.0.1' || new URL(url!).port !== '55449')
       throw new Error('Use the disposable isolation cluster');
     const admin = new Pool({ connectionString: url });
@@ -86,10 +86,17 @@ it.skipIf(!url)(
           "INSERT INTO assets(id,space_id,object_key,filename,mime_type,byte_size,title) VALUES($1,$2,$3,'photo.png','image/png',12,'Photo')",
           [randomUUID(), spaceId, `${spaceId}/original.png`],
         );
-        await source.query(
-          "INSERT INTO publication_schedules(space_id,story_id,locale_id,checkpoint_id,schema_version,creator_id,due_at,timezone,next_attempt_at) VALUES($1,$2,$3,$4,1,'legacy-admin',now()+interval '1 day','UTC',now()+interval '1 day')",
-          [spaceId, story.id, locale.id, snapshot.checkpointId],
-        );
+        const localTime = new Date(Date.now() + 86400000).toISOString().slice(0, 16);
+        await store.schedulePublication(actor, story.id, locale.id, {
+          requestId: randomUUID(),
+          checkpointId: snapshot.checkpointId!,
+          localTime,
+          dueAt: `${localTime}:00.000Z`,
+          timezone: 'UTC',
+          expectedScheduleId: null,
+          expectedRevision: null,
+          releaseName: 'Preserved launch',
+        });
         const transferId = randomUUID();
         transfers.push(transferId);
         await source.query(
@@ -105,6 +112,10 @@ it.skipIf(!url)(
           ],
         );
       }
+      if (legacySchedules)
+        await source.query(
+          "DROP TRIGGER content_release_members_changed ON publication_schedules; DROP FUNCTION bump_content_release_revision(); ALTER TABLE publication_schedules DROP COLUMN release_id,DROP COLUMN approved_snapshot,DROP COLUMN cancelled_by_release; DROP TABLE content_releases; DELETE FROM storypane_migrations WHERE name='027_content_releases'",
+        );
       installation = new Installation({
         connectionString: urls[1],
         encryptionKey: randomBytes(32).toString('base64'),
@@ -135,12 +146,16 @@ it.skipIf(!url)(
           expect(
             (
               await selected.db.query(
-                "SELECT name,applied_at FROM storypane_migrations WHERE name<>'025_space_database' ORDER BY name",
+                'SELECT name,applied_at FROM storypane_migrations WHERE name=ANY($1::text[]) ORDER BY name',
+                [history.map((row) => row.name)],
               )
             ).rows,
           ).toEqual(history);
           expect(
             (await selected.db.query('SELECT count(*) FROM publication_schedules')).rows[0].count,
+          ).toBe('1');
+          expect(
+            (await selected.db.query('SELECT count(*) FROM content_releases')).rows[0].count,
           ).toBe('1');
           expect(
             (await selected.db.query('SELECT object_key FROM assets')).rows[0].object_key,

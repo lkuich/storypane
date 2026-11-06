@@ -65,29 +65,25 @@ test('review schedules an explicit UTC revision and cancellation remains visible
   await page.getByRole('button', { name: copied.story.name, exact: true }).click();
   await page.getByRole('button', { name: 'Review & publish', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'Review before publishing', exact: true });
-  await expect(
-    dialog.getByRole('button', { name: 'Schedule this revision', exact: true }),
-  ).not.toBeVisible();
-  await dialog.getByRole('button', { name: 'More publishing options', exact: true }).click();
-  await page.keyboard.press('Escape');
-  await expect(dialog).toBeVisible();
-  await expect(
-    dialog.getByRole('button', { name: 'Schedule this revision', exact: true }),
-  ).not.toBeVisible();
-  await dialog.getByRole('button', { name: 'More publishing options', exact: true }).click();
-  await dialog.getByRole('button', { name: 'Schedule this revision', exact: true }).click();
+  await dialog.getByRole('button', { name: 'Add to release', exact: true }).click();
   await expect(dialog.getByRole('button', { name: /Publish revision/ })).not.toBeVisible();
-  await expect(dialog.getByLabel('Local date and time', { exact: true })).toBeFocused();
   const time = new Date(Date.now() + 86400000).toISOString().slice(0, 16);
   await dialog.getByLabel('Timezone', { exact: true }).fill('UTC');
-  await dialog.getByLabel('Local date and time', { exact: true }).fill(time);
-  await dialog.getByRole('button', { name: 'Schedule publication', exact: true }).click();
+  await dialog.getByLabel('Release date and time', { exact: true }).fill(time);
+  await dialog.getByRole('button', { name: 'Create release & schedule', exact: true }).click();
   await expect(dialog).not.toBeVisible();
-  await expect(page.getByText(/Scheduled · revision/)).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Scheduled release' })).toBeVisible();
   await page.reload();
-  await expect(page.getByText(/Scheduled · revision/)).toBeVisible();
-  await page.getByRole('button', { name: 'Cancel schedule', exact: true }).click();
-  await expect(page.getByText(/Scheduled · revision/)).not.toBeVisible();
+  await expect(page.getByRole('region', { name: 'Scheduled release' })).toBeVisible();
+  await page.getByRole('link', { name: 'View release' }).click();
+  await page.getByRole('button', { name: 'Cancel release', exact: true }).click();
+  await page
+    .getByRole('dialog')
+    .getByRole('button', { name: 'Cancel release', exact: true })
+    .click();
+  await expect(page.getByRole('dialog')).not.toBeVisible();
+  await page.getByRole('button', { name: 'History', exact: true }).click();
+  await expect(page.getByText('This release was cancelled.')).toBeVisible();
   const locales = (await (
     await page.request.get(`/api/cms/stories/${copied.story.id}/locales`)
   ).json()) as StoryLocale[];

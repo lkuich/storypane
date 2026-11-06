@@ -197,6 +197,13 @@ before starting a new release. Never use local-only `db:setup` for deployment.
 Installation/database migrations are separate from the schema migrations that
 teams deploy and promote inside spaces.
 
+Content releases require space migration `027_content_releases`. Run
+`pnpm admin migrate` before starting this version. Existing schedules, checkpoint
+IDs, times and history are retained as individual releases. Failed schedules
+remain on hold for review; new releases reserve each page locale until it is
+removed, published or cancelled. Back up and retain the space databases before
+upgrading. See [Content releases](releases.md) for recovery and editor actions.
+
 The linked-space release requires installation migration `002_space_environments`
 and space migration `026_space_environments`. The transactional operator runner
 applies both across registered spaces; restarting the server alone does not apply

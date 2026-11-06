@@ -504,8 +504,10 @@ export function ContentList({
                           .slice(0, 3)
                           .map((schedule) => (
                             <div className="entity-subtitle" key={schedule.id}>
-                              {schedule.status === 'pending' ? 'Scheduled' : 'Schedule failed'} ·
-                              revision {schedule.checkpointRevision} · {dateLabel(schedule.dueAt)}
+                              {schedule.releaseStatus === 'held'
+                                ? 'Release needs attention'
+                                : schedule.releaseName}{' '}
+                              · revision {schedule.checkpointRevision} · {dateLabel(schedule.dueAt)}
                             </div>
                           ))}
                         <div className="entity-subtitle">

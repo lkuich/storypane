@@ -129,6 +129,16 @@ transfer until you reconcile them. Removing fields or tightening nesting can
 change existing content: review the impact rather than assuming a successful dev
 deployment guarantees a successful production promotion.
 
+## Plan content launches in production
+
+Use [Content releases](releases.md) in production to group approved page revisions
+under one publication time. Nested blocks are included in each approved page;
+later draft edits stay unpublished. Editors can update the approved version,
+move the page to another release, or publish it now and remove it from the group.
+Schema protection can remain enabled. Releases stay in their own space and are
+not part of schema promotion. A schema deployment holds affected releases so
+editors can review their migrated content before resuming.
+
 ## Sync when another developer promotes
 
 Other dev spaces show **Behind production** after a new production migration.

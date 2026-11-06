@@ -7,6 +7,12 @@ logs** show attempts and safe failure summaries; **Retry delivery** explicitly
 resends a failed or cancelled event with the current destination configuration.
 Secrets appear only when created or rotated. Configuration reads never return them.
 
+[Content releases](releases.md) publish their approved pages and enqueue each
+page's `story.published` event in one transaction. A failed release attempt emits
+none of those events. Delivery is still separate per page with independent
+retries; coalesce build requests for multi-page launches. There is no separate
+release webhook event.
+
 ## Production and development spaces
 
 For the [recommended team workflow](development-workflow.md), configure live-site

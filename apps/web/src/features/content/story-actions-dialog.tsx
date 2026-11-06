@@ -19,6 +19,7 @@ import type {
   StoryAction,
   PublicationReview,
   PublicationReferenceChoice,
+  PublicationSchedule,
 } from '@storypane/core';
 import { Button, ErrorNotice, Field, Loading, Modal } from '@storypane/ui';
 import { api, errorMessage, jsonRequest } from '../editor/api';
@@ -32,9 +33,21 @@ async function publicationReviewsFor(reviews: LifecycleReview[]) {
         .filter((locale) => locale.checkpointId)
         .map(async (locale) => {
           try {
-            const publication = await api<PublicationReview>(
-              `/stories/${review.story.id}/locales/${locale.id}/publication-review/${locale.checkpointId}`,
-            );
+            const [publication, schedules] = await Promise.all([
+              api<PublicationReview>(
+                `/stories/${review.story.id}/locales/${locale.id}/publication-review/${locale.checkpointId}`,
+              ),
+              api<PublicationSchedule[]>(
+                `/stories/${review.story.id}/locales/${locale.id}/schedules`,
+              ),
+            ]);
+            const active = schedules.find((item) => item.active);
+            if (active)
+              return {
+                id: locale.id,
+                publication: null,
+                error: `This page belongs to ${active.releaseName}. Open its editor to update the release or publish now and remove it.`,
+              };
             if (publication.snapshot.access?.publish === false)
               return {
                 id: locale.id,

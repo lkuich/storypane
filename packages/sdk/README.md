@@ -348,6 +348,31 @@ See the [management API guide](../../docs/management-api.md) for safe edits,
 publishing, token permissions, pagination, HTTP operations, and CLI JSON input.
 The delivery SDK remains the entrypoint for public sites.
 
+### Content releases
+
+Use the management client's existing `request()` method to manage releases:
+
+```ts
+const releases = await management.request('/releases');
+const release = await management.request('/releases', {
+  method: 'POST',
+  body: {
+    requestId: crypto.randomUUID(),
+    name: 'Summer launch',
+    localTime: '2027-06-01T09:00',
+    timezone: 'America/Vancouver',
+    dueAt: '2027-06-01T16:00:00.000Z',
+  },
+});
+```
+
+Choose a future date; retain the same request ID and payload on retries. Add
+approved page revisions through the scheduling endpoint, using the release ID and
+reviewed revision. See [API contracts](../../docs/management-api.md#content-releases)
+and [the release guide](../../docs/releases.md). Releases publish approved nested
+content together; later drafts stay unpublished. Delivery and preview calls are
+unchanged. No release-specific CLI command is required or provided.
+
 ## Schema migrations and generated types
 
 A space has one shared active migration. CMS schema saves and CLI pushes update

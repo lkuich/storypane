@@ -43,7 +43,7 @@ copied stories stay unpublished. This empty project has none. For additional
 teammates, create a dedicated dev space per developer as described in the
 [team workflow](development-workflow.md).
 
-The main navigation includes **Content**, **Blocks**, **Assets**, and **Settings**.
+The main navigation includes **Content**, **Releases**, **Blocks**, **Assets**, and **Settings**.
 Use **Blocks** to define what editors can enter, then **Content** to create pages
 from those definitions.
 
@@ -208,6 +208,12 @@ the fixed checkpoint you reviewed; later edits stay in the draft.
 The slug `home` is the content path. Storypane does not create or deploy a website
 at `/home` for you. Your application decides how published stories map to routes,
 and static websites need a rebuild after publication.
+
+To publish later, choose **Add to release** in the publishing review. Create a
+named release or add this revision to an existing one. The **Releases** view lists
+approved pages and flags newer drafts that are not included. Scheduled pages offer
+**Update release** or **Publish now & remove from release** on their next review.
+See [Content releases](releases.md) for planning, linked pages and conflict handling.
 
 ## 9. Connect a website and live preview
 

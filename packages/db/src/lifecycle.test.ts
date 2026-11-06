@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { readFile } from 'node:fs/promises';
 import { Pool } from 'pg';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { StorypaneStore } from './store.js';
@@ -308,7 +309,11 @@ describe('Durable fixed-checkpoint scheduling', () => {
     await store.runScheduledPublications();
     const row = (await pool.query('SELECT * FROM publication_schedules WHERE id=$1', [job.id]))
       .rows[0];
-    expect(row.status).toBe('failed');
+    expect(row.status).toBe('pending');
+    expect(
+      (await pool.query('SELECT status FROM content_releases WHERE id=$1', [job.releaseId])).rows[0]
+        .status,
+    ).toBe('held');
     expect(row.publication_id).toBeNull();
     expect(row.error).toContain('permission');
   });
@@ -448,7 +453,11 @@ describe('Lifecycle and scheduling boundary cases', () => {
           )
         ).rows[0];
         expect(row.attempt_count).toBe(attempt);
-        expect(row.status).toBe(attempt === 5 ? 'failed' : 'pending');
+        expect(row.status).toBe('pending');
+        expect(
+          (await pool.query('SELECT status FROM content_releases WHERE id=$1', [job.releaseId]))
+            .rows[0].status,
+        ).toBe(attempt === 5 ? 'held' : 'scheduled');
         expect(Number(row.delay)).toBeCloseTo([1, 5, 15, 60, 60][attempt - 1], 1);
       }
       expect(
@@ -1431,6 +1440,24 @@ describe('Publication reference choices', () => {
       (await store.getPublication(alice, linked.story.id, linked.locale.id))?.checkpointId,
     ).toBe(linked.checkpointId);
   });
+  it('holds the whole release if an approved linked page is removed', async () => {
+    const linked = await copiedStory();
+    snapshot = await linkStory(snapshot, linked);
+    const job = await schedule(snapshot.checkpointId!, [
+      { localeId: linked.locale.id, checkpointId: linked.checkpointId!, action: 'publish' },
+    ]);
+    const member = (await store.listSchedules(alice, linked.story.id, linked.locale.id))[0];
+    await store.cancelSchedule(alice, linked.story.id, linked.locale.id, member.id, {
+      requestId: randomUUID(),
+      revision: member.revision,
+      releaseRevision: member.releaseRevision,
+    });
+    await due(job.id);
+    await store.runScheduledPublications();
+    expect((await store.listReleases(alice))[0].status).toBe('held');
+    expect(await store.getPublication(alice, snapshot.story.id, snapshot.locale.id)).toBeNull();
+    expect(await store.getPublication(alice, linked.story.id, linked.locale.id)).toBeNull();
+  });
   it('fails a schedule as a unit if linked-story publishing access is lost', async () => {
     const linked = await copiedStory();
     snapshot = await linkStory(snapshot, linked);
@@ -1507,4 +1534,344 @@ describe('Publication reference choices', () => {
       ).rejects.toMatchObject({ code: 'stale_revision' });
     },
   );
+});
+
+describe('Content releases', () => {
+  const timing = () => {
+    const localTime = new Date(Date.now() + 86400000).toISOString().slice(0, 16);
+    return { localTime, dueAt: `${localTime}:00.000Z`, timezone: 'UTC' };
+  };
+  async function add(
+    state: LocaleSnapshot,
+    release?: { id: string; revision: number },
+    existing?: { id: string; revision: number; releaseRevision: number },
+  ) {
+    return store.schedulePublication(alice, state.story.id, state.locale.id, {
+      ...timing(),
+      requestId: randomUUID(),
+      checkpointId: state.checkpointId!,
+      release: release ? { id: release.id, revision: release.revision } : undefined,
+      releaseName: 'Summer launch',
+      expectedScheduleId: existing?.id ?? null,
+      expectedRevision: existing?.revision ?? null,
+      expectedReleaseRevision: existing?.releaseRevision,
+    });
+  }
+  async function duplicatePage() {
+    const copy = await store.storyAction(alice, snapshot.story.id, {
+      action: 'duplicate',
+      requestId: randomUUID(),
+      folderId: null,
+    });
+    return store.getSnapshot(alice, copy.story.id, copy.localeIds[0]);
+  }
+  async function makeDue(releaseId: string) {
+    await pool.query(
+      "UPDATE publication_schedules SET due_at=clock_timestamp()-interval '1 minute',next_attempt_at=clock_timestamp()-interval '1 minute' WHERE release_id=$1",
+      [releaseId],
+    );
+  }
+  it('groups approved nested snapshots, keeps later drafts out, and publishes once across concurrent runners', async () => {
+    const first = await add(snapshot);
+    const other = await duplicatePage();
+    const group = (await store.listReleases(alice)).find((item) => item.id === first.releaseId)!;
+    await add(other, group);
+    const hero = blockNamed(snapshot, 'hero');
+    await save(alice, snapshot, hero, { ...hero.fields, title: 'Unapproved next campaign' });
+    const review = (await store.listReleases(alice)).find((item) => item.id === first.releaseId)!;
+    expect(review.name).toBe('Summer launch');
+    expect(review.items).toHaveLength(2);
+    expect(review.items.find((item) => item.localeId === snapshot.locale.id)?.draftChanged).toBe(
+      true,
+    );
+    expect(JSON.stringify(review)).not.toContain('leaseTokens');
+    await makeDue(first.releaseId);
+    await Promise.all([store.runScheduledPublications(), store.runScheduledPublications()]);
+    const published = await store.getPublication(alice, snapshot.story.id, snapshot.locale.id);
+    expect(published?.checkpointId).toBe(snapshot.checkpointId);
+    expect(JSON.stringify(published?.content)).not.toContain('Unapproved next campaign');
+    expect(
+      (await store.getSnapshot(alice, snapshot.story.id, snapshot.locale.id)).blocks.find(
+        (item) => item.id === hero.id,
+      )?.fields.title,
+    ).toBe('Unapproved next campaign');
+    expect(
+      (
+        await pool.query(
+          'SELECT count(*)::int AS count FROM publications WHERE locale_id=ANY($1::uuid[])',
+          [[snapshot.locale.id, other.locale.id]],
+        )
+      ).rows[0].count,
+    ).toBe(2);
+    expect(
+      (await store.listReleases(alice)).find((item) => item.id === first.releaseId)?.status,
+    ).toBe('published');
+  });
+  it('rolls back the whole release when a later publication fails and safely retries', async () => {
+    const first = await add(snapshot);
+    const other = await duplicatePage();
+    await add(other, (await store.listReleases(alice))[0]);
+    const rows = (
+      await pool.query(
+        'SELECT s.locale_id FROM publication_schedules s JOIN stories st ON st.id=s.story_id JOIN story_locales l ON l.id=s.locale_id WHERE s.release_id=$1 ORDER BY st.name,l.name,s.id',
+        [first.releaseId],
+      )
+    ).rows;
+    const rejected = rows[1].locale_id;
+    await pool.query(
+      `ALTER TABLE publications ADD CONSTRAINT reject_release_page CHECK(locale_id<>'${rejected}'::uuid)`,
+    );
+    try {
+      await makeDue(first.releaseId);
+      await store.runScheduledPublications();
+    } finally {
+      await pool.query('ALTER TABLE publications DROP CONSTRAINT reject_release_page');
+    }
+    expect(await store.getPublication(alice, snapshot.story.id, snapshot.locale.id)).toBeNull();
+    expect(await store.getPublication(alice, other.story.id, other.locale.id)).toBeNull();
+    expect(
+      (await store.listReleases(alice))[0].items.every((item) => item.publicationId === null),
+    ).toBe(true);
+    await makeDue(first.releaseId);
+    await store.runScheduledPublications();
+    expect((await store.listReleases(alice))[0].status).toBe('published');
+  });
+  it('rejects stale release edits and moves a page into exactly one upcoming release', async () => {
+    const first = await add(snapshot);
+    const stale = (await store.listReleases(alice))[0];
+    const other = await duplicatePage();
+    await add(other, stale);
+    await expect(
+      store.saveRelease(
+        alice,
+        { ...timing(), requestId: randomUUID(), name: 'Overwrite', revision: stale.revision },
+        stale.id,
+      ),
+    ).rejects.toMatchObject({ code: 'stale_revision' });
+    await expect(add(snapshot, stale, first)).rejects.toMatchObject({ code: 'stale_revision' });
+    const next = await store.saveRelease(alice, {
+      ...timing(),
+      requestId: randomUUID(),
+      name: 'Autumn launch',
+    });
+    const current = (await store.listSchedules(alice, snapshot.story.id, snapshot.locale.id))[0];
+    const moved = await add(snapshot, next, current);
+    expect(moved.releaseId).toBe(next.id);
+    expect(
+      (
+        await pool.query(
+          "SELECT count(*)::int AS count FROM publication_schedules WHERE locale_id=$1 AND status='pending'",
+          [snapshot.locale.id],
+        )
+      ).rows[0].count,
+    ).toBe(1);
+    expect(
+      (await store.listReleases(alice))
+        .find((item) => item.id === first.releaseId)
+        ?.items.map((item) => item.localeId),
+    ).toEqual([other.locale.id]);
+  });
+  it('keeps only the final approved members in cancelled release history', async () => {
+    const first = await add(snapshot);
+    const other = await duplicatePage();
+    await add(other, (await store.listReleases(alice))[0]);
+    const current = (await store.listSchedules(alice, snapshot.story.id, snapshot.locale.id))[0];
+    await add(snapshot, (await store.listReleases(alice))[0], current);
+    const group = (await store.listReleases(alice))[0];
+    const cancelled = await store.cancelRelease(alice, group.id, {
+      requestId: randomUUID(),
+      revision: group.revision,
+    });
+    expect(cancelled.items).toHaveLength(2);
+    expect(cancelled.items.some((item) => item.id === first.id)).toBe(false);
+    expect(cancelled.items.every((item) => item.status === 'cancelled')).toBe(true);
+  });
+  it('holds every page after a permission failure and hides releases outside a reader’s scope', async () => {
+    const first = await add(snapshot);
+    const other = await duplicatePage();
+    await add(other, (await store.listReleases(alice))[0]);
+    await scopedEditor({
+      read: {
+        localeIds: [snapshot.locale.spaceLocaleId],
+        locations: { folderIds: [], storyIds: [snapshot.story.id] },
+      },
+      publish: { locations: { folderIds: [], storyIds: [snapshot.story.id] } },
+    });
+    expect(await store.listReleases(bob)).toEqual([]);
+    await expect(
+      store.cancelRelease(bob, first.releaseId, {
+        requestId: randomUUID(),
+        revision: (await store.listReleases(alice))[0].revision,
+      }),
+    ).rejects.toMatchObject({ code: 'not_found' });
+    await pool.query("UPDATE memberships SET role='viewer' WHERE space_id=$1 AND user_id='alice'", [
+      alice.spaceId,
+    ]);
+    await makeDue(first.releaseId);
+    await store.runScheduledPublications();
+    expect(
+      (await pool.query('SELECT status FROM content_releases WHERE id=$1', [first.releaseId]))
+        .rows[0].status,
+    ).toBe('held');
+    expect(
+      (
+        await pool.query(
+          'SELECT count(*)::int AS count FROM publications WHERE locale_id=ANY($1::uuid[])',
+          [[snapshot.locale.id, other.locale.id]],
+        )
+      ).rows[0].count,
+    ).toBe(0);
+    expect(
+      (
+        await pool.query(
+          "SELECT count(*)::int AS count FROM publication_schedules WHERE release_id=$1 AND status='pending'",
+          [first.releaseId],
+        )
+      ).rows[0].count,
+    ).toBe(2);
+    await pool.query("UPDATE memberships SET role='admin' WHERE space_id=$1 AND user_id='alice'", [
+      alice.spaceId,
+    ]);
+    const held = (await store.listReleases(alice))[0];
+    await store.saveRelease(
+      alice,
+      { ...timing(), requestId: randomUUID(), name: held.name, revision: held.revision },
+      held.id,
+    );
+    await makeDue(held.id);
+    await store.runScheduledPublications();
+    expect((await store.listReleases(alice))[0].status).toBe('published');
+  });
+  it('requires a fresh page review before publishing now and removes only that page', async () => {
+    const first = await add(snapshot);
+    const other = await duplicatePage();
+    await add(other, (await store.listReleases(alice))[0]);
+    await expect(
+      store.storyAction(alice, snapshot.story.id, {
+        action: 'publish',
+        requestId: randomUUID(),
+        acknowledgeReferences: false,
+        locales: [
+          { id: snapshot.locale.id, checkpointId: snapshot.checkpointId, publicationId: null },
+        ],
+      }),
+    ).rejects.toMatchObject({ code: 'invalid' });
+    await expect(
+      run(alice, snapshot, {
+        ...commandBase(),
+        type: 'publishCheckpoint',
+        payload: {
+          checkpointId: snapshot.checkpointId!,
+          expectedScheduleId: null,
+          expectedScheduleRevision: null,
+        },
+      }),
+    ).rejects.toMatchObject({ code: 'stale_revision' });
+    await run(alice, snapshot, {
+      ...commandBase(),
+      type: 'publishCheckpoint',
+      payload: {
+        checkpointId: snapshot.checkpointId!,
+        expectedScheduleId: first.id,
+        expectedScheduleRevision: first.revision,
+      },
+    });
+    expect(
+      (await store.listReleases(alice))
+        .find((item) => item.id === first.releaseId)
+        ?.items.map((item) => item.localeId),
+    ).toEqual([other.locale.id]);
+  });
+  it('replays release creation and cancellation without overwriting newer changes', async () => {
+    const input = { ...timing(), requestId: randomUUID(), name: 'Launch' };
+    const first = await store.saveRelease(alice, input);
+    expect(await store.saveRelease(alice, input)).toEqual(first);
+    const cancel = { requestId: randomUUID(), revision: first.revision };
+    expect(await store.cancelRelease(alice, first.id, cancel)).toEqual(
+      await store.cancelRelease(alice, first.id, cancel),
+    );
+    expect((await store.listReleases(alice))[0].status).toBe('cancelled');
+  });
+});
+
+describe('Release upgrades and authorization', () => {
+  it('preserves legacy schedule IDs, approved checkpoints, timezone, failures and publication history', async () => {
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query(
+        'DROP TRIGGER content_release_members_changed ON publication_schedules; DROP FUNCTION bump_content_release_revision(); ALTER TABLE publication_schedules DROP COLUMN release_id, DROP COLUMN approved_snapshot,DROP COLUMN cancelled_by_release; DROP TABLE content_releases',
+      );
+      const ids = [];
+      for (const status of ['pending', 'cancelled', 'failed', 'published']) {
+        const id = randomUUID();
+        ids.push(id);
+        await client.query(
+          "INSERT INTO publication_schedules(id,space_id,story_id,locale_id,checkpoint_id,schema_version,creator_id,due_at,timezone,next_attempt_at,status,error) VALUES($1,$2,$3,$4,$5,1,'alice',now()+interval '1 day','America/Vancouver',now()+interval '1 day',$6,$7)",
+          [
+            id,
+            alice.spaceId,
+            snapshot.story.id,
+            snapshot.locale.id,
+            snapshot.checkpointId,
+            status,
+            status === 'failed' ? 'Retained failure' : null,
+          ],
+        );
+      }
+      await client.query(
+        await readFile(new URL('../migrations/027_content_releases.sql', import.meta.url), 'utf8'),
+      );
+      const rows = (
+        await client.query(
+          'SELECT s.id,s.checkpoint_id,s.status,r.id AS release_id,r.status AS release_status,r.timezone,r.error FROM publication_schedules s JOIN content_releases r ON r.id=s.release_id WHERE s.id=ANY($1::uuid[])',
+          [ids],
+        )
+      ).rows;
+      expect(rows).toHaveLength(4);
+      for (const row of rows) {
+        expect(row.release_id).toBe(row.id);
+        expect(row.checkpoint_id).toBe(snapshot.checkpointId);
+        expect(row.timezone).toBe('America/Vancouver');
+        expect(row.release_status).toBe(
+          row.status === 'pending' ? 'scheduled' : row.status === 'failed' ? 'held' : row.status,
+        );
+      }
+      expect(rows.find((row) => row.status === 'failed')?.error).toBe('Retained failure');
+    } finally {
+      await client.query('ROLLBACK');
+      client.release();
+    }
+    await migrate(pool);
+    expect(
+      (
+        await pool.query(
+          "SELECT count(*) FROM storypane_migrations WHERE name='027_content_releases'",
+        )
+      ).rows[0].count,
+    ).toBe('1');
+  });
+  it('reauthorizes release receipt responses after content access changes', async () => {
+    const localTime = new Date(Date.now() + 86400000).toISOString().slice(0, 16);
+    const input = {
+      requestId: randomUUID(),
+      name: 'Private launch',
+      localTime,
+      dueAt: `${localTime}:00.000Z`,
+      timezone: 'UTC',
+    };
+    const group = await store.saveRelease(bob, input);
+    await store.schedulePublication(bob, snapshot.story.id, snapshot.locale.id, {
+      localTime,
+      dueAt: input.dueAt,
+      timezone: input.timezone,
+      requestId: randomUUID(),
+      checkpointId: snapshot.checkpointId!,
+      release: { id: group.id, revision: group.revision },
+      expectedScheduleId: null,
+      expectedRevision: null,
+    });
+    await scopedEditor({ read: { locations: { folderIds: [], storyIds: [] } } });
+    await expect(store.saveRelease(bob, input)).rejects.toMatchObject({ code: 'not_found' });
+  });
 });

@@ -15,6 +15,11 @@ to live drafts. Nothing in this app imports the Astro example.
 | [`src/components/preview-story.tsx`](src/components/preview-story.tsx) | Subscribe to drafts with `useStorypanePreview`.                                |
 | [`src/types/storypane.ts`](src/types/storypane.ts)                     | Generated types for the deployed schema; regenerate instead of editing.        |
 
+Content editors can group approved production pages into [content releases](../../docs/releases.md).
+The existing SDK reads need no changes: only published revisions reach this site.
+Rebuild static pages or revalidate cached routes after a release. Webhooks emit
+one `story.published` event per page; coalesce these when triggering builds.
+
 ## Add Storypane to an existing Next.js app
 
 You don't need to adopt this example's layout or routing. The basic integration

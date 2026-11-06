@@ -20,8 +20,9 @@ and see their changes in a live website preview.
 - **Preview in your website.** Use your own components for live draft previews,
   including unpublished pages. Select a block in the preview to edit its fields.
 - **Publish deliberately.** Review a fixed checkpoint, publish linked content
-  together, or schedule publication. Later edits stay in the draft, and history
-  lets you restore earlier content.
+  together, or group approved pages into [content releases](docs/releases.md).
+  Schedule a launch, keep later edits in drafts, and publish the whole release
+  together. History lets you restore earlier content.
 - **Make room for every locale.** Give each locale its own page structure and URL.
   Copy content between locales as a starting point without keeping them coupled.
 - **Model content that fits.** Combine reusable blocks, rich text, media, links,

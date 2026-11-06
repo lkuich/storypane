@@ -870,6 +870,8 @@ export const commandSchema = z.discriminatedUnion('type', [
         .object({
           checkpointId: id,
           referenceChoices: publicationReferenceChoicesSchema.optional(),
+          expectedScheduleId: z.uuid().nullable().optional(),
+          expectedScheduleRevision: z.number().int().positive().nullable().optional(),
         })
         .strict(),
     })
@@ -1283,7 +1285,12 @@ export type BulkStoryActionResult = {
   error?: { code: ErrorCode; message: string };
 };
 export type PublicationSchedule = {
+  active: boolean;
   id: string;
+  releaseId: string;
+  releaseName: string;
+  releaseRevision: number;
+  releaseStatus: import('./releases.js').ContentRelease['status'];
   storyId: string;
   localeId: string;
   checkpointId: string;
@@ -1307,9 +1314,17 @@ export const scheduleInputSchema = z
     localTime: z.string().regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/),
     expectedScheduleId: z.uuid().nullable(),
     expectedRevision: z.number().int().positive().nullable(),
+    expectedReleaseRevision: z.number().int().positive().optional(),
+    release: z.object({ id: z.uuid(), revision: z.number().int().positive() }).strict().optional(),
+    releaseName: z.string().trim().min(1).max(120).optional(),
   })
   .strict();
 export const cancelScheduleSchema = z
-  .object({ requestId: z.uuid(), revision: z.number().int().positive() })
+  .object({
+    requestId: z.uuid(),
+    revision: z.number().int().positive(),
+    releaseRevision: z.number().int().positive().optional(),
+  })
   .strict();
 export * from './media.js';
+export * from './releases.js';

@@ -141,17 +141,17 @@ export function ContentFilterBar({
             </Field>
           ))}
           {!deleted && (
-            <Field label="Schedule" htmlFor="content-filter-schedule">
+            <Field label="Release" htmlFor="content-filter-schedule">
               <select
                 id="content-filter-schedule"
-                aria-label="Filter schedules"
+                aria-label="Filter releases"
                 value={scheduleFilter}
                 disabled={loading}
                 onChange={(event) => onScheduleChange(event.target.value)}
               >
-                <option value="">All schedules</option>
+                <option value="">All releases</option>
                 <option value="pending">Scheduled</option>
-                <option value="failed">Failed schedules</option>
+                <option value="failed">Needs attention</option>
               </select>
             </Field>
           )}
@@ -230,10 +230,10 @@ export function ContentFilterBar({
               <button
                 type="button"
                 className="content-filter-chip"
-                aria-label="Remove schedule filter"
+                aria-label="Remove release filter"
                 onClick={() => onScheduleChange('')}
               >
-                <span>{scheduleFilter === 'pending' ? 'Scheduled' : 'Failed schedules'}</span>
+                <span>{scheduleFilter === 'pending' ? 'Scheduled' : 'Needs attention'}</span>
                 <X aria-hidden="true" />
               </button>
             )}

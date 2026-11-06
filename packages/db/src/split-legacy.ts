@@ -115,6 +115,10 @@ export async function splitLegacy(
         throw new Error(
           `No space filter for table ${table.table_name}; source has unsupported data`,
         );
+    const history = (
+      await legacy.query('SELECT to_jsonb(t) AS row FROM storypane_migrations t')
+    ).rows.map((r) => r.row);
+    const included = new Set<string>(history.map((row) => row.name));
     for (const space of spaces) {
       const url = connectionURL(targets[space.id]);
       const db = new Pool({ connectionString: url.href, max: 1, connectionTimeoutMillis: 5000 });
@@ -146,43 +150,54 @@ export async function splitLegacy(
       const profiles = users
         .filter((u) => serialized.includes(JSON.stringify(u.id)))
         .map((u) => ({ id: u.id, name: u.name, email: u.email, avatar_url: u.avatar_url }));
-      await migrate(db, async (client) => {
-        const constraints = (
+      await migrate(
+        db,
+        async (client) => {
+          const constraints = (
+            await client.query(
+              "SELECT conrelid::regclass::text AS table_name,conname,condeferrable,condeferred FROM pg_constraint WHERE contype='f' AND connamespace=current_schema()::regnamespace",
+            )
+          ).rows;
+          for (const constraint of constraints)
+            await client.query(
+              `ALTER TABLE ${constraint.table_name} ALTER CONSTRAINT ${q(constraint.conname)} DEFERRABLE INITIALLY DEFERRED`,
+            );
+          await client.query('SET CONSTRAINTS ALL DEFERRED');
+          await client.query('ALTER TABLE spaces DISABLE TRIGGER space_roles_defaults');
+          // Copy historical release revisions without counting imported members as new edits.
+          if (included.has('027_content_releases'))
+            await client.query(
+              'ALTER TABLE publication_schedules DISABLE TRIGGER content_release_members_changed',
+            );
+          await insertRows(client, 'user', profiles);
+          for (const [table, data] of rows) await insertRows(client, table, data);
+          await client.query('ALTER TABLE spaces ENABLE TRIGGER space_roles_defaults');
+          await client.query('SET CONSTRAINTS ALL IMMEDIATE');
+          if (included.has('027_content_releases'))
+            await client.query(
+              'ALTER TABLE publication_schedules ENABLE TRIGGER content_release_members_changed',
+            );
+          for (const constraint of constraints)
+            await client.query(
+              `ALTER TABLE ${constraint.table_name} ALTER CONSTRAINT ${q(constraint.conname)} ${constraint.condeferrable ? `DEFERRABLE INITIALLY ${constraint.condeferred ? 'DEFERRED' : 'IMMEDIATE'}` : 'NOT DEFERRABLE'}`,
+            );
+          for (const [table, data] of rows) {
+            const copied = (
+              await client.query(`SELECT to_jsonb(t) AS row FROM ${q(table)} t`)
+            ).rows.map((r) => r.row);
+            if (JSON.stringify(canonicalRows(copied)) !== JSON.stringify(canonicalRows(data)))
+              throw new Error(`Split validation failed for ${table}`);
+          }
+          await client.query('DELETE FROM storypane_migrations');
+          await insertRows(client, 'storypane_migrations', history);
           await client.query(
-            "SELECT conrelid::regclass::text AS table_name,conname,condeferrable,condeferred FROM pg_constraint WHERE contype='f' AND connamespace=current_schema()::regnamespace",
-          )
-        ).rows;
-        for (const constraint of constraints)
-          await client.query(
-            `ALTER TABLE ${constraint.table_name} ALTER CONSTRAINT ${q(constraint.conname)} DEFERRABLE INITIALLY DEFERRED`,
+            'CREATE TABLE space_database(singleton boolean PRIMARY KEY DEFAULT true CHECK(singleton),space_id uuid NOT NULL UNIQUE)',
           );
-        await client.query('SET CONSTRAINTS ALL DEFERRED');
-        await client.query('ALTER TABLE spaces DISABLE TRIGGER space_roles_defaults');
-        await insertRows(client, 'user', profiles);
-        for (const [table, data] of rows) await insertRows(client, table, data);
-        await client.query('ALTER TABLE spaces ENABLE TRIGGER space_roles_defaults');
-        await client.query('SET CONSTRAINTS ALL IMMEDIATE');
-        for (const constraint of constraints)
-          await client.query(
-            `ALTER TABLE ${constraint.table_name} ALTER CONSTRAINT ${q(constraint.conname)} ${constraint.condeferrable ? `DEFERRABLE INITIALLY ${constraint.condeferred ? 'DEFERRED' : 'IMMEDIATE'}` : 'NOT DEFERRABLE'}`,
-          );
-        for (const [table, data] of rows) {
-          const copied = (
-            await client.query(`SELECT to_jsonb(t) AS row FROM ${q(table)} t`)
-          ).rows.map((r) => r.row);
-          if (JSON.stringify(canonicalRows(copied)) !== JSON.stringify(canonicalRows(data)))
-            throw new Error(`Split validation failed for ${table}`);
-        }
-        const history = (
-          await legacy.query('SELECT to_jsonb(t) AS row FROM storypane_migrations t')
-        ).rows.map((r) => r.row);
-        await client.query('DELETE FROM storypane_migrations');
-        await insertRows(client, 'storypane_migrations', history);
-        await client.query(
-          'CREATE TABLE space_database(singleton boolean PRIMARY KEY DEFAULT true CHECK(singleton),space_id uuid NOT NULL UNIQUE)',
-        );
-        await client.query('INSERT INTO space_database(space_id) VALUES($1)', [space.id]);
-      });
+          await client.query('INSERT INTO space_database(space_id) VALUES($1)', [space.id]);
+        },
+        included,
+      );
+      // Validate an exact source copy before upgrading the destination.
       await migrateSpace(db);
       await control.query(
         "INSERT INTO space_connections(id,name,description,status,connection_secret,connection_fingerprint,mode,owner_id) VALUES($1,$2,$3,'ready',$4,$5,'import',$6)",

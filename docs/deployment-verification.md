@@ -38,6 +38,14 @@ content merely to complete a checklist.
   media and verify only currently published assets are exposed.
 - Publish a reviewed checkpoint while later edits remain drafts. Schedule another
   checkpoint, wait for a minute tick, and verify permissions are rechecked.
+- Create a release with two pages and nested content, edit later drafts, and verify
+  only approved versions go live together. Test an explicitly selected linked page,
+  stale reviews, moving a member, publishing one page now, cancellation, timezone
+  transitions, lost-response retries and concurrent scheduler instances. Revoke
+  one approver's access or change the schema: the whole release must remain
+  unpublished and held until reviewed and resumed. Verify scoped users cannot
+  inspect hidden release members. Upgrade old pending/failed/completed schedules
+  without losing checkpoints, publication history or shared-database split data.
 - Configure an allowed HTTPS webhook receiver; verify signatures, delivery retries,
   logs and persistent outbox state after restart.
 - Restart/redeploy the application; verify content, memberships, publication history,
@@ -116,3 +124,21 @@ installation, the complete two-editor browser workflow and real Clerk account/se
 revocation still need the checklist above. Clerk revocation has automated coverage;
 no real user account was disabled to test it. Cloudflare CMS deployment remains
 unsupported; Cloudflare Workers Static Assets website hosting is a separate static-site setup.
+
+## Content release verification — 2026-11-06
+
+- The full Vitest run passed 503 tests, including real PostgreSQL installation
+  isolation and legacy splits both before and after migration 027. The optional
+  S3 integration and live management-session suites were skipped in that run.
+- Focused lifecycle checks cover approved nested snapshots, linked references,
+  concurrent runners, transaction rollback, stale reviews, permission changes,
+  held-release recovery, cancellation history and content-scope-safe retries.
+- An isolated local-auth installation passed the release browser flow against the
+  Node production build: scheduling two pages, later draft editing, updating
+  approval, moving a member, publishing it immediately and cancelling the group.
+  Light/dark layouts passed at 360/768/1440px; dialog focus, Tab and Escape passed.
+- Type checks, lint, and the SDK/Node production build passed. The release guide
+  includes an actual UI capture using disposable sample content.
+
+These results verify releases locally. They do not replace the fresh provider
+acceptance checklist above or verify a new Railway installation.

@@ -25,6 +25,8 @@ Already have an instance? Start with content and schemas below.
   team setup, schema promotion, and keeping linked dev spaces in sync.
 - [Editor quickstart](editor-quickstart.md): build a schema in dev, promote it,
   and publish your first page in production.
+- [Content releases](releases.md): schedule approved page revisions and nested
+  blocks together, manage later edits, and resolve conflicts before a launch.
 
 ## Build your website
 

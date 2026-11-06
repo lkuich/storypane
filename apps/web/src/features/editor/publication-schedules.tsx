@@ -1,14 +1,16 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
-import { CalendarClock } from 'lucide-react';
-import {
-  scheduleInstants,
-  type CheckpointDetail,
-  type PublicationSchedule,
-  type PublicationReferenceChoice,
+import { ArrowUpRight, CalendarClock, CircleAlert, Layers } from 'lucide-react';
+import type {
+  CheckpointDetail,
+  ContentRelease,
+  PublicationSchedule,
+  PublicationReferenceChoice,
 } from '@storypane/core';
 import { Button, ErrorNotice, Field } from '@storypane/ui';
-import { api, dateLabel, errorMessage, jsonRequest } from './api';
+import { ApiError, api, dateLabel, errorMessage, jsonRequest } from './api';
+import { spaceUrl } from '../../lib/space-url';
+import { ReleaseTimeFields, releaseTime, releaseInstant } from '../releases/release-time';
 
 export function PublicationSchedules({
   base,
@@ -16,26 +18,29 @@ export function PublicationSchedules({
   refresh,
   canPublish,
   onReview,
+  onUpdate,
 }: {
   base: string;
   revision: number;
   refresh: number;
   canPublish: boolean;
   onReview: (id: string) => void;
+  onUpdate: () => void;
 }) {
   const [schedules, setSchedules] = useState<PublicationSchedule[]>([]);
-  const cancellationIds = useRef(new Map<string, string>());
   const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
   useEffect(() => {
     let stopped = false;
     const load = () =>
       api<PublicationSchedule[]>(`${base}/schedules`)
         .then((items) => {
-          if (!stopped) setSchedules(items);
+          if (!stopped) {
+            setSchedules(items);
+            setError(null);
+          }
         })
-        .catch((error) => {
-          if (!stopped) setError(errorMessage(error));
+        .catch((cause) => {
+          if (!stopped) setError(errorMessage(cause));
         });
     void load();
     const timer = setInterval(() => void load(), 30000);
@@ -43,66 +48,58 @@ export function PublicationSchedules({
       stopped = true;
       clearInterval(timer);
     };
-  }, [base, refresh, revision]);
-  async function cancel(schedule: PublicationSchedule) {
-    setBusy(true);
-    setError(null);
-    try {
-      const key = `${schedule.id}:${schedule.revision}`;
-      if (!cancellationIds.current.has(key)) cancellationIds.current.set(key, crypto.randomUUID());
-      await api(
-        `${base}/schedules/${schedule.id}`,
-        jsonRequest('DELETE', {
-          requestId: cancellationIds.current.get(key),
-          revision: schedule.revision,
-        }),
-      );
-      setSchedules(await api(`${base}/schedules`));
-    } catch (error) {
-      setError(errorMessage(error));
-    } finally {
-      setBusy(false);
-    }
-  }
-  const visible = schedules
-    .filter((item) => item.status === 'pending' || item.status === 'failed')
-    .slice(0, 3);
+  }, [base, revision, refresh]);
+  const scheduled = schedules.find((item) => item.active);
   return (
     <>
       <ErrorNotice message={error} />
-      {visible.map((schedule) => (
-        <div className="publication-note publication-schedule" key={schedule.id}>
-          <span>
-            <strong>
-              {schedule.status === 'pending' ? 'Scheduled' : 'Schedule failed'} · revision{' '}
-              {schedule.checkpointRevision}
-            </strong>{' '}
-            · {dateLabel(schedule.dueAt)} ({schedule.timezone})
-            {revision > schedule.checkpointRevision ? ' · Newer draft edits are not included.' : ''}
-            {schedule.error && ` · ${schedule.error}`}
+      {scheduled && (
+        <section
+          className="release-banner"
+          data-held={scheduled.releaseStatus === 'held' || undefined}
+          aria-label="Scheduled release"
+        >
+          <span className="release-banner-icon">
+            {scheduled.releaseStatus === 'held' ? <CircleAlert /> : <CalendarClock />}
           </span>
-          {canPublish && (
-            <div className="publication-schedule-actions">
-              <Button
-                className="button--small"
-                disabled={busy}
-                onClick={() => onReview(schedule.checkpointId)}
+          <div className="release-banner-copy">
+            <span className="release-eyebrow">
+              {scheduled.releaseStatus === 'held'
+                ? 'Release needs attention'
+                : 'In an upcoming release'}
+            </span>
+            <strong>{scheduled.releaseName}</strong>
+            <p>
+              {dateLabel(scheduled.dueAt, scheduled.timezone)} · {scheduled.timezone} ·{' '}
+              <button
+                className="release-text-button"
+                onClick={() => onReview(scheduled.checkpointId)}
               >
-                Review schedule
+                Approved revision {scheduled.checkpointRevision}
+              </button>
+            </p>
+            {revision > scheduled.checkpointRevision && (
+              <p className="release-draft-note">
+                Newer draft edits are not included. Review them to update this release.
+              </p>
+            )}
+            {scheduled.error && <p className="release-draft-note">{scheduled.error}</p>}
+          </div>
+          <div className="release-banner-actions">
+            {canPublish && (
+              <Button className="button--small" onClick={onUpdate}>
+                Update release
               </Button>
-              {schedule.status === 'pending' && (
-                <Button
-                  className="button--small"
-                  disabled={busy}
-                  onClick={() => void cancel(schedule)}
-                >
-                  Cancel schedule
-                </Button>
-              )}
-            </div>
-          )}
-        </div>
-      ))}
+            )}
+            <a
+              className="button button--ghost button--small"
+              href={spaceUrl(`/?view=releases&release=${scheduled.releaseId}`)}
+            >
+              View release <ArrowUpRight size={15} />
+            </a>
+          </div>
+        </section>
+      )}
     </>
   );
 }
@@ -120,136 +117,189 @@ export function ScheduleForm({
   onScheduled: () => void;
   onCancel: () => void;
 }) {
-  const [timezone, setTimezone] = useState(() => Intl.DateTimeFormat().resolvedOptions().timeZone);
-  const [localTime, setLocalTime] = useState('');
-  const [instant, setInstant] = useState('');
+  const [timing, setTiming] = useState(() => releaseTime());
+  const [name, setName] = useState(`${checkpoint.snapshot.story.name} release`.slice(0, 120));
+  const [releases, setReleases] = useState<ContentRelease[]>([]);
+  const [selected, setSelected] = useState('new');
   const [existing, setExisting] = useState<PublicationSchedule | null>(null);
   const [loaded, setLoaded] = useState(false);
+  const [loadVersion, setLoadVersion] = useState(0);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const payload = useRef<unknown>(null);
+  const releaseSelect = useRef<HTMLSelectElement>(null);
+  useEffect(() => {
+    if (loaded) releaseSelect.current?.focus();
+  }, [loaded]);
   useEffect(() => {
     let stopped = false;
-    api<PublicationSchedule[]>(`${base}/schedules`)
-      .then((items) => {
-        if (!stopped) {
-          setExisting(items.find((item) => item.status === 'pending') ?? null);
-          setLoaded(true);
-        }
+    setLoaded(false);
+    Promise.all([
+      api<PublicationSchedule[]>(`${base}/schedules`),
+      api<ContentRelease[]>('/releases'),
+    ])
+      .then(([items, groups]) => {
+        if (stopped) return;
+        const current = items.find((item) => item.active) ?? null;
+        const available = groups.filter(
+          (group) => group.canManage && ['scheduled', 'held'].includes(group.status),
+        );
+        setExisting(current);
+        setReleases(available);
+        const requested = new URLSearchParams(window.location.search).get('release');
+        setSelected(
+          available.some((item) => item.id === requested)
+            ? requested!
+            : available.some((item) => item.id === current?.releaseId)
+              ? current!.releaseId
+              : 'new',
+        );
+        setLoaded(true);
       })
-      .catch((error) => {
-        if (!stopped) setError(errorMessage(error));
+      .catch((cause) => {
+        if (!stopped) setError(errorMessage(cause));
       });
     return () => {
       stopped = true;
     };
-  }, [base]);
-  let candidates: ReturnType<typeof scheduleInstants> = [];
-  let timeError: string | null = null;
-  if (localTime)
-    try {
-      candidates = scheduleInstants(localTime, timezone);
-      if (!candidates.length)
-        timeError =
-          'This local time does not exist because the clocks change. Choose another time.';
-    } catch {
-      timeError = 'Enter a valid date and IANA timezone, such as America/Vancouver.';
-    }
-  const chosen = candidates.length === 1 ? candidates[0].instant : instant;
+  }, [base, loadVersion]);
+  const target = releases.find((item) => item.id === selected);
+  const dueAt = target?.dueAt ?? releaseInstant(timing);
+  const moving = !!existing && existing.releaseId !== selected;
+  const updating = !!existing && existing.releaseId === selected;
   async function schedule() {
     setBusy(true);
     setError(null);
     try {
+      const time = target ? releaseTime(target.dueAt, target.timezone) : timing;
       payload.current ??= {
         requestId: crypto.randomUUID(),
         checkpointId: checkpoint.id,
         referenceChoices,
-        dueAt: chosen,
-        timezone,
-        localTime,
+        dueAt,
+        timezone: time.timezone,
+        localTime: time.localTime,
         expectedScheduleId: existing?.id ?? null,
         expectedRevision: existing?.revision ?? null,
+        expectedReleaseRevision: existing?.releaseRevision,
+        ...(target
+          ? { release: { id: target.id, revision: target.revision } }
+          : { releaseName: name }),
       };
       await api(`${base}/schedules`, jsonRequest('POST', payload.current));
       onScheduled();
-    } catch (error) {
-      setError(errorMessage(error));
+    } catch (cause) {
+      if (cause instanceof ApiError && cause.code !== 'network' && cause.code !== 'unavailable')
+        payload.current = null;
+      setError(errorMessage(cause));
     } finally {
       setBusy(false);
     }
   }
   return (
-    <section className="schedule-form" aria-label="Schedule publication">
-      <h3>Schedule revision {checkpoint.revision}</h3>
-      <p>
-        This saved revision and your linked-story choices will publish together. Later edits remain
-        drafts.
-        {existing ? ' This replaces the pending schedule.' : ''}
-      </p>
-      <Field label="Local date and time" htmlFor="schedule-time">
-        <input
-          type="datetime-local"
-          id="schedule-time"
-          autoFocus
-          value={localTime}
-          disabled={busy || !!payload.current}
-          onChange={(event) => {
-            setLocalTime(event.target.value);
-            setInstant('');
-          }}
-        />
+    <section className="schedule-form release-schedule-form" aria-label="Choose a release">
+      <div className="release-approval">
+        <Layers size={19} />
+        <div>
+          <strong>Approve revision {checkpoint.revision}</strong>
+          <p>
+            Includes nested blocks and the linked pages you selected. Later edits stay in drafts.
+          </p>
+        </div>
+      </div>
+      <Field label="Release" htmlFor="release-choice">
+        <select
+          id="release-choice"
+          ref={releaseSelect}
+          value={selected}
+          disabled={!loaded || busy || !!payload.current}
+          onChange={(event) => setSelected(event.target.value)}
+        >
+          <option value="new">Create a new release</option>
+          {releases.map((release) => (
+            <option key={release.id} value={release.id}>
+              {release.name} · {dateLabel(release.dueAt, release.timezone)}
+              {release.status === 'held' ? ' · Needs attention' : ''}
+            </option>
+          ))}
+        </select>
       </Field>
-      <Field label="Timezone" htmlFor="schedule-zone">
-        <input
-          id="schedule-zone"
-          value={timezone}
-          disabled={busy || !!payload.current}
-          onChange={(event) => {
-            setTimezone(event.target.value);
-            setInstant('');
-          }}
-        />
-      </Field>
-      {candidates.length > 1 && (
-        <Field label="This time occurs twice. Choose its UTC offset." htmlFor="schedule-offset">
-          <select
-            id="schedule-offset"
-            value={instant}
+      {target ? (
+        <div className="release-destination">
+          <CalendarClock size={18} />
+          <div>
+            <strong>{dateLabel(target.dueAt, target.timezone)}</strong>
+            <p>
+              {target.timezone} · {target.items.length} approved{' '}
+              {target.items.length === 1 ? 'page' : 'pages'}
+            </p>
+            {target.status === 'held' && (
+              <p className="release-draft-note">
+                This release is on hold. After updating its pages, open the release to review and
+                resume it.
+              </p>
+            )}
+          </div>
+        </div>
+      ) : (
+        <>
+          <Field label="Release name" htmlFor="release-name">
+            <input
+              id="release-name"
+              value={name}
+              maxLength={120}
+              disabled={busy || !!payload.current}
+              onChange={(event) => setName(event.target.value)}
+              placeholder="e.g. Summer launch"
+            />
+          </Field>
+          <ReleaseTimeFields
+            value={timing}
+            onChange={setTiming}
             disabled={busy || !!payload.current}
-            onChange={(event) => setInstant(event.target.value)}
-          >
-            <option value="">Choose an offset</option>
-            {candidates.map((candidate) => (
-              <option key={candidate.instant} value={candidate.instant}>
-                {candidate.offset} · {candidate.instant}
-              </option>
-            ))}
-          </select>
-        </Field>
+          />
+        </>
       )}
-      {chosen && (
-        <p>
-          Publish at {chosen} ({timezone}).
+      {moving && (
+        <p className="notice notice--warning">
+          This moves the page out of <strong>{existing.releaseName}</strong>. It will belong only to{' '}
+          {target?.name ?? 'the new release'}.
         </p>
       )}
-      <ErrorNotice message={timeError ?? error} />
+      {updating && (
+        <p className="field-hint">
+          This replaces the approved version in {target?.name}. Its release time stays the same.
+        </p>
+      )}
+      <ErrorNotice
+        message={error}
+        retry={() => {
+          payload.current = null;
+          setError(null);
+          setLoadVersion((value) => value + 1);
+        }}
+      />
       <div className="dialog-actions">
         <Button disabled={busy} onClick={onCancel}>
-          Back to publish now
+          Back
         </Button>
         <Button
           variant="primary"
-          disabled={busy || !loaded || !chosen || !!timeError}
+          disabled={busy || !loaded || !dueAt || (!target && !name.trim())}
           onClick={() => void schedule()}
         >
-          <CalendarClock aria-hidden="true" />
+          <CalendarClock size={16} />
           {busy
-            ? 'Scheduling…'
+            ? 'Saving…'
             : payload.current
-              ? 'Retry schedule'
-              : existing
-                ? 'Replace schedule'
-                : 'Schedule publication'}
+              ? 'Retry'
+              : moving
+                ? 'Move to release'
+                : updating
+                  ? 'Update release'
+                  : target
+                    ? 'Add to release'
+                    : 'Create release & schedule'}
         </Button>
       </div>
     </section>
