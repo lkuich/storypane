@@ -1,13 +1,13 @@
 # Page map
 
-Use **Content → Map** to explore connections between pages, or **View in map**
-from an open page. Leaving the editor uses the same unsaved-change check as other
+Use the **View in map** icon beside a page in the Content list, or the **View in
+map** button at the top right of an open page, to explore its connections. Leaving the editor uses the same unsaved-change check as other
 navigation. The map is read-only: pan or zoom the canvas, but do not move cards,
 create links, or edit content there.
 
 ## Explore connections
 
-Choose a starting page by title or URL. The default view shows **Published
+The page you open is the starting point. The default view shows **Published
 content**, outgoing page links, and two hops. Select a locale, switch to saved
 drafts, choose one to four hops, or follow incoming links or both directions.
 The starting page and filters are stored in the URL; browser Back restores the
@@ -22,9 +22,10 @@ checkpoint. Unsaved edits are outside the map.
 
 Select a card to inspect its incoming and outgoing connections, including the
 originating block and field. **Open page** opens its resolved locale in the editor.
-**Explore from here** makes it the new starting point. The connection list below
-the canvas offers the same selection with the keyboard. Details appear beside
-the canvas on desktop and in a dismissible sheet on narrow screens.
+**Explore from here** makes it the new starting point. Use Tab to focus a card’s
+title and Enter to open its details; keyboard focus brings the card into view.
+Details appear beside the canvas on desktop and in a dismissible sheet on narrow
+screens. Use **List** to return to Content and choose another page.
 
 Solid arrows represent explicit story-link fields, including links in nested
 blocks. **Include content references** also shows story-backed option fields as
@@ -36,20 +37,6 @@ Each map is limited to 100 nodes and 500 edges. A notice appears when either cap
 is reached. Select a boundary page and use **Explore from here** to continue.
 There are no saved layouts, screenshots, crawling, analytics, or inferred links
 from rich text, Markdown, or frontend code.
-
-## Potential orphans
-
-The separate **Potential orphans** list contains eligible pages with no incoming
-page links from another eligible page across the selected space, locale, and
-content mode. It is independent of the starting page and graph depth. Self-links
-and content references do not prevent orphan status. Deleted stories and
-form-only content are excluded. Results are paginated, 50 at a time.
-
-For restricted readers the heading is **No visible incoming links**. Story,
-locale, definition, and field permissions filter the results before counts and
-classification; hidden sources and targets are not exposed as placeholders or
-totals. External entry points and frontend-generated navigation are outside this
-check. An orphan candidate is not automatically an error.
 
 ## Upgrade existing instances
 

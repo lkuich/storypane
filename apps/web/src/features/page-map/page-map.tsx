@@ -8,26 +8,23 @@ import {
   MarkerType,
   Position,
   ReactFlow,
+  useReactFlow,
   type NodeProps,
   type Node,
 } from '@xyflow/react';
+import { List, Network, RefreshCw } from 'lucide-react';
 import dagre from '@dagrejs/dagre';
 import '@xyflow/react/dist/style.css';
 import './page-map.css';
-import { Button, ErrorNotice, Field, Loading, Modal } from '@storypane/ui';
-import type {
-  PageMapNode,
-  PageMapResponse,
-  PageMapPages,
-  SpaceLocale,
-  Story,
-} from '@storypane/core';
+import { Button, EmptyState, ErrorNotice, Field, Loading, Modal } from '@storypane/ui';
+import type { PageMapNode, PageMapResponse, SpaceLocale, Story } from '@storypane/core';
 import { api, errorMessage } from '../editor/api';
 import { PublicationStatus } from '../../components/publication-status';
 
 type CardData = { page: PageMapNode; root: boolean; select: (id: string) => void };
 function PageCard({ data }: NodeProps<Node<CardData>>) {
   const page = data.page;
+  const { fitView } = useReactFlow();
   return (
     <div className={`map-card${data.root ? ' map-card--root' : ''}`}>
       <Handle type="target" position={Position.Left} isConnectable={false} />
@@ -36,10 +33,20 @@ function PageCard({ data }: NodeProps<Node<CardData>>) {
         {page.localeName}
         {page.fallback ? ' · fallback' : ''}
       </small>
-      <button className="map-card-title" onClick={() => data.select(page.id)}>
+      <button
+        className="map-card-title"
+        title={page.title}
+        onFocus={(event) => {
+          if (event.currentTarget.matches(':focus-visible'))
+            void fitView({ nodes: [{ id: page.id }], maxZoom: 1, duration: 200 });
+        }}
+        onClick={() => data.select(page.id)}
+      >
         {page.title}
       </button>
-      <span className="map-url">/{page.url}</span>
+      <span className="map-url" title={`/${page.url}`}>
+        /{page.url}
+      </span>
       <PublicationStatus status={page.status} />
       <small>
         {page.incoming} incoming · {page.outgoing} outgoing
@@ -65,12 +72,6 @@ export default function PageMap({
   const root = query.get('root');
   const [locales, setLocales] = useState<SpaceLocale[]>([]);
   const [result, setResult] = useState<PageMapResponse | null>(null);
-  const [pages, setPages] = useState<PageMapPages | null>(null);
-  const [orphans, setOrphans] = useState<PageMapPages | null>(null);
-  const [showOrphans, setShowOrphans] = useState(false);
-  const [search, setSearch] = useState('');
-  const [offset, setOffset] = useState(0);
-  const [pickerOffset, setPickerOffset] = useState(0);
   const [refresh, setRefresh] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
@@ -111,48 +112,9 @@ export default function PageMap({
       });
     return () => controller.abort();
   }, [params, root, refresh]);
-  useEffect(() => {
-    const controller = new AbortController();
-    setPages(null);
-    const p = new URLSearchParams(params);
-    p.set('search', search);
-    p.set('offset', String(pickerOffset));
-    const timer = setTimeout(
-      () =>
-        void api<PageMapPages>(`/page-map/pages?${p}`, { signal: controller.signal })
-          .then((data) => {
-            if (!controller.signal.aborted) setPages(data);
-          })
-          .catch((e) => {
-            if (!controller.signal.aborted) setError(errorMessage(e));
-          }),
-      200,
-    );
-    return () => {
-      clearTimeout(timer);
-      controller.abort();
-    };
-  }, [params, search, pickerOffset, refresh]);
-  useEffect(() => {
-    if (!showOrphans) return;
-    const controller = new AbortController();
-    setOrphans(null);
-    const p = new URLSearchParams(params);
-    p.set('offset', String(offset));
-    void api<PageMapPages>(`/page-map/orphans?${p}`, { signal: controller.signal })
-      .then((data) => {
-        if (!controller.signal.aborted) setOrphans(data);
-      })
-      .catch((e) => {
-        if (!controller.signal.aborted) setError(errorMessage(e));
-      });
-    return () => controller.abort();
-  }, [params, offset, showOrphans, refresh]);
   function change(key: string, value: string) {
     const next = new URLSearchParams(params);
     next.set(key, value);
-    setOffset(0);
-    setPickerOffset(0);
     onChange(next.toString());
   }
   const layout = useMemo(() => {
@@ -160,7 +122,7 @@ export default function PageMap({
     const graph = new dagre.graphlib.Graph()
       .setDefaultEdgeLabel(() => ({}))
       .setGraph({ rankdir: 'LR', nodesep: 45, ranksep: 100 });
-    for (const page of result.nodes) graph.setNode(page.id, { width: 240, height: 155 });
+    for (const page of result.nodes) graph.setNode(page.id, { width: 240, height: 180 });
     for (const edge of result.edges) graph.setEdge(edge.source, edge.target);
     dagre.layout(graph);
     return {
@@ -169,7 +131,7 @@ export default function PageMap({
         return {
           id: page.id,
           type: 'page',
-          position: { x: p.x - 120, y: p.y - 77.5 },
+          position: { x: p.x - 120, y: p.y - 90 },
           data: { page, root: page.id === root, select: setSelected },
           ariaLabel: `${page.title}, ${page.localeName}. Show connections`,
           draggable: false,
@@ -249,12 +211,20 @@ export default function PageMap({
       <div className="page-heading">
         <div>
           <h1>Page map</h1>
-          <p>Explore page links and find potential orphans.</p>
+          <p>Explore how your pages connect.</p>
         </div>
-        <div className="button-group" aria-label="Content view">
-          <Button onClick={onList}>List</Button>
-          <Button aria-pressed>Map</Button>
-          <Button onClick={() => setRefresh((v) => v + 1)}>Refresh</Button>
+        <div className="button-group">
+          <div className="content-view-switch" role="group" aria-label="Content view">
+            <Button variant="ghost" aria-pressed={false} onClick={onList}>
+              <List aria-hidden="true" /> List
+            </Button>
+            <Button variant="ghost" aria-pressed>
+              <Network aria-hidden="true" /> Map
+            </Button>
+          </div>
+          <Button disabled={!root || loading} onClick={() => setRefresh((v) => v + 1)}>
+            <RefreshCw aria-hidden="true" /> Refresh
+          </Button>
         </div>
       </div>
       <div className="map-toolbar">
@@ -314,52 +284,18 @@ export default function PageMap({
           Include content references
         </label>
       </div>
-      <details className="map-picker" open={!root || undefined}>
-        <summary>
-          Choose a starting page
-          {result ? ` · ${result.nodes.find((n) => n.id === root)?.title ?? ''}` : ''}
-        </summary>
-        <Field label="Find a page" htmlFor="map-search">
-          <input
-            id="map-search"
-            type="search"
-            value={search}
-            onChange={(e) => {
-              setSearch(e.target.value);
-              setPickerOffset(0);
-            }}
-            placeholder="Search title or URL"
-          />
-        </Field>
-        <ul className="map-page-list">
-          {pages?.pages.map((page) => (
-            <li key={page.id}>
-              <Button onClick={() => change('root', page.id)}>
-                {page.title}{' '}
-                <small>
-                  /{page.url} · {page.localeName}
-                  {page.fallback ? ' · fallback' : ''}
-                </small>
-              </Button>
-            </li>
-          ))}
-        </ul>
-        {pages?.pages.length === 0 && <p>No pages in this content mode and locale.</p>}
-        <div className="button-group">
-          <Button
-            disabled={!pickerOffset}
-            onClick={() => setPickerOffset((v) => Math.max(0, v - 50))}
-          >
-            Previous pages
-          </Button>
-          <Button
-            disabled={pages?.nextOffset == null}
-            onClick={() => setPickerOffset(pages!.nextOffset!)}
-          >
-            More pages
-          </Button>
-        </div>
-      </details>
+      {!root && (
+        <EmptyState
+          title="Choose a page to explore"
+          action={
+            <Button onClick={onList}>
+              <List aria-hidden="true" /> Browse content
+            </Button>
+          }
+        >
+          Use a page’s map button in the content list, or View in map from the editor.
+        </EmptyState>
+      )}
       <ErrorNotice message={error} retry={() => setRefresh((v) => v + 1)} />
       {loading && root && <Loading label="Loading page map…" />}
       {result && (
@@ -403,63 +339,7 @@ export default function PageMap({
               </aside>
             )}
           </div>
-          <details className="map-accessible-list" open>
-            <summary>
-              Connection list · {result.nodes.length} pages, {result.edges.length} connections
-            </summary>
-            <ul>
-              {result.nodes.map((page) => (
-                <li key={page.id}>
-                  <Button onClick={() => setSelected(page.id)}>
-                    {page.title} — {page.incoming} incoming, {page.outgoing} outgoing
-                  </Button>
-                </li>
-              ))}
-            </ul>
-          </details>
         </>
-      )}
-      <Button onClick={() => setShowOrphans((v) => !v)} aria-expanded={showOrphans}>
-        Potential orphans
-      </Button>
-      {showOrphans && (
-        <section className="map-orphans">
-          <h2>{orphans?.restricted ? 'No visible incoming links' : 'Potential orphans'}</h2>
-          <p>
-            Pages with no incoming page links from another page across this locale and content mode.
-            External entry points and frontend-generated navigation are outside this check. A
-            candidate is not automatically an error.
-          </p>
-          {!orphans ? (
-            <Loading label="Checking incoming links…" />
-          ) : (
-            <>
-              <ul className="map-page-list">
-                {orphans.pages.map((page) => (
-                  <li key={page.id}>
-                    <span>
-                      {page.title} · /{page.url} · {page.localeName}
-                      {page.fallback ? ' · fallback' : ''}
-                    </span>
-                    <Button onClick={() => change('root', page.id)}>View in map</Button>
-                  </li>
-                ))}
-              </ul>
-              {!orphans.pages.length && <p>No candidates found.</p>}
-              <div className="button-group">
-                <Button disabled={!offset} onClick={() => setOffset((v) => Math.max(0, v - 50))}>
-                  Previous
-                </Button>
-                <Button
-                  disabled={orphans.nextOffset === null}
-                  onClick={() => setOffset(orphans.nextOffset!)}
-                >
-                  Next
-                </Button>
-              </div>
-            </>
-          )}
-        </section>
       )}
       {narrow && (
         <Modal

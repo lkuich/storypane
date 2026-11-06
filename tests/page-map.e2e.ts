@@ -6,7 +6,7 @@ const nodes = [home, about].map((id, i) => ({
   id,
   localeId: id,
   title: i ? 'About' : 'Home',
-  url: i ? 'about' : 'home',
+  url: i ? 'about/our-team-and-the-story-behind-our-work' : 'home',
   locale: '',
   localeName: 'English',
   fallback: false,
@@ -42,8 +42,22 @@ test('page map supports keyboard navigation, URL restoration, read-only cards, t
       return r.fulfill({ json: { items: [], nextCursor: null } });
     if (u.pathname.endsWith('/locales'))
       return r.fulfill({ json: [{ id: home, name: 'English', slug: '', isDefault: true }] });
-    if (/page-map\/(pages|orphans)$/.test(u.pathname))
-      return r.fulfill({ json: { pages: nodes, nextOffset: null, restricted: false } });
+    if (u.pathname.endsWith('/delivery-settings'))
+      return r.fulfill({ json: { previewUrls: [], defaultPreviewId: null } });
+    if (u.pathname.endsWith('/stories'))
+      return r.fulfill({
+        json: nodes.map((node) => ({
+          id: node.id,
+          name: node.title,
+          slug: node.url,
+          pinned: false,
+          publicationStatus: 'published',
+          localeCount: 1,
+          pendingLocaleCount: 0,
+          createdAt: '2026-11-01T00:00:00Z',
+          updatedAt: '2026-11-01T00:00:00Z',
+        })),
+      });
     if (u.pathname.endsWith('/page-map'))
       return r.fulfill({
         json: {
@@ -68,8 +82,24 @@ test('page map supports keyboard navigation, URL restoration, read-only cards, t
   await mapButton.focus();
   await page.keyboard.press('Enter');
   await expect(page.getByRole('heading', { name: 'Page map', exact: true })).toBeVisible();
-  await page.getByRole('button', { name: /Home \/home/ }).click();
+  await expect(page.getByRole('heading', { name: 'Choose a page to explore' })).toBeVisible();
+  await page.getByRole('button', { name: 'Browse content', exact: true }).click();
+  const rowMapButton = page.getByRole('button', { name: 'View Home in map', exact: true });
+  await rowMapButton.focus();
+  await page.keyboard.press('Enter');
+  await expect(page).toHaveURL(new RegExp(`map-root=${home}`));
+  await expect(page.getByRole('button', { name: 'Map', exact: true })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
   await expect(page.locator('.react-flow__node')).toHaveCount(2);
+  await expect(page.locator('.map-picker, .map-accessible-list, .map-orphans')).toHaveCount(0);
+  for (const url of await page.locator('.map-url').all()) {
+    await expect(url).toHaveAttribute('title', /^\//);
+    expect(await url.evaluate((element) => element.scrollHeight <= element.clientHeight)).toBe(
+      true,
+    );
+  }
   await page.getByLabel('Depth', { exact: true }).selectOption('3');
   await expect(page).toHaveURL(/map-depth=3/);
   await page.goBack();
@@ -105,9 +135,6 @@ test('page map supports keyboard navigation, URL restoration, read-only cards, t
     await page.keyboard.press('Escape');
     await expect(page.getByRole('dialog', { name: 'Page details', exact: true })).not.toBeVisible();
   }
-  await page.getByRole('button', { name: 'Potential orphans', exact: true }).click();
-  await expect(page.getByRole('heading', { name: 'Potential orphans', exact: true })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'View in map', exact: true })).toHaveCount(2);
   expect(errors).toEqual([]);
 });
 
@@ -219,6 +246,16 @@ test('View in map keeps the editor open when saving an unsaved edit fails', asyn
   await page.goto(`/?space=${spaceId}&story=${home}`);
   const title = page.getByRole('textbox', { name: 'Title', exact: true });
   await expect(title).toBeEditable();
+  const mapAction = page.getByRole('button', { name: 'View in map', exact: true });
+  for (const width of [1280, 390, 320]) {
+    await page.setViewportSize({ width, height: 844 });
+    await expect(mapAction).toBeVisible();
+    const breadcrumb = await page.locator('.story-workspace-heading .breadcrumb').boundingBox();
+    const button = await mapAction.boundingBox();
+    expect(button!.x).toBeGreaterThanOrEqual(breadcrumb!.x + breadcrumb!.width);
+    expect(button!.x + button!.width).toBeLessThanOrEqual(width);
+  }
+  await page.setViewportSize({ width: 1280, height: 844 });
   await title.fill('Unsaved title');
   await page.getByRole('button', { name: 'View in map', exact: true }).click();
   await expect.poll(() => saves).toBeGreaterThan(0);

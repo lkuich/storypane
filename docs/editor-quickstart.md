@@ -280,10 +280,9 @@ shown in the SDK guide. Both framework examples already include that integration
 
 ## Explore page connections
 
-Choose **Content → Map** or **View in map** from an open page. Start with published
-content and two hops, inspect incoming and outgoing links, and use **Potential
-orphans** to find pages with no visible incoming page links. The map is read-only
-and respects content permissions. See the [page-map guide](page-map.md) for locale
+Use the **View in map** icon beside a page in Content or the button at the top
+right of an open page. Start with published content and two hops, then inspect
+incoming and outgoing links. The map is read-only and respects content permissions. See the [page-map guide](page-map.md) for locale
 fallback, saved drafts, optional content references, limits, and upgrade details.
 
 ## Continue with your team

@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import {
+  List,
+  Network,
   Pin,
   Plus,
   ArrowUpRight,
@@ -58,7 +60,7 @@ export function ContentList({
   canPublish: boolean;
   onOpen: (story: Story, locale?: string) => void;
   onBlocks: () => void;
-  onMap: () => void;
+  onMap: (story?: Story) => void;
 }) {
   const editors = usePageEditors();
   const [deleted, setDeleted] = useState(false);
@@ -264,8 +266,14 @@ export function ContentList({
           <p>Create, organize, and publish your stories.</p>
         </div>
         <div className="button-group">
-          <Button aria-pressed>List</Button>
-          <Button onClick={onMap}>Map</Button>
+          <div className="content-view-switch" role="group" aria-label="Content view">
+            <Button variant="ghost" aria-pressed>
+              <List aria-hidden="true" /> List
+            </Button>
+            <Button variant="ghost" aria-pressed={false} onClick={() => onMap()}>
+              <Network aria-hidden="true" /> Map
+            </Button>
+          </div>
           <Button onClick={() => setEditingFolder(null)} disabled={loading || !canCreate}>
             <FolderPlus aria-hidden="true" /> New folder
           </Button>
@@ -569,6 +577,18 @@ export function ContentList({
                       </td>
                       <td>
                         <div className="content-row-actions">
+                          {!story.formOnly && (
+                            <Button
+                              variant="ghost"
+                              className="icon-button"
+                              disabled={deleted}
+                              aria-label={`View ${story.name} in map`}
+                              title="View in map"
+                              onClick={() => onMap(story)}
+                            >
+                              <Network aria-hidden="true" />
+                            </Button>
+                          )}
                           {canCreate && !deleted && (
                             <Button
                               variant="ghost"

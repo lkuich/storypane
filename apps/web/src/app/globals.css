@@ -254,6 +254,24 @@ hr {
   gap: 8px;
   flex-wrap: wrap;
 }
+.content-view-switch {
+  display: flex;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface-subtle);
+}
+.content-view-switch .button {
+  min-height: 32px;
+  padding: 6px 12px;
+  border-radius: 8px;
+}
+.content-view-switch .button[aria-pressed='true'] {
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-color: var(--accent);
+}
 .muted {
   color: var(--muted);
 }
@@ -993,6 +1011,25 @@ hr {
 .back-button {
   margin-bottom: 18px;
   padding-left: 0;
+}
+.story-workspace-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 18px;
+}
+.story-workspace-heading .breadcrumb {
+  min-width: 0;
+  margin-bottom: 0;
+}
+.story-workspace-heading .breadcrumb span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.story-workspace-heading > .button {
+  flex-shrink: 0;
 }
 .breadcrumb {
   font-size: 12px;

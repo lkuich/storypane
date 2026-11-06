@@ -26,41 +26,6 @@
   gap: 8px;
   padding-bottom: 10px;
 }
-.map-picker,
-.map-accessible-list,
-.map-orphans {
-  margin: 16px 0;
-  padding: 16px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-}
-.page-map summary {
-  cursor: pointer;
-  font-weight: 600;
-  margin-bottom: 12px;
-}
-.map-page-list {
-  list-style: none;
-  padding: 0;
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-  gap: 8px;
-}
-.map-page-list li {
-  display: flex;
-  gap: 12px;
-  align-items: center;
-  justify-content: space-between;
-  min-width: 0;
-}
-.map-page-list button {
-  text-align: left;
-  white-space: normal;
-}
-.map-page-list small {
-  color: var(--muted);
-}
 .map-workspace {
   display: flex;
   border: 1px solid var(--border);
@@ -74,7 +39,7 @@
 }
 .map-card {
   width: 240px;
-  height: 155px;
+  height: 180px;
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -83,6 +48,12 @@
   background: var(--surface);
   border-radius: 10px;
   box-shadow: 0 2px 8px #0000000a;
+}
+.map-card > :not(.react-flow__handle) {
+  flex-shrink: 0;
+}
+.map-url {
+  line-height: 1.5;
 }
 .map-card--root {
   border: 2px solid var(--accent);
@@ -131,13 +102,6 @@
 .map-connections code {
   overflow-wrap: anywhere;
 }
-.map-accessible-list > ul {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  list-style: none;
-  padding: 0;
-}
 .map-sheet {
   width: 100%;
   max-width: 100%;
@@ -154,9 +118,6 @@
   }
   .map-toolbar .field {
     min-width: 135px;
-  }
-  .map-page-list {
-    grid-template-columns: 1fr;
   }
 }
 

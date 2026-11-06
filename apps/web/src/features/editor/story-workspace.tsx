@@ -27,6 +27,7 @@ import {
   LockKeyhole,
   Monitor,
   MoreHorizontal,
+  Network,
   Plus,
   RotateCcw,
   Search,
@@ -224,15 +225,17 @@ export function StoryWorkspace({
   }
   return (
     <>
-      <div className="breadcrumb">
-        <button onClick={() => void back()}>Content</button>
-        <ChevronRight size={12} />
-        <span>{story.name}</span>
+      <div className="story-workspace-heading">
+        <div className="breadcrumb">
+          <button onClick={() => void back()}>Content</button>
+          <ChevronRight size={12} />
+          <span>{story.name}</span>
+        </div>
         <Button
           disabled={!initialSnapshot || busy}
           onClick={() => onMap(initialSnapshot!.locale.slug)}
         >
-          View in map
+          <Network aria-hidden="true" /> View in map
         </Button>
       </div>
       <ErrorNotice

@@ -432,7 +432,11 @@ export function CMSApp({ session: initialSession }: { session: CMSSession }) {
                 canPublish={can(session.space, 'content:publish')}
                 onOpen={openStory}
                 onBlocks={() => void navigate('blocks')}
-                onMap={() => void showMap('')}
+                onMap={(selected) =>
+                  void showMap(
+                    selected ? new URLSearchParams({ root: selected.id }).toString() : '',
+                  )
+                }
               />
             ))}
           {tab === 'releases' && (
