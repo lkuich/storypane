@@ -1,0 +1,74 @@
+name: storypane-node
+services:
+  postgres:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_USER: provisioner
+      POSTGRES_PASSWORD: ${PROVISIONING_DB_PASSWORD:?Set PROVISIONING_DB_PASSWORD}
+      POSTGRES_DB: postgres
+      INSTALLATION_DB_PASSWORD: ${INSTALLATION_DB_PASSWORD:?Set INSTALLATION_DB_PASSWORD}
+    volumes:
+      - installation_postgres:/var/lib/postgresql
+      - ./scripts/init-postgres.sh:/docker-entrypoint-initdb.d/installation.sh:ro
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U provisioner -d postgres']
+      interval: 3s
+      timeout: 3s
+      retries: 20
+  media:
+    image: ghcr.io/coollabsio/minio:RELEASE.2025-10-15T17-29-55Z@sha256:69b55a1c1c5dc285ce04db96689f5b2102317fc77a50680a1874ca6efd1c87f9
+    command: server /data
+    environment:
+      MINIO_ROOT_USER: ${S3_ACCESS_KEY_ID:?Set S3_ACCESS_KEY_ID}
+      MINIO_ROOT_PASSWORD: ${S3_SECRET_ACCESS_KEY:?Set S3_SECRET_ACCESS_KEY}
+    volumes:
+      - installation_media:/data
+  media-init:
+    image: ghcr.io/coollabsio/minio:RELEASE.2025-10-15T17-29-55Z@sha256:69b55a1c1c5dc285ce04db96689f5b2102317fc77a50680a1874ca6efd1c87f9
+    depends_on: [media]
+    environment:
+      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID}
+      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY}
+    entrypoint: ['/bin/sh', '-ec']
+    command:
+      - |
+        for attempt in $$(seq 1 30); do
+          if mc alias set local http://media:9000 "$$S3_ACCESS_KEY_ID" "$$S3_SECRET_ACCESS_KEY" && mc ready local; then mc mb --ignore-existing local/storypane; exit 0; fi
+          sleep 1
+        done
+        exit 1
+  web:
+    build: .
+    ports: ['127.0.0.1:${PORT:-3130}:3000']
+    depends_on:
+      postgres: { condition: service_healthy }
+      media-init: { condition: service_completed_successfully }
+    environment:
+      AUTH_PROVIDER: ${AUTH_PROVIDER:-local}
+      INSTALLATION_DATABASE_URL: postgresql://storypane_installation:${INSTALLATION_DB_PASSWORD}@postgres:5432/storypane_installation
+      PROVISIONING_DATABASE_URL: postgresql://provisioner:${PROVISIONING_DB_PASSWORD}@postgres:5432/postgres
+      INSTALLATION_ENCRYPTION_KEY: ${INSTALLATION_ENCRYPTION_KEY:?Set INSTALLATION_ENCRYPTION_KEY}
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?Set BETTER_AUTH_SECRET}
+      WEBHOOK_ENCRYPTION_KEY: ${WEBHOOK_ENCRYPTION_KEY:?Set WEBHOOK_ENCRYPTION_KEY}
+      STORYPANE_APP_URL: ${STORYPANE_APP_URL:-http://localhost:3130}
+      CLERK_SECRET_KEY: ${CLERK_SECRET_KEY:-}
+      VITE_CLERK_PUBLISHABLE_KEY: ${VITE_CLERK_PUBLISHABLE_KEY:-}
+      SMTP_URL: ${SMTP_URL:-}
+      MAIL_FROM: ${MAIL_FROM:-}
+      EXTERNAL_OPTION_HOSTS: ${EXTERNAL_OPTION_HOSTS:-}
+      WEBHOOK_HOSTS: ${WEBHOOK_HOSTS:-}
+      S3_ENDPOINT: http://media:9000
+      S3_REGION: us-east-1
+      S3_BUCKET: storypane
+      S3_FORCE_PATH_STYLE: 'true'
+      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID}
+      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY}
+    command:
+      [
+        'sh',
+        '-ec',
+        'node --import tsx scripts/migrate-production.ts && exec node --conditions=storypane-node --import tsx apps/web/src/node.ts',
+      ]
+volumes:
+  installation_postgres:
+  installation_media:

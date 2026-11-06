@@ -2,7 +2,17 @@
 
 import { writeClipboardText } from '../../lib/clipboard';
 import { useCallback, useEffect, useState } from 'react';
-import { Building2, Check, Code2, Copy, Globe2, ShieldCheck, Users, Webhook } from 'lucide-react';
+import {
+  Building2,
+  Check,
+  Code2,
+  Copy,
+  Database,
+  Globe2,
+  ShieldCheck,
+  Users,
+  Webhook,
+} from 'lucide-react';
 import { can, type SpaceRole, type Space, type SpaceDetails } from '@storypane/core';
 import { Button, ErrorNotice, Loading } from '@storypane/ui';
 import { api, errorMessage, jsonRequest } from '../editor/api';
@@ -14,6 +24,7 @@ import { LocaleSettings } from './locale-settings';
 import { MemberSettings } from './member-settings';
 import { RoleSettings } from './role-settings';
 import { WebhookSettings } from './webhook-settings';
+import { DatabaseSettings } from './database-settings';
 
 const sections = [
   { id: 'general', label: 'General', icon: Building2 },
@@ -21,13 +32,16 @@ const sections = [
   { id: 'team', label: 'Members & roles', icon: Users },
   { id: 'delivery', label: 'API & preview', icon: Code2 },
   { id: 'webhooks', label: 'Webhooks', icon: Webhook },
+  { id: 'database', label: 'Database connection', icon: Database },
 ] as const;
 
 export function SpaceSettings({
   onUpdate,
   registerGuard,
   access,
+  installationAdmin = false,
 }: {
+  installationAdmin?: boolean;
   access: Pick<Space, 'role' | 'roleName' | 'permissions' | 'contentScopes'>;
   onUpdate: (space: Space) => void;
   registerGuard: RegisterGuard;
@@ -52,6 +66,7 @@ export function SpaceSettings({
     [deliveryBusy, setDeliveryBusy] = useState(false);
   const [roles, setRoles] = useState<SpaceRole[]>([]);
   const [managementBusy, setManagementBusy] = useState(false);
+  const [databaseBusy, setDatabaseBusy] = useState(false);
   const [roleBusy, setRoleBusy] = useState(false);
   const loadRoles = useCallback(async () => {
     setRoles(await api<SpaceRole[]>('/roles'));
@@ -102,6 +117,7 @@ export function SpaceSettings({
         !memberBusy &&
         !roleBusy &&
         !webhookBusy &&
+        !databaseBusy &&
         (!(dirty || deliveryDirty || localeDirty || webhookDirty) ||
           window.confirm('Discard unsaved space settings?')),
     );
@@ -117,7 +133,8 @@ export function SpaceSettings({
         memberBusy ||
         roleBusy ||
         webhookDirty ||
-        webhookBusy
+        webhookBusy ||
+        databaseBusy
       )
         event.preventDefault();
     };
@@ -138,15 +155,21 @@ export function SpaceSettings({
     roleBusy,
     webhookDirty,
     webhookBusy,
+    databaseBusy,
     registerGuard,
   ]);
-  const activeSection = section === 'webhooks' && space?.role !== 'admin' ? 'general' : section;
+  const activeSection =
+    (section === 'webhooks' && space?.role !== 'admin') ||
+    (section === 'database' && !installationAdmin)
+      ? 'general'
+      : section;
   const unsaved = {
     general: dirty,
     locales: localeDirty,
     team: false,
     delivery: deliveryDirty,
     webhooks: webhookDirty,
+    database: false,
   };
   return (
     <>
@@ -165,7 +188,11 @@ export function SpaceSettings({
           <div className="space-settings">
             <nav className="settings-nav" aria-label="Settings sections">
               {sections
-                .filter((item) => item.id !== 'webhooks' || space.role === 'admin')
+                .filter(
+                  (item) =>
+                    (item.id !== 'webhooks' || space.role === 'admin') &&
+                    (item.id !== 'database' || installationAdmin),
+                )
                 .map(({ id, label, icon: Icon }) => (
                   <button
                     key={id}
@@ -334,6 +361,11 @@ export function SpaceSettings({
                 </aside>
               </div>
             </div>
+            {installationAdmin && activeSection === 'database' && (
+              <div id="settings-database" className="settings-section">
+                <DatabaseSettings spaceId={space.id} onBusy={setDatabaseBusy} />
+              </div>
+            )}
             <div
               id="settings-locales"
               className="settings-section"

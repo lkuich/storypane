@@ -5,7 +5,8 @@ separate preview route. `useStorypaneStory` adds preview to an existing publicat
 
 TypeScript SDK for published content and live, read-only draft preview. Works with
 Node, Workers, browsers, Next.js client components, and Astro islands/scripts.
-The package has no runtime dependencies; React is an optional peer dependency.
+The delivery and preview entrypoints have no runtime dependencies; React is an optional
+peer dependency. The MCP CLI uses the official MCP server package and Zod.
 
 Start with the [Next.js integration guide](../../apps/example-next/README.md) for
 server-side fetching, typed block components, and a separate live preview route.
@@ -489,3 +490,10 @@ The schema endpoint returns only the latest deployed metadata, without content,
 defaults, or source URLs. A published-only token cannot read schemas. Codegen is
 offline and writes atomically; invalid input preserves the previous output.
 Both workflows require the initial schema migration to be deployed first.
+
+### MCP
+
+Run `storypane mcp` (Node 20+) with `STORYPANE_URL`, `STORYPANE_SPACE_ID`, and a
+private `STORYPANE_MANAGEMENT_TOKEN`. The stdio adapter exposes read and write
+tools over the management API; the same scopes, issuer permissions and revocation
+apply. See [MCP configuration and contracts](../../docs/management-api.md#mcp-adapter).

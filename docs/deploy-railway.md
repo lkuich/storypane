@@ -5,7 +5,7 @@ Railway installation or shareable hosted template has been verified. Do not enab
 a deploy button until [acceptance](deployment-verification.md) passes.
 
 The Node runtime reuses vinext's standalone production server, the frontend,
-Postgres model, Clerk authentication, HTTP APIs, asset authorization and shared
+Postgres model, local or Clerk authentication, HTTP APIs, asset authorization and shared
 room logic. The Docker image retains workspace source and the installed `tsx`
 loader for those internal runtime packages. It runs one application process for
 HTTP, WebSockets and the minute publishing/webhook scheduler. No Cloudflare
@@ -22,24 +22,33 @@ shared room transport; in-memory recipients would otherwise miss notifications.
 
 Set application variables using Railway's reference syntax:
 
-| Application variable   | Value                           |
-| ---------------------- | ------------------------------- |
-| `DATABASE_URL`         | `${{Postgres.DATABASE_URL}}`    |
-| `S3_ENDPOINT`          | `${{Bucket.ENDPOINT}}`          |
-| `S3_REGION`            | `${{Bucket.REGION}}`            |
-| `S3_BUCKET`            | `${{Bucket.BUCKET}}`            |
-| `S3_ACCESS_KEY_ID`     | `${{Bucket.ACCESS_KEY_ID}}`     |
-| `S3_SECRET_ACCESS_KEY` | `${{Bucket.SECRET_ACCESS_KEY}}` |
+| Application variable        | Value                                        |
+| --------------------------- | -------------------------------------------- |
+| `INSTALLATION_DATABASE_URL` | Dedicated installation database URL          |
+| `PROVISIONING_DATABASE_URL` | `${{Postgres.DATABASE_URL}}` (operator role) |
+| `S3_ENDPOINT`               | `${{Bucket.ENDPOINT}}`                       |
+| `S3_REGION`                 | `${{Bucket.REGION}}`                         |
+| `S3_BUCKET`                 | `${{Bucket.BUCKET}}`                         |
+| `S3_ACCESS_KEY_ID`          | `${{Bucket.ACCESS_KEY_ID}}`                  |
+| `S3_SECRET_ACCESS_KEY`      | `${{Bucket.SECRET_ACCESS_KEY}}`              |
 
-Add operator-provided `CLERK_SECRET_KEY` and `VITE_CLERK_PUBLISHABLE_KEY` from the
-same Clerk instance. Generate a random 32-byte base64 `WEBHOOK_ENCRYPTION_KEY`
-locally into a private file and enter it as a sealed Railway variable; never
-commit, print in logs, or regenerate it during upgrades. Keep a secure backup.
+Follow [database preparation and bootstrap](self-hosting.md). Create a separate
+installation database and role on the Railway Postgres service; do not use the
+provisioning credential for ordinary requests. Space roles must have CONNECT only
+to their own database, including revoking PUBLIC CONNECT on the other databases.
+If the managed database does not allow role/database creation, attach dedicated
+empty databases instead and omit `PROVISIONING_DATABASE_URL`.
+
+Set `AUTH_PROVIDER=local` (the default), independent `BETTER_AUTH_SECRET`,
+`INSTALLATION_ENCRYPTION_KEY`, and `WEBHOOK_ENCRYPTION_KEY` values. Retain all keys
+on upgrades and keep backups. Clerk keys are required only when selecting
+`AUTH_PROVIDER=clerk`. SMTP is optional. Run the operator CLI `bootstrap` through
+an interactive Railway service shell; it reads the password without echo.
 Optional `WEBHOOK_HOSTS` and `EXTERNAL_OPTION_HOSTS` are exact approved hostnames.
 
 Generate the application's Railway public domain. The application defaults to
 `https://RAILWAY_PUBLIC_DOMAIN`; set `STORYPANE_APP_URL` only for a different HTTPS
-origin, without a trailing slash. Configure that origin in Clerk. New Railway
+origin, without a trailing slash. In Clerk mode, configure that origin in Clerk. New Railway
 buckets use virtual-hosted addressing; older buckets may require
 `S3_FORCE_PATH_STYLE=true`, as indicated in their Credentials tab.
 
@@ -56,11 +65,11 @@ docker build -t storypane .
 ```
 
 `railway.json` runs `scripts/migrate-production.ts` before deployment. The runner
-uses one transaction and advisory lock. `/api/ready` checks database connectivity;
+uses separate transactional migration histories and visits every registered space.
+`/api/ready` reports installation readiness and degraded space availability;
 it does not prove sign-in, media or background publishing. Follow acceptance before
 publishing a template. The template should contain exactly these three services,
-wire the references above, request the Clerk keys, generate the encryption secret
-once, and expose only the application. Save/share it from Railway only after the
+wire the references above, generate the independent encryption/auth secrets once, and expose only the application. Save/share it from Railway only after the
 fresh project passes; no template URL is invented in the website.
 
 Drafts, leases, schedules, upload IDs and webhook jobs are in Postgres. Restarting
@@ -74,10 +83,10 @@ handles bounded image variants and focal crops. Variants currently recompute on
 demand; add a bounded cache if profiling shows it is needed. Images above 20 MiB
 keep original downloads but cannot be transformed.
 
-Back up Postgres, bucket contents and encryption key before upgrades. Preserve
+Back up the installation database, every space database, bucket contents and all encryption/auth keys before upgrades. Preserve
 service references and review your source modifications against upstream changes.
 If a release fails, inspect build/runtime logs and `/api/ready`; never recreate
-the database or bucket as a troubleshooting step. For 401/403 check Clerk/origin
+the database or bucket as a troubleshooting step. For 401/403 check the selected auth provider/origin
 and current membership. For S3 errors check region, endpoint, credentials and URL
 style. For missed scheduled work check that the application is awake and healthy.
 

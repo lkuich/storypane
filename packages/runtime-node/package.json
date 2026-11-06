@@ -14,7 +14,8 @@
     "@storypane/realtime": "workspace:*",
     "@aws-sdk/client-s3": "^3.0.0",
     "sharp": "^0.34.0",
-    "ws": "^8.18.0"
+    "ws": "^8.18.0",
+    "@storypane/db": "workspace:*"
   },
   "devDependencies": {
     "@types/ws": "^8.18.0"

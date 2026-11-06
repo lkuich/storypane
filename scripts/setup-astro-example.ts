@@ -23,9 +23,10 @@ if (existsSync(envPath)) {
       'Example seeding is restricted to the local CMS. Configure .env manually for a deployed space.',
     );
   const token = process.env.STORYPANE_SESSION_TOKEN;
-  if (!token)
+  const cookie = process.env.STORYPANE_SESSION_COOKIE;
+  if (!token && !cookie)
     throw new Error(
-      'Set STORYPANE_SESSION_TOKEN to a current Clerk session token from your local CMS.',
+      'Set STORYPANE_SESSION_COOKIE from your local CMS, or STORYPANE_SESSION_TOKEN for Clerk.',
     );
   let spaceId = '';
   async function request<T>(path: string, method = 'GET', body?: unknown): Promise<T> {
@@ -33,7 +34,7 @@ if (existsSync(envPath)) {
       method,
       headers: {
         Origin: new URL(url).origin,
-        Authorization: `Bearer ${token}`,
+        ...(cookie ? { Cookie: cookie } : { Authorization: `Bearer ${token}` }),
         'Content-Type': 'application/json',
         ...(spaceId ? { 'x-storypane-space-id': spaceId } : {}),
       },
@@ -50,6 +51,7 @@ if (existsSync(envPath)) {
     return result;
   }
   const space = await request<{ id: string }>('/api/spaces', 'POST', {
+    mode: 'create',
     name: 'Fieldwork · Astro example',
     description: 'A static Astro site with generated block types and live visual preview.',
   });

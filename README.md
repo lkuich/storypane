@@ -3,32 +3,27 @@
 A collaborative headless CMS: independent locale pages, automatic saving, exclusive
 block editing, versioned publishing, and a media library adapted from UGC Scout.
 
-This first build runs the application, Durable Objects, and R2 in Cloudflare's
-local Workers runtime, with **Postgres 18 in Docker**. Clerk development credentials are required for authentication.
+This release runs on **Node/Docker**, including Railway, with built-in email/password
+sign-in and a PostgreSQL database per space. One installation database owns
+identities, sessions and encrypted connections. Clerk is an optional explicit
+installation provider; no Clerk keys or SMTP server are needed for local auth.
 
 ## Run locally
 
-Requires Docker, Node **24.22+ within v24**, and pnpm **12.4.2**.
+Requires Docker, Node **24.22+ within v24**, and pnpm **12.4.2**. Follow the
+[fresh Docker setup](docs/self-hosting.md) to configure secrets, start the private
+Postgres/object store services and create the first administrator through the CLI.
+There are no default accounts or public bootstrap endpoint. For source development,
+configure runtime settings in `.env`, migrate/bootstrap with the operator CLI, then
+run `pnpm dev`.
 
-```sh
-nvm install
-nvm use
-pnpm install --frozen-lockfile
-pnpm db:start
-pnpm db:setup
-pnpm dev
-```
-
-Configure the selected Clerk application from `apps/web` with `pnpm dlx clerk@latest env pull --instance dev --file .dev.vars` (authenticate the CLI in your terminal first). Keep credentials out of git. Open **http://127.0.0.1:3130**, sign in, and create or open a space. Existing content and memberships survive `db:setup`.
-
-Authentication uses Clerk's React SDK with server verification at the Worker boundary (vinext is detected as React). HTTP requests validate both the JWT and active Clerk session. WebSocket authorization grants expire within 60 seconds and refresh while the editor is open; revocation therefore reaches existing sockets within 60 seconds. Old Better Auth cookies and demo passwords are no longer accepted. Legacy auth tables remain for rollback; rollback requires restoring the previous release and its configuration, and signing in again.
-
-Concurrent requests for the same Clerk session share their in-flight identity lookup; results are not cached across completed requests. Transient sign-in throttling returns a retryable service error. The block library retries its full read (including datasources) on focus and its five-second refresh, clearing recovered read errors while retaining failed action errors.
-
-Clerk external IDs preserve imported local user IDs, memberships, and history. Linking is an explicit operator action; the server never links accounts by matching email. Unverified emails cannot access the CMS. The local demo editor remains disabled until explicitly migrated.
+Existing shared-database installations need the documented maintenance-window
+[legacy split and rollback](docs/self-hosting.md#legacy-migration-and-rollback).
+Cloudflare deployment of this layout is deferred; use the previous supported
+release for existing Cloudflare installations.
 
 The monorepo includes a working Astro website. With the CMS running, use
-`STORYPANE_SESSION_TOKEN=<current Clerk session JWT> pnpm example:setup` then `pnpm dev:example`, and open **http://127.0.0.1:3132/home**.
+`STORYPANE_SESSION_COOKIE=<private session cookie> pnpm example:setup` then `pnpm dev:example`, and open **http://127.0.0.1:3132/home**.
 Setup creates a separate Fieldwork example space with published Default/French
 content and an unpublished page. See [the Astro example guide](apps/example-astro/README.md)
 for static builds, visual preview, and schema-to-TypeScript generation.
@@ -40,11 +35,9 @@ preserves the Astro default. The Next.js example has its own server client, type
 block components, schema snapshot, and preview route. See [the Next.js integration guide](apps/example-next/README.md).
 Run `pnpm lint:example` to lint and check formatting in both examples.
 
-By default, Postgres listens only on `127.0.0.1:55432`, using database/user/password `storypane`.
-Optional settings are in `.env.example`; copy it to `.env` when changing defaults.
-Keep `DATABASE_URL` consistent with the Compose settings. `pnpm db:setup` applies database migrations. Local R2/room state persists
-under `.cloudflare/state`; database content persists in `storypane_postgres_data`.
-Stop the database with `docker compose stop`. Removing its volume erases content.
+The legacy `compose.yaml`/`db:setup` commands remain local fixture tools for the
+shared schema. New installations use `compose.node.yaml` and `pnpm admin migrate`.
+Keep all existing database/media volumes and encryption keys when upgrading.
 
 Use `STORYPANE_*` environment variables (`PUBLIC_STORYPANE_*` for Astro browser
 flags) and the `storypane` CLI. Rebuild preview applications with the current SDK
@@ -93,9 +86,9 @@ Docker volumes, databases, buckets, or Durable Object namespaces.
   Permissions are checked from Postgres on each operation, including lease renewal
   and publishing. Existing Admin/Editor memberships keep their access.
 - Settings → Members lets admins invite by email, assign roles, remove
-  members, and revoke pending invitations. Share the workspace link manually; no
-  email is sent. Invitations last 7 days and grant access on the next authenticated
-  request using the matching Clerk-verified primary email. Existing roles are never
+  members, and revoke pending invitations. Share the single-use invitation link
+  manually, or configure SMTP for email delivery. Invitations expire in 7 days.
+  Existing accounts must sign in before accepting; new local accounts stay unverified. Existing roles are never
   overwritten by an invitation. The last admin cannot be removed or demoted.
   Removing a member preserves content/history and releases their editing locks.
 - Space, story, and locale selection stays in the page URL, so refresh and shared
@@ -234,8 +227,8 @@ The SDK CLI supports `migrations pull`, `migrations create "description"`,
 from the latest deployed migration with `generate-types --out src/types/storypane.ts`.
 Admin-issued migration tokens are available in the migration panel. General management
 API tokens are available in Space settings → API & preview. The versioned HTTP API,
-`@storypane/sdk/management`, and resource CLI commands cover drafts, assets, and
-space configuration; see the [management API guide](docs/management-api.md). See the
+`@storypane/sdk/management`, resource CLI commands, and the `storypane mcp` stdio
+adapter cover drafts, assets, and space configuration; see the [management API guide](docs/management-api.md). See the
 [SDK migration guide](packages/sdk/README.md#schema-migrations-and-generated-types)
 for credentials, files, conflicts, and pipeline usage. Outdated SDK consumers
 continue receiving content with advisory version warnings.
@@ -272,7 +265,7 @@ pnpm test:e2e
 ```
 
 Unit/integration tests use isolated schemas in the local `storypane_test` database.
-Browser tests require Clerk-authenticated admin/editor storage states via `STORYPANE_TEST_ADMIN_STATE` and `STORYPANE_TEST_EDITOR_STATE`. They create test content in the app. Never commit storage states.
+Browser tests require authenticated admin/editor storage states via `STORYPANE_TEST_ADMIN_STATE` and `STORYPANE_TEST_EDITOR_STATE`. They create test content in the app. Never commit storage states.
 If `apps/example-astro/.env` exists, run `pnpm build:example` before the browser
 suite; Playwright starts its built preview server on port 3132. Without that
 configuration the Astro-specific test is skipped.
@@ -296,19 +289,14 @@ updating dependencies so linting and the `tsc` command continue to work together
 
 ## Self-hosting
 
-Use the [Cloudflare guided setup](docs/deploy-cloudflare.md) or read the
-[Railway readiness and setup guide](docs/deploy-railway.md). Cloudflare retains
-Workers, Durable Objects, R2, Images, Postgres and Clerk. The independent Node
-runtime uses Postgres, private S3-compatible storage and Sharp.
-
-Fresh-install acceptance is still pending for both guided flows. Follow the
-[verification checklist](docs/deployment-verification.md) before calling an
-installation ready for users. The existing owner's resource IDs and domain are
-preserved in ignored `.env.production`, not as defaults for new installations.
+Use the [Node/Docker setup](docs/self-hosting.md) or the
+[Railway setup guide](docs/deploy-railway.md). Fresh hosted acceptance remains
+pending. Complete the [verification checklist](docs/deployment-verification.md)
+before rollout. Production configuration stays in ignored `.env.production`.
 
 See [the SDK integration guide](packages/sdk/README.md) for static Next.js/Astro
 pages, preview authentication, client rendering requirements, and SDK limitations.
-Draft JSON remains in Postgres; Durable Objects stream its committed checkpoints.
+Draft JSON remains in each space database; collaboration rooms stream committed checkpoints.
 
 Design review is pending. Offline merging, asset garbage collection,
 and history retention are deferred. Full

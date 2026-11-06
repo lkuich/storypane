@@ -22,6 +22,8 @@ export const spaceInputSchema = z
   })
   .strict();
 export type Space = {
+  provisioningStatus?: 'provisioning' | 'ready' | 'failed';
+  provisioningMode?: 'create' | 'attach' | 'import';
   id: string;
   name: string;
   description: string;
@@ -32,6 +34,10 @@ export type Space = {
   createdAt: string;
   storyCount: number;
   memberCount: number;
+};
+export type SpaceConnection = {
+  status: 'provisioning' | 'ready' | 'failed';
+  url: string | null;
 };
 export type SpaceDetails = Space & {
   members: { id: string; name: string; email: string; role: Actor['role'] }[];

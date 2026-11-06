@@ -330,6 +330,10 @@ export class StorypaneStore {
   constructor(
     connection: Pool | string,
     private options: {
+      spaceId?: string;
+      authorizeSession?: (actor: AccountActor) => Promise<void>;
+      authorizeIdentity?: (userId: string) => Promise<void>;
+      registerPreview?: (tokenHash: string, expiresAt: Date) => Promise<void>;
       externalOptionHosts?: string[];
       webhookHosts?: string[];
       webhookEncryptionKey?: string;
@@ -344,6 +348,7 @@ export class StorypaneStore {
   private async authorizeSession(client: PoolClient, actor: AccountActor): Promise<void> {
     if (!actor.userId || !actor.sessionId)
       throw new StorypaneError('unauthenticated', 'Sign in to continue');
+    if (this.options.authorizeSession) return this.options.authorizeSession(actor);
     const session = await client.query(
       'SELECT id FROM cms_sessions WHERE id=$1 AND user_id=$2 AND expires_at>clock_timestamp()',
       [actor.sessionId, actor.userId],
@@ -355,7 +360,10 @@ export class StorypaneStore {
     actor: Actor,
     permission?: Permission | 'admin',
   ): Promise<void> {
+    if (this.options.spaceId && actor.spaceId !== this.options.spaceId)
+      throw new StorypaneError('forbidden', 'Space database binding mismatch');
     if (actor.managementTokenId) {
+      await this.options.authorizeIdentity?.(actor.userId);
       const token = (
         await client.query(
           'SELECT capability,scopes FROM schema_management_tokens WHERE id=$1 AND space_id=$2 AND user_id=$3 AND revoked_at IS NULL',
@@ -530,6 +538,8 @@ export class StorypaneStore {
     }
   }
   async createSpace(actor: AccountActor, raw: unknown): Promise<Space> {
+    if (this.options.spaceId)
+      throw new StorypaneError('forbidden', 'Use installation provisioning');
     const input = parseInput(spaceInputSchema, raw);
     const client = await this.pool.connect();
     try {
@@ -595,8 +605,9 @@ export class StorypaneStore {
       'admin',
     );
   }
-  async inviteSpaceMember(actor: Actor, raw: unknown): Promise<void> {
+  async inviteSpaceMember(actor: Actor, raw: unknown): Promise<{ token?: string }> {
     const input = parseInput(spaceInvitationSchema, raw);
+    const token = this.options.spaceId ? secretToken('si') : undefined;
     await this.tx(
       actor,
       async (client) => {
@@ -622,9 +633,15 @@ export class StorypaneStore {
             'invalid',
             'An invitation is already pending for this email. Revoke it to change the role.',
           );
+        if (token)
+          await client.query('UPDATE space_invitations SET token_hash=$2 WHERE id=$1', [
+            result.rows[0].id,
+            tokenHash(token),
+          ]);
       },
       'admin',
     );
+    return { token };
   }
   async revokeSpaceInvitation(actor: Actor, id: string): Promise<void> {
     parseInput(z.uuid(), id);
@@ -1450,6 +1467,7 @@ export class StorypaneStore {
         owner.tokenId ?? null,
       ],
     );
+    await this.options.registerPreview?.(tokenHash(token), session.rows[0].expires_at);
     return {
       token,
       expiresAt: iso(session.rows[0].expires_at),
@@ -1490,7 +1508,11 @@ export class StorypaneStore {
       FROM preview_sessions p JOIN spaces sp ON sp.id=p.space_id JOIN stories st ON st.id=p.story_id AND st.space_id=p.space_id
       JOIN story_locales l ON l.id=p.locale_id AND l.story_id=st.id JOIN checkpoints c ON c.id=l.checkpoint_id
       WHERE p.id=$1 AND st.deleted_at IS NULL AND p.expires_at>clock_timestamp() AND (
-        EXISTS(SELECT 1 FROM cms_sessions se JOIN memberships m ON m.user_id=se.user_id AND m.space_id=p.space_id WHERE se.id=p.session_id AND se.user_id=p.user_id AND se.expires_at>clock_timestamp())
+        ${
+          this.options.authorizeSession
+            ? 'EXISTS(SELECT 1 FROM memberships m WHERE m.user_id=p.user_id AND m.space_id=p.space_id)'
+            : 'EXISTS(SELECT 1 FROM cms_sessions se JOIN memberships m ON m.user_id=se.user_id AND m.space_id=p.space_id WHERE se.id=p.session_id AND se.user_id=p.user_id AND se.expires_at>clock_timestamp())'
+        }
         OR EXISTS(SELECT 1 FROM delivery_tokens t WHERE t.id=p.delivery_token_id AND t.space_id=p.space_id AND t.scope='preview' AND t.revoked_at IS NULL))`,
       [previewId],
     );
@@ -2895,14 +2917,14 @@ export class StorypaneStore {
   async listPageEditors(actor: Actor): Promise<PageEditors> {
     return this.tx(actor, async (client) => {
       const access = await this.contentAccess(client, actor);
-      const { rows } = await client.query<PageEditor & { storyId: string }>(
+      const { rows } = await client.query<PageEditor & { storyId: string; sessionIds: string[] }>(
         `SELECT s.id AS "storyId",u.id AS "userId",u.name,u.avatar_url AS "avatarUrl",
-        array_agg(DISTINCT l.name ORDER BY l.name) AS locales
+        array_agg(DISTINCT l.name ORDER BY l.name) AS locales, array_agg(DISTINCT e.session_id) AS "sessionIds"
         FROM edit_leases e JOIN story_locales l ON l.id=e.locale_id JOIN stories s ON s.id=l.story_id
-        JOIN "user" u ON u.id=e.user_id JOIN cms_sessions se ON se.id=e.session_id AND se.user_id=e.user_id
+        JOIN "user" u ON u.id=e.user_id ${this.options.authorizeSession ? '' : 'JOIN cms_sessions se ON se.id=e.session_id AND se.user_id=e.user_id'}
         JOIN memberships m ON m.space_id=s.space_id AND m.user_id=e.user_id
         JOIN space_roles r ON r.space_id=m.space_id AND r.id=m.role
-        WHERE s.space_id=$1 AND s.deleted_at IS NULL AND l.id=ANY($2::uuid[]) AND e.expires_at>clock_timestamp() AND se.expires_at>clock_timestamp()
+        WHERE s.space_id=$1 AND s.deleted_at IS NULL AND l.id=ANY($2::uuid[]) AND e.expires_at>clock_timestamp() ${this.options.authorizeSession ? '' : 'AND se.expires_at>clock_timestamp()'}
           AND 'content:edit'=ANY(r.permissions) AND ($5 OR EXISTS(SELECT 1 FROM block_drafts b JOIN definition_versions v ON v.id=b.schema_version_id WHERE b.id=e.block_id AND ($3::uuid[] IS NULL OR v.definition_id=ANY($3)) AND ($4::text[] IS NULL OR EXISTS(SELECT 1 FROM jsonb_array_elements(v.schema->'fields') f WHERE f->>'id'=ANY($4)))))
         GROUP BY s.id,u.id,u.name,u.avatar_url ORDER BY u.name,u.id`,
         [
@@ -2914,7 +2936,23 @@ export class StorypaneStore {
         ],
       );
       const editors: PageEditors = {};
-      for (const { storyId, ...editor } of rows) (editors[storyId] ??= []).push(editor);
+      for (const { storyId, sessionIds, ...editor } of rows) {
+        if (this.options.authorizeSession) {
+          let active = false;
+          for (const sessionId of sessionIds) {
+            try {
+              await this.options.authorizeSession({ userId: editor.userId, sessionId });
+              active = true;
+              break;
+            } catch (error) {
+              if (!(error instanceof StorypaneError) || error.code !== 'unauthenticated')
+                throw error;
+            }
+          }
+          if (!active) continue;
+        }
+        (editors[storyId] ??= []).push(editor);
+      }
       return editors;
     });
   }
@@ -5490,6 +5528,7 @@ export class StorypaneStore {
         }
         await client.query('SAVEPOINT publication_attempt');
         try {
+          await this.options.authorizeIdentity?.(row.creator_id);
           const membership = (
             await client.query(
               'SELECT m.role,r.permissions FROM memberships m JOIN "user" u ON u.id=m.user_id JOIN space_roles r ON r.space_id=m.space_id AND r.id=m.role WHERE m.space_id=$1 AND m.user_id=$2',

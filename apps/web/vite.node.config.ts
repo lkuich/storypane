@@ -15,9 +15,18 @@ export default defineConfig({
   plugins: [
     {
       name: 'storypane-node-platform',
+      apply: 'build',
       enforce: 'pre',
       resolveId(id) {
         if (id === '#platform') return { id: '@storypane/runtime-node', external: true };
+        // Keep SQL paths and the shared resolver/error classes in their source packages.
+        if (
+          this.environment.name !== 'client' &&
+          ['@storypane/db', '@storypane/core'].some(
+            (name) => id === name || id.startsWith(`${name}/`),
+          )
+        )
+          return { id, external: true };
       },
     },
     vinext({
@@ -26,5 +35,17 @@ export default defineConfig({
     }),
   ],
   resolve: { conditions: ['storypane-node'] },
-  ssr: { external: ['@storypane/runtime-node'] },
+  environments: Object.fromEntries(
+    ['rsc', 'ssr'].map((name) => [
+      name,
+      {
+        resolve: {
+          external: ['@storypane/runtime-node', '@storypane/db', '@storypane/core'],
+          externalConditions: ['node', 'storypane-node'],
+          conditions: ['storypane-node'],
+        },
+      },
+    ]),
+  ),
+  ssr: { external: ['@storypane/runtime-node', '@storypane/db', '@storypane/core'] },
 });

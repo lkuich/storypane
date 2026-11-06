@@ -30,6 +30,7 @@ const emptyDefinition: DefinitionInput = {
 
 export function SchemaDrawer({
   initialDefinition,
+  initialFieldName,
   initialParentId,
   definitions,
   datasources,
@@ -41,6 +42,7 @@ export function SchemaDrawer({
   description,
 }: {
   initialDefinition: BlockDefinition | null;
+  initialFieldName?: string;
   initialParentId?: string;
   definitions: BlockDefinition[];
   datasources: Datasource[];
@@ -74,7 +76,11 @@ export function SchemaDrawer({
     baseVersion: number;
   } | null>(null);
 
-  const [selectedField, setSelectedField] = useState<number | null>(null);
+  const initialField =
+    initialDefinition?.fields.findIndex((field) => field.name === initialFieldName) ?? -1;
+  const [selectedField, setSelectedField] = useState<number | null>(
+    initialField < 0 ? null : initialField,
+  );
   const [tab, setTab] = useState<'fields' | 'config' | 'references'>(
     initialDefinition ? 'fields' : 'config',
   );
@@ -111,6 +117,9 @@ export function SchemaDrawer({
         .getElementById(`schema-field-${selectedField}`)
         ?.scrollIntoView({ block: 'nearest' });
   }, [selectedField, tab]);
+  useEffect(() => {
+    if (initialField >= 0) document.getElementById(`schema-field-${initialField}`)?.focus();
+  }, [initialField]);
   function close() {
     if (busy || (dirty && !window.confirm('Discard your unsaved schema changes?'))) return;
     onClose();

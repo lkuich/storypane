@@ -6,7 +6,7 @@ export function assertOrigin(request: Request, appURL: string) {
   }
 }
 
-export async function readJson(request: Request): Promise<unknown> {
+export async function readJson(request: Pick<Request, 'headers' | 'body'>): Promise<unknown> {
   const limit = 2 * 1024 * 1024;
   if (!request.headers.get('content-type')?.includes('application/json'))
     throw new StorypaneError('invalid', 'Expected JSON');
@@ -84,7 +84,7 @@ export function errorResponse(error: unknown): Response {
       },
     );
   }
-  console.error('CMS request failed', error);
+  console.error('CMS request failed', error instanceof Error ? error.name : 'Unknown error');
   return Response.json(
     {
       error: { code: 'unavailable', message: 'The request could not be completed. Please retry.' },

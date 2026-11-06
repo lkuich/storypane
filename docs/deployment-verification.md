@@ -5,7 +5,17 @@ provider project, CMS revision, database and private bucket. Local unit/build
 checks do not count as fresh-deployment acceptance. Never test against production
 content merely to complete a checklist.
 
-- Sign in with the operator's Clerk instance; create an empty space.
+- Start fresh Docker with no Clerk keys or SMTP. Bootstrap through the hidden CLI
+  prompt, sign in, create/attach two databases, accept an invitation, sign out,
+  recover an account and verify old sessions are rejected.
+- Separately verify explicit Clerk mode, preserved identity IDs, provider switches
+  requiring operator migration, revoked sessions and disabled accounts.
+- Verify each space role is denied CONNECT to the other databases. Exercise
+  wrong-space CMS/delivery/management requests, media and preview routing, and
+  independent migrations, unavailable spaces and interrupted provisioning retries.
+- Rehearse the legacy split and pre-write rollback with multiple spaces, histories,
+  draft/published content, permissions, tokens, schedules and media references.
+  Run both example sites with the migrated URLs and tokens.
 - Invite a second editor; create a scoped viewer. Verify HTTP and live snapshots
   omit restricted content, session revocation expires access, and lease tokens
   never reach another editor.
@@ -24,10 +34,12 @@ content merely to complete a checklist.
   logs and persistent outbox state after restart.
 - Restart/redeploy the application; verify content, memberships, publication history,
   assets and pending schedules persist. Re-run migrations and confirm no replay/data
-  loss. Check `/api/ready` returns 503 with an unavailable database and 200 after recovery.
+  loss. Check `/api/ready` returns 503 with an unavailable installation database and 200
+  after recovery; an unavailable space reports degraded health while healthy spaces
+  and their background jobs continue.
 - Railway: confirm one replica and sleeping disabled; verify simultaneous WebSocket
-  editing while scheduled jobs and uploads run. Cloudflare: confirm realtime deploys
-  first, query caching is disabled, and bindings use only this installation's resources.
+  editing while scheduled jobs and uploads run. Cloudflare is unsupported by this
+  layout; its preflight must fail without changing resources.
 
 Record actual results, failures and evidence. Update the website provider status
 and deployment skill together only when every required step passes.
@@ -59,3 +71,38 @@ Fresh Cloudflare/Railway acceptance, signed-in browser editing on the Node runti
 and the shareable hosted Railway template remain **unverified and gated** at the
 owner's request. Website hosting, DNS, repository rename and public access remain
 separate. These local results do not enable either provider's deployment action.
+
+## Installation layout verification — 2026-11-05
+
+The earlier shared-database/Cloudflare results above do not verify this layout.
+For the Node installation/space split in this working tree:
+
+- 442 Vitest tests passed (54 files); the opt-in S3 test was skipped in that run
+  and passed separately against disposable MinIO. The suite included real
+  PostgreSQL isolation, local authentication, invitation replay, revocation,
+  interrupted provisioning, separate migrations and legacy split/rollback tests.
+- TypeScript, ESLint and formatting checks passed. The SDK, Node production build,
+  Astro and Next example builds passed. Both examples also built/served against a
+  migrated multi-space fixture, preserving published content while excluding later drafts.
+- A disposable Docker installation with no Clerk keys or SMTP passed CLI bootstrap,
+  browser sign-in, manual invitation/new-account acceptance, non-admin provisioning
+  rejection, logout, replay denial, and keyboard/responsive checks at 390/768/1440px.
+  CLI recovery invalidated the old password and existing session.
+- The management API, CLI and stdio MCP adapter passed live read/write, scope,
+  wrong-space and revocation checks against the disposable local-auth installation.
+  MCP protocol tests also rejected escaped paths without sending credentials.
+- The existing local Clerk installation was restored at `http://127.0.0.1:3130`:
+  four spaces, three identities, 260 stories and 424 asset records were copied.
+  All copied table values/counts, references and histories validated before switching.
+  442 private objects (2,085,151,826 bytes) were copied and SHA-256 verified.
+  Source database, original media, configuration and keys were retained privately.
+- Existing Clerk identity validation, management API/CLI/MCP reads and revocation,
+  both examples' unchanged delivery tokens, published original media, and an
+  authenticated preview WebSocket worked against the restored installation.
+  Node development mode starts the same collaboration and background services as
+  production; anonymous preview upgrades were rejected in both modes.
+
+This is not full production acceptance: live SMTP delivery, a fresh Railway
+installation, the complete two-editor browser workflow and real Clerk account/session
+revocation still need the checklist above. Clerk revocation has automated coverage;
+no real user account was disabled to test it. Cloudflare remains unsupported.

@@ -8,12 +8,16 @@ const mocks = vi.hoisted(() => ({
   listStories: vi.fn(),
   assets: vi.fn(),
   end: vi.fn(),
+  selectSpace: vi.fn(),
 }));
 vi.mock('#platform', () => ({ env: {}, openCache: vi.fn() }));
 vi.mock('./context', () => ({
   authenticate: mocks.authenticate,
+  requestedSpace: (request: Request) => request.headers.get('x-storypane-space-id'),
   createServices: () => ({
     db: { end: mocks.end },
+    close: mocks.end,
+    selectSpace: mocks.selectSpace,
     store: {
       authenticateManagement: mocks.authenticateManagement,
       assertActor: mocks.assertActor,
@@ -51,6 +55,7 @@ describe('management route authorization', () => {
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ items: [{ id: 'story' }], total: 1, nextOffset: null });
     expect(mocks.authenticate).not.toHaveBeenCalled();
+    expect(mocks.selectSpace).toHaveBeenCalledWith(spaceId);
     expect(mocks.authenticateManagement).toHaveBeenCalledWith(
       headers.authorization.slice(7),
       spaceId,

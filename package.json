@@ -7,7 +7,7 @@
     "node": ">=24.22.0 <25"
   },
   "scripts": {
-    "dev": "pnpm --filter @storypane/web dev",
+    "dev": "pnpm dev:node",
     "dev:example": "pnpm --filter @storypane/sdk build && pnpm --filter @storypane/example-astro dev",
     "dev:example:next": "pnpm --filter @storypane/sdk build && pnpm --filter @storypane/example-next dev",
     "example:setup:next": "node --env-file-if-exists=.env --import tsx scripts/setup-next-example.ts",
@@ -15,12 +15,12 @@
     "build:example:next": "pnpm --filter @storypane/sdk build && pnpm --filter @storypane/example-next build",
     "example:setup": "node --env-file-if-exists=.env --import tsx scripts/setup-astro-example.ts && pnpm --filter @storypane/sdk build && pnpm --filter @storypane/example-astro storypane:generate",
     "build:example": "pnpm --filter @storypane/sdk build && pnpm --filter @storypane/example-astro build",
-    "build": "pnpm --filter @storypane/sdk build && pnpm --filter @storypane/web build",
+    "build": "pnpm --filter @storypane/sdk build && pnpm --filter @storypane/web build:node",
     "types": "pnpm --filter @storypane/web exec cf workers types",
-    "typecheck": "pnpm --filter @storypane/sdk build && pnpm types && tsc --noEmit && pnpm --filter @storypane/example-astro typecheck && pnpm --filter @storypane/example-next typecheck",
+    "typecheck": "pnpm --filter @storypane/sdk build && tsc --noEmit && pnpm --filter @storypane/example-astro typecheck && pnpm --filter @storypane/example-next typecheck",
     "test": "vitest run",
     "test:e2e": "playwright test",
-    "db:start": "docker compose up -d --wait",
+    "db:start": "docker compose --env-file .env -f compose.node.yaml -f compose.node.local.yaml -p storypane-local up -d --wait postgres media media-init",
     "db:setup": "node --env-file-if-exists=.env --import tsx scripts/setup.ts",
     "db:test": "node --env-file-if-exists=.env --import tsx scripts/test-database.ts",
     "lint": "pnpm lint:code && pnpm format:check",
@@ -29,7 +29,10 @@
     "format": "prettier . --write",
     "format:check": "prettier . --check",
     "db:migrate:production": "node --env-file-if-exists=.env.production --import tsx scripts/migrate-production.ts",
-    "deploy:cloudflare": "node --import tsx scripts/deploy-cloudflare.ts"
+    "deploy:cloudflare": "node --import tsx scripts/deploy-cloudflare.ts",
+    "admin": "node --env-file-if-exists=.env.production --import tsx scripts/admin.ts",
+    "dev:node": "node --env-file-if-exists=.env --conditions=storypane-node --import tsx apps/web/src/dev-node.ts",
+    "start:node": "node --env-file-if-exists=.env --conditions=storypane-node --import tsx apps/web/src/node.ts"
   },
   "dependencies": {
     "@storypane/core": "workspace:*",

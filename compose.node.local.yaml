@@ -1,0 +1,6 @@
+# Host access for pnpm dev/start:node; Docker services remain private to this machine.
+services:
+  postgres:
+    ports: ['127.0.0.1:55450:5432']
+  media:
+    ports: ['127.0.0.1:59120:9000']

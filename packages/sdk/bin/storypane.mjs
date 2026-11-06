@@ -32,6 +32,7 @@ try {
   if (values.help) {
     console.log(`${managementHelp}
 
+storypane mcp
 storypane migrations pull [--out directory]
 storypane migrations create "description"
 storypane migrations push [--deploy [--yes]]
@@ -43,6 +44,11 @@ Local migrations live in storypane/migrations; commit them with your app.
 Default codegen uses the latest pulled deployed migration, never active.json.
 CI deployment requires --deploy --yes and a deploy-capable management token.
 Legacy pull-components uses STORYPANE_PREVIEW_TOKEN.`);
+  } else if (command === 'mcp') {
+    if (positionals.length !== 1 || Object.keys(values).length)
+      throw new Error('Use storypane mcp without flags');
+    const { runMcp } = await import('./mcp.mjs');
+    await runMcp(setting);
   } else if (managementCommands.has(command)) {
     if (values.deploy) {
       throw new Error('--deploy is only valid for migrations push');

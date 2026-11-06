@@ -1,69 +1,109 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
-import { ClerkProvider, SignIn, SignUp, useAuth } from '@clerk/react';
+import { lazy, Suspense, useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import { LocalSignIn, InvitationForm } from './local-sign-in';
+const ClerkApp = lazy(() => import('./clerk-app'));
+const noToken = async () => null;
 import { Boxes, Layers3, Globe2, History } from 'lucide-react';
-import { Button } from '@storypane/ui';
 import { CMSApp, type CMSSession } from './cms-app';
 import { UploadProvider } from '../features/assets/upload';
 import { SpacesScreen } from '../features/spaces/spaces-screen';
 import { spaceUrl } from '../lib/space-url';
 import { ThemePicker } from './theme-picker';
+import { WorkspaceError } from './workspace-error';
+
+function WorkspaceLoading() {
+  return (
+    <main className="workspace-loading" aria-busy="true">
+      <div className="loading-state">
+        <span className="spinner" />
+        Opening your workspace…
+      </div>
+    </main>
+  );
+}
 
 export function AppRoot() {
-  const [key, setKey] = useState('');
+  const [config, setConfig] = useState<{
+    provider: 'local' | 'clerk';
+    publishableKey?: string;
+    passwordReset?: boolean;
+  } | null>(null);
   const [error, setError] = useState('');
   useEffect(() => {
     void fetch('/api/auth/config')
       .then(async (response) => {
         if (!response.ok) throw new Error('Unable to load authentication.');
-        const config = (await response.json()) as { publishableKey?: string };
-        if (!config.publishableKey) throw new Error('Clerk is not configured for this server.');
-        setKey(config.publishableKey);
+        const value = (await response.json()) as NonNullable<typeof config>;
+        if (value.provider === 'clerk' && !value.publishableKey)
+          throw new Error('Clerk is not configured for this server.');
+        setConfig(value);
       })
       .catch((cause) => setError(cause.message));
   }, []);
   if (error)
     return (
-      <main className="session-error">
-        <p role="alert">{error}</p>
-        <Button onClick={() => window.location.reload()}>Try again</Button>
-      </main>
+      <WorkspaceError
+        title="Unable to start Storypane"
+        message={error}
+        onRetry={() => window.location.reload()}
+        showSpaces={false}
+      />
     );
-  if (!key)
-    return (
-      <main className="workspace-loading" aria-busy="true">
-        Opening your workspace…
-      </main>
-    );
-  return (
-    <ClerkProvider publishableKey={key} afterSignOutUrl="/">
-      <AuthenticatedApp />
-    </ClerkProvider>
+  if (!config) return <WorkspaceLoading />;
+  return config.provider === 'clerk' ? (
+    <Suspense fallback={<WorkspaceLoading />}>
+      <ClerkApp publishableKey={config.publishableKey!} />
+    </Suspense>
+  ) : (
+    <AuthenticatedApp
+      isLoaded
+      isSignedIn
+      getToken={noToken}
+      signIn={<LocalSignIn passwordReset={config.passwordReset} />}
+      local
+    />
   );
 }
 
-function AuthenticatedApp() {
-  const { isLoaded, isSignedIn, getToken } = useAuth();
+export function AuthenticatedApp({
+  isLoaded,
+  isSignedIn,
+  getToken,
+  signIn,
+  local,
+}: {
+  isLoaded: boolean;
+  isSignedIn: boolean;
+  getToken: () => Promise<string | null>;
+  signIn: ReactNode;
+  local: boolean;
+}) {
+  const invitation =
+    typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('invite');
   const [session, setSession] = useState<
     (Omit<CMSSession, 'space'> & { space: CMSSession['space'] | null }) | null
   >(null);
   const [sessionError, setSessionError] = useState('');
   const [loading, setLoading] = useState(true);
+  const [retrying, setRetrying] = useState(false);
+  const sessionRequest = useRef(false);
   const loadSession = useCallback(async () => {
-    setSessionError('');
+    if (sessionRequest.current) return;
+    sessionRequest.current = true;
+    setRetrying(true);
     try {
       const token = await getToken();
-      const response = await fetch(spaceUrl('/api/session'), {
+      const response = await fetch(invitation ? '/api/session' : spaceUrl('/api/session'), {
         cache: 'no-store',
         headers: token ? { Authorization: `Bearer ${token}` } : {},
       });
-      if (response.ok) setSession(await response.json());
-      else if (response.status === 401) {
+      if (response.ok) {
+        setSession(await response.json());
+        setSessionError('');
+      } else if (response.status === 401) {
         setSession(null);
-        setSessionError(
-          'Your session has expired. Sign in again to continue. Your unsent edits are preserved.',
-        );
+        setSessionError('');
       } else {
         const data = (await response.json()) as { error?: { message?: string } };
         setSessionError(data.error?.message ?? 'Unable to load your workspace.');
@@ -71,9 +111,11 @@ function AuthenticatedApp() {
     } catch {
       setSessionError('Cannot connect to the workspace. Please retry.');
     } finally {
+      sessionRequest.current = false;
+      setRetrying(false);
       setLoading(false);
     }
-  }, [getToken]);
+  }, [getToken, invitation]);
   useEffect(() => {
     if (!isLoaded) return;
     if (!isSignedIn) {
@@ -86,26 +128,25 @@ function AuthenticatedApp() {
     const timer = setInterval(() => void loadSession(), 20_000);
     return () => clearInterval(timer);
   }, [isLoaded, isSignedIn, loadSession]);
-  if (!isLoaded || (isSignedIn && loading))
-    return (
-      <main className="workspace-loading" aria-busy="true">
-        <div className="loading-state">
-          <span className="spinner" />
-          Opening your workspace…
-        </div>
-      </main>
-    );
+  if (!isLoaded || (isSignedIn && loading)) return <WorkspaceLoading />;
   if (sessionError)
     return (
-      <main className="session-error">
-        <h1>Unable to open this workspace</h1>
-        <p role="alert">{sessionError}</p>
-        <div className="button-group">
-          <a href="/" className="button">
-            All spaces
-          </a>
-          <Button onClick={() => void loadSession()}>Try again</Button>
-        </div>
+      <WorkspaceError
+        message={sessionError}
+        onRetry={() => void loadSession()}
+        retrying={retrying}
+      />
+    );
+  if (
+    local &&
+    typeof window !== 'undefined' &&
+    new URLSearchParams(window.location.search).has('token')
+  )
+    return <main className="login-form-wrap">{signIn}</main>;
+  if (invitation)
+    return (
+      <main className="login-form-wrap">
+        <InvitationForm signedIn={Boolean(session)} local={local} signIn={signIn} />
       </main>
     );
   if (session)
@@ -114,7 +155,7 @@ function AuthenticatedApp() {
         <CMSApp session={{ ...session, space: session.space }} />
       </UploadProvider>
     ) : (
-      <SpacesScreen />
+      <SpacesScreen installationAdmin={Boolean(session.installationAdmin)} />
     );
   return (
     <main className="login-shell">
@@ -158,14 +199,7 @@ function AuthenticatedApp() {
         </div>
         <span className="login-caption">The workspace behind what’s next.</span>
       </div>
-      <div className="login-form-wrap">
-        {typeof window !== 'undefined' &&
-        new URLSearchParams(window.location.search).has('sign-up') ? (
-          <SignUp routing="hash" signInUrl="/" forceRedirectUrl="/" />
-        ) : (
-          <SignIn routing="hash" signUpUrl="/?sign-up=1" forceRedirectUrl="/" />
-        )}
-      </div>
+      <div className="login-form-wrap">{signIn}</div>
     </main>
   );
 }

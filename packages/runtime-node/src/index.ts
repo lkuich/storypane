@@ -1,3 +1,5 @@
+import { createClerkChecks } from '@storypane/db/clerk-checks';
+import { getInstallation, authProvider } from '@storypane/db/installation';
 import { S3Client } from '@aws-sdk/client-s3';
 import { Room, type RoomSocket } from '@storypane/realtime/room';
 import { S3Bucket } from './s3';
@@ -18,7 +20,22 @@ export function nodeRoom(name: string) {
       pending: 0,
       room: new Room(
         { getWebSockets: () => [...sockets] },
-        { HYPERDRIVE: { connectionString: required('DATABASE_URL') } },
+        {
+          withStore: async (run) => {
+            const installation = getInstallation();
+            const selected = await installation.acquire(
+              name.split(':')[0],
+              installation.options.provider === 'clerk'
+                ? createClerkChecks(installation.auth)
+                : undefined,
+            );
+            try {
+              return await run(selected.store);
+            } finally {
+              await selected.close();
+            }
+          },
+        },
       ),
     };
     rooms.set(name, entry);
@@ -88,9 +105,8 @@ export async function openCache(_name: string) {
 
 export function validateEnvironment() {
   for (const key of [
-    'DATABASE_URL',
-    'CLERK_SECRET_KEY',
-    'VITE_CLERK_PUBLISHABLE_KEY',
+    'INSTALLATION_DATABASE_URL',
+    'INSTALLATION_ENCRYPTION_KEY',
     'WEBHOOK_ENCRYPTION_KEY',
     'S3_ENDPOINT',
     'S3_REGION',
@@ -99,6 +115,15 @@ export function validateEnvironment() {
     'S3_SECRET_ACCESS_KEY',
   ])
     required(key);
+  if (authProvider() === 'clerk') {
+    required('CLERK_SECRET_KEY');
+    required('VITE_CLERK_PUBLISHABLE_KEY');
+  } else if (required('BETTER_AUTH_SECRET').length < 32)
+    throw new Error('BETTER_AUTH_SECRET must be at least 32 characters');
+  if (Buffer.from(required('INSTALLATION_ENCRYPTION_KEY'), 'base64').length !== 32)
+    throw new Error('INSTALLATION_ENCRYPTION_KEY must encode 32 bytes');
+  if (Boolean(process.env.SMTP_URL) !== Boolean(process.env.MAIL_FROM))
+    throw new Error('Configure SMTP_URL and MAIL_FROM together');
   const origin = new URL(env.APP_URL);
   if (
     origin.origin !== env.APP_URL ||

@@ -10,11 +10,12 @@ export async function GET(request: Request) {
     return jsonResponse({
       user: { id: session.user.id, name: session.user.name, email: session.user.email },
       sessionId: session.session.id,
+      installationAdmin: await services.installation.isAdmin(session.user.id),
       space,
     });
   } catch (error) {
     return errorResponse(error);
   } finally {
-    await services.db.end();
+    await services.close();
   }
 }

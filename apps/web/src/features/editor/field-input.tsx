@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useId, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { EditorContent, Mark, Node, useEditor, type JSONContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import type {
@@ -269,6 +269,7 @@ export function FieldInput({
   error,
   referenceRefreshKey,
   optionContext,
+  labelAction,
 }: {
   field: Exclude<FieldDefinition, { type: 'blocks' }>;
   value: Json | undefined;
@@ -277,6 +278,7 @@ export function FieldInput({
   error?: string;
   referenceRefreshKey?: string;
   optionContext?: OptionRequestContext;
+  labelAction?: ReactNode;
 }) {
   const id = useId();
   const common = {
@@ -421,18 +423,21 @@ export function FieldInput({
   }
   return (
     <div className="field">
-      <label htmlFor={id}>
-        {field.label}
-        {field.required && (
-          <span
-            aria-hidden="true"
-            title="Required to publish"
-            style={{ color: 'var(--danger)', marginLeft: 3 }}
-          >
-            *
-          </span>
-        )}
-      </label>
+      <div className="field-heading">
+        <label className="field-label" htmlFor={id}>
+          {field.label}
+          {field.required && (
+            <span
+              aria-hidden="true"
+              title="Required to publish"
+              style={{ color: 'var(--danger)', marginLeft: 3 }}
+            >
+              *
+            </span>
+          )}
+        </label>
+        {labelAction}
+      </div>
       {input}
       {field.required && (
         <span id={`${id}-required`} className="sr-only">

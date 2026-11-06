@@ -20,6 +20,7 @@ export function MemberSettings({
   onBusy: (busy: boolean) => void;
 }) {
   const canManage = space.role === 'admin';
+  const [invitationLink, setInvitationLink] = useState('');
   const [invitations, setInvitations] = useState<SpaceInvitation[]>([]);
   const [error, setError] = useState(''),
     [busy, setBusy] = useState(false),
@@ -45,7 +46,8 @@ export function MemberSettings({
     setError('');
     setMessage('');
     try {
-      await api(path, jsonRequest(method, body));
+      const result = await api<{ link?: string }>(path, jsonRequest(method, body));
+      if (result.link) setInvitationLink(result.link);
       setAdding(false);
       setRemoving(null);
       // Self-removal/demotion can change which settings are available.
@@ -73,8 +75,8 @@ export function MemberSettings({
   }
   async function copyLink() {
     try {
-      await writeClipboardText(`${window.location.origin}/?space=${space.id}`);
-      setMessage('Workspace link copied.');
+      await writeClipboardText(invitationLink || `${window.location.origin}/?space=${space.id}`);
+      setMessage('Link copied.');
     } catch {
       setError('Could not copy the link. Copy the workspace URL from your address bar.');
     }
@@ -111,7 +113,7 @@ export function MemberSettings({
         {canManage && (
           <Button variant="ghost" className="button--small" onClick={() => void copyLink()}>
             <Copy aria-hidden="true" />
-            Copy workspace link
+            {invitationLink ? 'Copy invitation link' : 'Copy workspace link'}
           </Button>
         )}
       </div>
@@ -121,6 +123,12 @@ export function MemberSettings({
           <Check aria-hidden="true" />
           {message}
         </p>
+      )}
+      {invitationLink && (
+        <label className="field">
+          Invitation link
+          <input readOnly value={invitationLink} onFocus={(event) => event.target.select()} />
+        </label>
       )}
       <div className="table-wrap">
         <table className="data-table" aria-label="Space members">
@@ -263,8 +271,8 @@ export function MemberSettings({
           }}
         >
           <p className="muted">
-            They’ll get access after signing in with this verified email. Share the workspace link
-            with them; no invitation email is sent.
+            Share the single-use invitation link with this person. It expires in seven days.
+            Existing accounts must sign in before accepting.
           </p>
           <label className="field">
             Email address

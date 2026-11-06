@@ -1,6 +1,6 @@
 'use client';
 
-import { UserButton } from '@clerk/react';
+import { AccountControl } from '../../components/account-control';
 import { useEffect, useState } from 'react';
 import {
   ArrowRight,
@@ -18,7 +18,10 @@ import { errorMessage, jsonRequest, requestJson } from '../editor/api';
 import './spaces.css';
 import { ThemePicker } from '../../components/theme-picker';
 
-export function SpacesScreen() {
+export function SpacesScreen({ installationAdmin = false }: { installationAdmin?: boolean }) {
+  const [mode, setMode] = useState('create');
+  const [connectionString, setConnectionString] = useState('');
+  const [operationId, setOperationId] = useState('');
   const [spaces, setSpaces] = useState<Space[]>([]);
   const [loading, setLoading] = useState(true),
     [error, setError] = useState('');
@@ -65,7 +68,7 @@ export function SpacesScreen() {
         </span>
         <div className="spaces-account">
           <ThemePicker />
-          <UserButton />
+          <AccountControl />
         </div>
       </header>
       <main className="spaces-main" id="main-content">
@@ -75,18 +78,22 @@ export function SpacesScreen() {
             <h1>Spaces</h1>
             <p>A home for every project. Pick up where your team left off.</p>
           </div>
-          <Button
-            variant="primary"
-            onClick={() => {
-              setName('');
-              setDescription('');
-              setFormError('');
-              setCreating(true);
-            }}
-          >
-            <Plus aria-hidden="true" />
-            Create space
-          </Button>
+          {installationAdmin && (
+            <Button
+              variant="primary"
+              onClick={() => {
+                setOperationId(crypto.randomUUID());
+                setConnectionString('');
+                setName('');
+                setDescription('');
+                setFormError('');
+                setCreating(true);
+              }}
+            >
+              <Plus aria-hidden="true" />
+              Create space
+            </Button>
+          )}
         </div>
         <div className="spaces-toolbar">
           <label className="search-input">
@@ -119,7 +126,7 @@ export function SpacesScreen() {
                     <span className="pill pill--outline">{space.roleName}</span>
                   </div>
                   <h2>
-                    <a href={`/?space=${space.id}`}>{space.name}</a>
+                    {space.role ? <a href={`/?space=${space.id}`}>{space.name}</a> : space.name}
                   </h2>
                   <p className="space-description">
                     {space.description || 'Your stories, blocks, and assets in one place.'}
@@ -134,24 +141,45 @@ export function SpacesScreen() {
                       {space.memberCount} {space.memberCount === 1 ? 'member' : 'members'}
                     </span>
                   </div>
-                  <footer>
-                    <a
-                      className="button button--ghost button--small"
-                      href={`/?space=${space.id}&view=settings`}
-                      aria-label={`Settings for ${space.name}`}
+                  {space.role ? (
+                    <footer>
+                      <a
+                        className="button button--ghost button--small"
+                        href={`/?space=${space.id}&view=settings`}
+                        aria-label={`Settings for ${space.name}`}
+                      >
+                        <Settings2 aria-hidden="true" />
+                        Settings
+                      </a>
+                      <a
+                        className="space-open"
+                        href={`/?space=${space.id}`}
+                        aria-label={`Open ${space.name}`}
+                      >
+                        Open space
+                        <ArrowRight aria-hidden="true" />
+                      </a>
+                    </footer>
+                  ) : (
+                    <p role="status">
+                      {space.provisioningStatus === 'ready'
+                        ? 'Membership required or database unavailable'
+                        : space.provisioningStatus}
+                    </p>
+                  )}
+                  {installationAdmin && space.provisioningStatus === 'failed' && (
+                    <Button
+                      onClick={() => {
+                        setMode(space.provisioningMode === 'attach' ? 'attach' : 'create');
+                        setOperationId(space.id);
+                        setName(space.name);
+                        setDescription(space.description);
+                        setCreating(true);
+                      }}
                     >
-                      <Settings2 aria-hidden="true" />
-                      Settings
-                    </a>
-                    <a
-                      className="space-open"
-                      href={`/?space=${space.id}`}
-                      aria-label={`Open ${space.name}`}
-                    >
-                      Open space
-                      <ArrowRight aria-hidden="true" />
-                    </a>
-                  </footer>
+                      Retry provisioning
+                    </Button>
+                  )}
                 </article>
               ))}
             </div>
@@ -180,11 +208,17 @@ export function SpacesScreen() {
             setSubmitting(true);
             setFormError('');
             try {
-              const space = await requestJson<Space>(
+              await requestJson(
                 '/api/spaces',
-                jsonRequest('POST', { name, description }),
+                jsonRequest('POST', {
+                  id: operationId,
+                  name,
+                  description,
+                  mode,
+                  ...(mode === 'attach' && connectionString ? { connectionString } : {}),
+                }),
               );
-              setSpaces((current) => [...current, space]);
+              await load();
               setSearch('');
               setCreating(false);
             } catch (cause) {
@@ -215,6 +249,25 @@ export function SpacesScreen() {
               placeholder="What will you create here?"
             />
           </label>
+          <label className="field">
+            Database
+            <select value={mode} onChange={(event) => setMode(event.target.value)}>
+              <option value="create">Create a database</option>
+              <option value="attach">Attach an empty database</option>
+            </select>
+          </label>
+          {mode === 'attach' && (
+            <label className="field">
+              Database connection URL
+              <input
+                type="password"
+                autoComplete="off"
+                value={connectionString}
+                onChange={(event) => setConnectionString(event.target.value)}
+                placeholder="postgresql://role:password@host/database"
+              />
+            </label>
+          )}
           <p className="small muted">You’ll be the administrator of this space.</p>
           <ErrorNotice message={formError} />
           <div className="dialog-actions">
@@ -222,7 +275,7 @@ export function SpacesScreen() {
               Cancel
             </Button>
             <Button variant="primary" type="submit" disabled={submitting || !name.trim()}>
-              {submitting ? 'Creating…' : 'Create space'}
+              {submitting ? 'Saving…' : 'Create space'}
             </Button>
           </div>
         </form>

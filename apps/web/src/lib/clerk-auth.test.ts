@@ -32,12 +32,13 @@ const clerk = {
   sessions: { getSession: vi.fn() },
   users: { getUser: vi.fn() },
 };
-const run = () =>
+const run = (installation = false) =>
   clerkSession(
     new Request('https://cms.test/api/session'),
     db,
     clerk as unknown as ReturnType<typeof createClerkClient>,
     'https://cms.test',
+    installation,
   );
 beforeEach(() => {
   vi.clearAllMocks();
@@ -145,4 +146,18 @@ it('does not share identity lookups between sessions', async () => {
   expect(clerk.sessions.getSession).toHaveBeenCalledTimes(2);
   expect(clerk.sessions.getSession).toHaveBeenCalledWith('other-session');
   expect(clerk.sessions.getSession).toHaveBeenCalledWith(auth.sessionId);
+});
+
+it('keeps installation identities separate from space invitation authority', async () => {
+  await run(true);
+  expect(query.mock.calls.some(([sql]) => sql.includes('space_invitations'))).toBe(false);
+});
+it('rejects a disabled installation account without committing a session grant', async () => {
+  query.mockImplementation(async (sql) => ({
+    rows: sql.startsWith('SELECT disabled') ? [{ disabled: true }] : [],
+    rowCount: 1,
+  }));
+  await expect(run(true)).rejects.toMatchObject({ code: 'unauthenticated' });
+  expect(query).toHaveBeenCalledWith('ROLLBACK');
+  expect(query).not.toHaveBeenCalledWith('COMMIT');
 });

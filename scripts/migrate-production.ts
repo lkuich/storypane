@@ -1,11 +1,17 @@
-import { Pool } from 'pg';
-import { migrate } from '@storypane/db/migrate';
-
-if (!process.env.DATABASE_URL) throw new Error('DATABASE_URL is required; no local fallback');
-const db = new Pool({ connectionString: process.env.DATABASE_URL });
+import { getInstallation, migrateInstallation, migrateSpace } from '@storypane/db/installation';
+const installation = getInstallation();
 try {
-  await migrate(db);
-  console.log('Database migrations applied.');
+  await migrateInstallation(installation.pool, installation.options.provider);
+  const failed = await installation.forEachSpace(async (id) => {
+    const selected = await installation.acquire(id);
+    try {
+      await migrateSpace(selected.db);
+    } finally {
+      await selected.close();
+    }
+  });
+  if (failed.length) throw new Error(`Space migrations failed: ${failed.join(', ')}`);
+  console.log('Installation and space migrations applied.');
 } finally {
-  await db.end();
+  await installation.pool.end();
 }

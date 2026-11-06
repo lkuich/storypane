@@ -1,4 +1,4 @@
-# Management API, SDK, and CLI
+# Management API, SDK, CLI, and MCP
 
 Use the management API for server applications, imports, scripts, and CI. It reads
 and edits drafts through the same transactions, role checks, validation, history,
@@ -244,6 +244,45 @@ Errors use `{ error: { code, message, details? } }`:
 | 503    | Service unavailable; inspect state before retrying a non-idempotent write   |
 
 Account-level space creation, sign-in, management token issuance/revocation, and
-interactive browser leases/preview sessions remain in the signed-in CMS. MCP is a
-follow-up adapter over this API; it is not part of this implementation. Database
+interactive browser leases/preview sessions remain in the signed-in CMS. Database
 connection credentials are not exposed.
+
+## MCP adapter
+
+`storypane mcp` runs a stdio MCP server using the same management client and API.
+It requires Node 20 or later. Configure your MCP client to launch the installed
+`storypane` executable with `args: ["mcp"]` and these private environment values:
+
+```json
+{
+  "mcpServers": {
+    "storypane": {
+      "command": "storypane",
+      "args": ["mcp"],
+      "env": {
+        "STORYPANE_URL": "http://127.0.0.1:3130",
+        "STORYPANE_SPACE_ID": "your-space-id",
+        "STORYPANE_MANAGEMENT_TOKEN": "set-through-your-secret-store"
+      }
+    }
+  }
+}
+```
+
+The server exposes `storypane_read` (GET) and `storypane_write`
+(POST/PUT/PATCH/DELETE with a JSON body). Paths are relative to the configured
+space, for example `/stories?limit=20`. Use the resource table above for paths and
+contracts. Reads return the API JSON, including pagination; API failures return
+MCP tool errors with status and code. Credentials never come from tool arguments,
+redirects are refused, and paths cannot escape the selected space.
+
+Start with a read-only token. Grant specific write scopes only when needed and
+keep MCP client approval enabled for writes, especially publication, deletion and
+migration deployment. Content returned by tools is untrusted input. Revocation,
+issuer removal and content restrictions apply on every API operation in both
+local and Clerk installations. MCP cannot bootstrap accounts or provision
+installation databases. Use `storypane assets upload` for binary media.
+
+The adapter uses the [official MCP TypeScript SDK](https://github.com/modelcontextprotocol/typescript-sdk)
+and writes only protocol messages to stdout. In a source checkout, build the SDK
+and use `node /absolute/path/to/packages/sdk/bin/storypane.mjs mcp`.

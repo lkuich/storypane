@@ -1,7 +1,10 @@
 import { readFile } from 'node:fs/promises';
-import type { Pool } from 'pg';
+import type { Pool, PoolClient } from 'pg';
 
-export async function migrate(pool: Pool): Promise<void> {
+export async function migrate(
+  pool: Pool,
+  initialize?: (client: PoolClient) => Promise<void>,
+): Promise<void> {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -48,6 +51,7 @@ export async function migrate(pool: Pool): Promise<void> {
       );
       await client.query('INSERT INTO storypane_migrations(name) VALUES($1)', [name]);
     }
+    await initialize?.(client);
     await client.query('COMMIT');
   } catch (error) {
     await client.query('ROLLBACK');

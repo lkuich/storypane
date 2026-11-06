@@ -1,3 +1,8 @@
+> This guide describes the previous shared-database release. The current Node
+> installation/space layout is unsupported on Cloudflare and its deployment
+> preflight rejects it. Keep existing Workers installations on the previous
+> supported release; see [Node self-hosting](self-hosting.md) for migration.
+
 # Cloudflare setup
 
 Status: setup automation is implemented; a fresh installation has not yet passed

@@ -17,6 +17,8 @@ export async function liveRequest(
       const protocols = (request.headers.get('sec-websocket-protocol') ?? '')
         .split(',')
         .map((value) => value.trim());
+      const token = protocols.find((value) => value.startsWith('bp_')) ?? '';
+      await services.selectSpace(await services.installation.resolvePreview(token));
       const preview = await services.store.authenticatePreview(
         protocols.find((value) => value.startsWith('bp_')) ?? '',
         request.headers.get('origin') ?? '',
@@ -56,6 +58,6 @@ export async function liveRequest(
       }),
     };
   } finally {
-    await services.db.end();
+    await services.close();
   }
 }

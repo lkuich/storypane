@@ -7,7 +7,8 @@ import {
 import { StorypaneStore } from '@storypane/db';
 
 export interface Env {
-  HYPERDRIVE: { connectionString: string };
+  HYPERDRIVE?: { connectionString: string };
+  withStore?: <T>(run: (store: StorypaneStore) => Promise<T>) => Promise<T>;
 }
 export type Connection = {
   actor: Actor;
@@ -40,7 +41,8 @@ export class Room {
   ) {}
 
   private async withStore<T>(run: (store: StorypaneStore) => Promise<T>): Promise<T> {
-    const store = new StorypaneStore(this.env.HYPERDRIVE.connectionString);
+    if (this.env.withStore) return this.env.withStore(run);
+    const store = new StorypaneStore(this.env.HYPERDRIVE!.connectionString);
     try {
       return await run(store);
     } finally {

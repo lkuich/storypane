@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { parseEnv } from 'node:util';
-import { Pool } from 'pg';
 import { deliverySettingsSchema } from '@storypane/core';
 
 const envPath = 'apps/example-next/.env';
@@ -14,33 +13,35 @@ const cmsUrl = env.STORYPANE_URL || 'http://127.0.0.1:3130';
 const spaceId = env.STORYPANE_SPACE_ID;
 const deliveryToken = env.STORYPANE_DELIVERY_TOKEN;
 const previewToken = env.STORYPANE_PREVIEW_TOKEN;
-const connectionString =
-  process.env.DATABASE_URL ?? 'postgresql://storypane:storypane@127.0.0.1:55432/storypane';
-const database = new URL(connectionString);
-if (
-  !['localhost', '127.0.0.1'].includes(new URL(cmsUrl).hostname) ||
-  !['localhost', '127.0.0.1'].includes(database.hostname) ||
-  database.pathname !== `/${process.env.POSTGRES_DB ?? 'storypane'}`
-) {
+if (!['localhost', '127.0.0.1'].includes(new URL(cmsUrl).hostname))
   throw new Error(
-    'This setup only configures the local CMS and its database. Configure remote previews in Storypane settings.',
+    'This setup only configures the local CMS. Configure remote previews in Storypane settings.',
   );
+const cookie = process.env.STORYPANE_SESSION_COOKIE,
+  token = process.env.STORYPANE_SESSION_TOKEN;
+if (!cookie && !token)
+  throw new Error('Set STORYPANE_SESSION_COOKIE, or STORYPANE_SESSION_TOKEN for Clerk');
+async function request(method = 'GET', body?: unknown) {
+  const response = await fetch(new URL('/api/cms/delivery-settings', cmsUrl), {
+    method,
+    headers: {
+      Origin: new URL(cmsUrl).origin,
+      'Content-Type': 'application/json',
+      'x-storypane-space-id': spaceId!,
+      ...(cookie ? { Cookie: cookie } : { Authorization: `Bearer ${token}` }),
+    },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  if (!response.ok) throw new Error(`Preview settings request failed (${response.status})`);
+  return response.json();
 }
 assert(
   spaceId && deliveryToken,
   'Configure a Storypane space and published delivery token in apps/example-next/.env.',
 );
 
-const pool = new Pool({ connectionString });
-const client = await pool.connect();
-try {
-  await client.query('BEGIN');
-  const { rows } = await client.query(
-    'SELECT preview_urls AS "previewUrls",default_preview_id AS "defaultPreviewId",preview_parameter AS "previewParameter" FROM spaces WHERE id=$1 FOR UPDATE',
-    [spaceId],
-  );
-  assert(rows[0], 'The configured space does not exist in the local database.');
-  const settings = deliverySettingsSchema.parse(rows[0]);
+{
+  const settings = deliverySettingsSchema.parse(await request());
   const url = 'http://127.0.0.1:3133/preview?slug={slug}&locale={locale}';
   const target = settings.previewUrls.find((target) => target.url === url) ?? {
     id: crypto.randomUUID(),
@@ -54,19 +55,9 @@ try {
       : [...settings.previewUrls, target],
     defaultPreviewId: settings.defaultPreviewId || target.id,
   });
-  await client.query('UPDATE spaces SET preview_urls=$2,default_preview_id=$3 WHERE id=$1', [
-    spaceId,
-    JSON.stringify(updated.previewUrls),
-    updated.defaultPreviewId,
-  ]);
-  const saved = (
-    await client.query('SELECT preview_urls,default_preview_id FROM spaces WHERE id=$1', [spaceId])
-  ).rows[0];
-  assert.equal(
-    saved.preview_urls.filter((item: { id: string }) => item.id === target.id).length,
-    1,
-  );
-  assert.equal(saved.default_preview_id, settings.defaultPreviewId || target.id);
+  const saved = deliverySettingsSchema.parse(await request('PUT', updated));
+  assert.equal(saved.previewUrls.filter((item) => item.id === target.id).length, 1);
+  assert.equal(saved.defaultPreviewId, settings.defaultPreviewId || target.id);
   if (!existsSync(envPath)) {
     const config = {
       STORYPANE_URL: cmsUrl,
@@ -82,14 +73,7 @@ try {
       { mode: 0o600, flag: 'wx' },
     );
   }
-  await client.query('COMMIT');
   console.log(
     `Configured ${target.name}. Existing preview targets and the default are preserved.\nRun pnpm dev:example:next, then select ${target.name} in Storypane’s preview selector.`,
   );
-} catch (error) {
-  await client.query('ROLLBACK');
-  throw error;
-} finally {
-  client.release();
-  await pool.end();
 }

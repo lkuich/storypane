@@ -11,3 +11,11 @@ minimumReleaseAgeExclude:
   - '@cloudflare/workers-response-store@1.1.5'
   - '@vinext/cloudflare@1.3.2'
   - vinext@1.4.2
+  - '@better-auth/core@1.7.18'
+  - '@better-auth/drizzle-adapter@1.7.18'
+  - '@better-auth/kysely-adapter@1.7.18'
+  - '@better-auth/memory-adapter@1.7.18'
+  - '@better-auth/mongo-adapter@1.7.18'
+  - '@better-auth/prisma-adapter@1.7.18'
+  - '@better-auth/telemetry@1.7.18'
+  - better-auth@1.7.18

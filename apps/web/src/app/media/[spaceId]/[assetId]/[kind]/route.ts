@@ -10,14 +10,16 @@ async function handle(
 ) {
   const services = createServices();
   try {
-    return await handlePublicMedia(request, await route.params, {
+    const params = await route.params;
+    await services.selectSpace(params.spaceId);
+    return await handlePublicMedia(request, params, {
       db: services.db,
       bucket: env.MEDIA,
       images: env.IMAGES,
       cache: await openCache('storypane-public-media-v1'),
     });
   } finally {
-    await services.db.end();
+    await services.close();
   }
 }
 

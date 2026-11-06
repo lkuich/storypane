@@ -288,11 +288,6 @@
   height: 17px;
   margin-top: 2px;
 }
-.session-error {
-  max-width: 600px;
-  margin: 12vh auto;
-  padding: 32px;
-}
 .delivery-settings h3 {
   display: flex;
   align-items: center;

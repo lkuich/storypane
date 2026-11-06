@@ -29,6 +29,7 @@ import {
   Plus,
   RotateCcw,
   Search,
+  Settings,
   Settings2,
   Trash2,
   Upload,
@@ -326,7 +327,9 @@ function LocaleEditor({
     definition: BlockDefinition;
     definitions: BlockDefinition[];
     datasources: Datasource[];
+    fieldName?: string;
   } | null>(null);
+  const schemaTrigger = useRef<HTMLElement | null>(null);
   const schemaGuard = useRef<NavigationGuard | null>(null);
   const registerSchemaGuard = useCallback<RegisterGuard>((next) => {
     schemaGuard.current = next;
@@ -565,8 +568,9 @@ function LocaleEditor({
       setHistoryLoading(false);
     }
   }
-  async function openSchema() {
+  async function openSchema(fieldName?: string) {
     if (!definition || !can(session.space, 'schemas:write')) return;
+    schemaTrigger.current = document.activeElement as HTMLElement | null;
     await action(async () => {
       const [latest, datasources] = await Promise.all([
         api<BlockDefinition[]>('/definitions'),
@@ -574,8 +578,24 @@ function LocaleEditor({
       ]);
       const current = latest.find((item) => item.id === definition.id);
       if (!current) throw new Error('This block schema is no longer available.');
-      setSchema({ definition: current, definitions: latest, datasources });
+      if (fieldName && !current.fields.some((field) => field.name === fieldName))
+        throw new Error(`The “${fieldName}” field is no longer in the active schema.`);
+      setSchema({ definition: current, definitions: latest, datasources, fieldName });
     });
+  }
+  function fieldSchemaAction(field: FieldDefinition) {
+    return can(session.space, 'schemas:write') ? (
+      <Button
+        variant="ghost"
+        className="icon-button field-schema-action"
+        disabled={busy}
+        aria-label={`Edit schema for ${field.label}`}
+        title={`Edit schema for ${field.label}`}
+        onClick={() => void openSchema(field.name)}
+      >
+        <Settings aria-hidden="true" />
+      </Button>
+    ) : null;
   }
   async function openReview(checkpointId?: string) {
     setBusy(true);
@@ -1297,20 +1317,22 @@ function LocaleEditor({
                         Restricted field — your role cannot read this value.
                       </p>
                     ) : field.type === 'blocks' ? (
-                      <fieldset
-                        className="field"
-                        key={field.name}
-                        disabled={
-                          snapshot.access?.blocks[block.id]?.fields[field.name]?.edit === false
-                        }
-                        style={{ border: 0, padding: 0, minWidth: 0 }}
-                      >
-                        <div className="field-label">
-                          {field.label}
-                          {field.required ? ' *' : ''}
+                      <div className="field" key={field.name}>
+                        <div className="field-heading">
+                          <span className="field-label">
+                            {field.label}
+                            {field.required ? ' *' : ''}
+                          </span>
+                          {fieldSchemaAction(field)}
                         </div>
                         {field.description && <p className="field-hint">{field.description}</p>}
-                        <div className="block-list">
+                        <fieldset
+                          className="block-list"
+                          disabled={
+                            snapshot.access?.blocks[block.id]?.fields[field.name]?.edit === false
+                          }
+                          style={{ padding: 0, margin: 0, minWidth: 0 }}
+                        >
                           {snapshot.blocks
                             .filter(
                               (item) =>
@@ -1436,8 +1458,8 @@ function LocaleEditor({
                               )}
                             </div>
                           </div>
-                        </div>
-                      </fieldset>
+                        </fieldset>
+                      </div>
                     ) : (
                       <FieldInput
                         key={`${block.id}:${field.name}`}
@@ -1449,6 +1471,7 @@ function LocaleEditor({
                         }}
                         referenceRefreshKey={snapshot.locale.publishedVersionId ?? ''}
                         field={field}
+                        labelAction={fieldSchemaAction(field)}
                         value={fields[field.name]}
                         disabled={
                           disabled ||
@@ -1506,13 +1529,14 @@ function LocaleEditor({
       {schema && (
         <SchemaDrawer
           initialDefinition={schema.definition}
+          initialFieldName={schema.fieldName}
           definitions={schema.definitions}
           datasources={schema.datasources}
           canManage={can(session.space, 'schemas:write')}
           registerGuard={registerSchemaGuard}
           onClose={() => {
             setSchema(null);
-            requestAnimationFrame(() => document.getElementById('edit-block-schema')?.focus());
+            requestAnimationFrame(() => schemaTrigger.current?.focus());
           }}
           onSave={async () => {
             const latest = await api<BlockDefinition[]>('/definitions');

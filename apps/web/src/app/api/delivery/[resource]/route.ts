@@ -20,6 +20,7 @@ async function handle(request: Request, route: { params: Promise<{ resource: str
     const url = new URL(request.url),
       token = request.headers.get('authorization')?.replace(/^Bearer /i, '') ?? '';
     const spaceId = url.searchParams.get('space') ?? '';
+    await services.selectSpace(spaceId);
     if (resource === 'assets' && ['GET', 'HEAD'].includes(request.method)) {
       const id = url.searchParams.get('id') ?? '';
       await services.store.authorizePublishedAsset(token, spaceId, id);
@@ -57,7 +58,7 @@ async function handle(request: Request, route: { params: Promise<{ resource: str
   } catch (error) {
     return cors(errorResponse(error));
   } finally {
-    await services.db.end();
+    await services.close();
   }
 }
 export { handle as GET, handle as HEAD, handle as POST };

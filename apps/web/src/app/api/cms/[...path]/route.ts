@@ -1,7 +1,8 @@
 import { env, openCache } from '#platform';
 import { StorypaneError, definitionSaveSchema, parseInput } from '@storypane/core';
+import { emailInvitation } from '@storypane/db/local-auth';
 import { handleAssets } from '@storypane/assets';
-import { authenticate, createServices } from '../../../../lib/context';
+import { authenticate, createServices, requestedSpace } from '../../../../lib/context';
 import { assertOrigin, errorResponse, jsonResponse, readJson } from '../../../../lib/http';
 
 async function handle(request: Request, route: { params: Promise<{ path: string[] }> }) {
@@ -10,9 +11,10 @@ async function handle(request: Request, route: { params: Promise<{ path: string[
     const { path } = await route.params;
     const authorization = request.headers.get('authorization');
     const managementToken = authorization?.match(/^Bearer (sm_[\w-]+)$/)?.[1];
-    if (authorization && !managementToken) {
+    if (authorization && !managementToken && services.installation.options.provider !== 'clerk') {
       throw new StorypaneError('unauthenticated', 'A management bearer token is required');
     }
+    if (managementToken) await services.selectSpace(requestedSpace(request));
     const authenticated = managementToken ? null : await authenticate(request, services);
     const actor =
       authenticated?.actor ??
@@ -156,8 +158,17 @@ async function handle(request: Request, route: { params: Promise<{ path: string[
     if (resource === 'invitations' && !child) {
       if (method === 'GET' && !id) return jsonResponse(await store.listSpaceInvitations(actor));
       if (method === 'POST' && !id) {
-        await store.inviteSpaceMember(actor, await readJson(request));
-        return jsonResponse({ ok: true }, 201);
+        const input = await readJson(request);
+        const { token } = await store.inviteSpaceMember(actor, input);
+        const link = token ? `${env.APP_URL}/?invite=${token}&space=${actor.spaceId}` : env.APP_URL;
+        return jsonResponse(
+          {
+            ok: true,
+            link,
+            emailSent: await emailInvitation((input as { email: string }).email, link),
+          },
+          201,
+        );
       }
       if (method === 'DELETE' && id) {
         await store.revokeSpaceInvitation(actor, id);
@@ -466,7 +477,7 @@ async function handle(request: Request, route: { params: Promise<{ path: string[
   } catch (error) {
     return errorResponse(error);
   } finally {
-    await services.db.end();
+    await services.close();
   }
 }
 

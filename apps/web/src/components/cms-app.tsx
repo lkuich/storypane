@@ -1,6 +1,6 @@
 'use client';
 
-import { UserButton } from '@clerk/react';
+import { AccountControl } from './account-control';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Box,
@@ -31,6 +31,7 @@ import { ThemePicker } from './theme-picker';
 import type { NavigationGuard, RegisterGuard } from '../features/editor/navigation';
 
 export type CMSSession = {
+  installationAdmin?: boolean;
   sessionId: string;
   user: { id: string; name: string; email: string };
   space: Pick<Space, 'id' | 'name' | 'role' | 'roleName' | 'permissions' | 'contentScopes'>;
@@ -301,7 +302,7 @@ export function CMSApp({ session: initialSession }: { session: CMSSession }) {
           <div className="header-actions">
             <ThemePicker />
             <span className="pill pill--outline">{session.space.roleName}</span>
-            <UserButton />
+            <AccountControl />
           </div>
         </header>
         <main className="app-main" id="main-content" tabIndex={-1}>
@@ -347,6 +348,7 @@ export function CMSApp({ session: initialSession }: { session: CMSSession }) {
           {tab === 'assets' && <AssetLibrary />}
           {tab === 'settings' && (
             <SpaceSettings
+              installationAdmin={session.installationAdmin}
               access={session.space}
               registerGuard={registerGuard}
               onUpdate={(space) => setSession((current) => ({ ...current, space }))}

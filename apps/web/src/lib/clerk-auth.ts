@@ -1,37 +1,16 @@
+import { createClerkChecks, type ClerkChecks } from '@storypane/db/clerk-checks';
 import { createClerkClient } from '@clerk/backend';
 import { StorypaneError } from '@storypane/core';
 import type { Pool } from 'pg';
 import { acceptVerifiedEmailInvitations } from '@storypane/db';
-
-type Clerk = ReturnType<typeof createClerkClient>;
-type Identity = Awaited<ReturnType<Clerk['users']['getUser']>> | null;
-const pendingIdentities = new WeakMap<Clerk, Map<string, Promise<Identity>>>();
-
-function clerkIdentity(clerk: Clerk, userId: string, sessionId: string) {
-  let pending = pendingIdentities.get(clerk);
-  if (!pending) pendingIdentities.set(clerk, (pending = new Map()));
-  const key = JSON.stringify([userId, sessionId]);
-  let identity = pending.get(key);
-  if (!identity) {
-    // Share only concurrent lookups; the next request still checks revocation and account status.
-    identity = (async () => {
-      const session = await clerk.sessions.getSession(sessionId);
-      const user =
-        session.status === 'active' && session.userId === userId
-          ? await clerk.users.getUser(userId)
-          : null;
-      return user;
-    })().finally(() => pending.delete(key));
-    pending.set(key, identity);
-  }
-  return identity;
-}
 
 export async function clerkSession(
   request: Request,
   db: Pool,
   clerk: ReturnType<typeof createClerkClient>,
   appURL: string,
+  installation = false,
+  checks: ClerkChecks = createClerkChecks(clerk),
 ) {
   const state = await clerk.authenticateRequest(request, {
     authorizedParties: [new URL(appURL).origin],
@@ -41,7 +20,11 @@ export async function clerkSession(
   const auth = state.toAuth();
   if (!auth?.userId || !auth.sessionId)
     throw new StorypaneError('unauthenticated', 'Sign in to continue.');
-  const user = await clerkIdentity(clerk, auth.userId, auth.sessionId);
+  const remoteSession = await checks.getSession(auth.sessionId);
+  const user =
+    remoteSession.status === 'active' && remoteSession.userId === auth.userId
+      ? await checks.getUser(auth.userId)
+      : null;
   if (!user) {
     await db.query('DELETE FROM cms_sessions WHERE id=$1', [auth.sessionId]);
     throw new StorypaneError('unauthenticated', 'Your session has expired.');
@@ -79,7 +62,11 @@ export async function clerkSession(
       ON CONFLICT(id) DO UPDATE SET expires_at=EXCLUDED.expires_at WHERE cms_sessions.user_id=EXCLUDED.user_id`,
       [auth.sessionId, localId, expiresAt],
     );
-    await acceptVerifiedEmailInvitations(client, localId, email.emailAddress);
+    if (installation) {
+      const account = await client.query('SELECT disabled FROM "user" WHERE id=$1', [localId]);
+      if (account.rows[0]?.disabled)
+        throw new StorypaneError('unauthenticated', 'Account is disabled');
+    } else await acceptVerifiedEmailInvitations(client, localId, email.emailAddress);
     await client.query('COMMIT');
     return {
       user: { id: localId, name, email: email.emailAddress },

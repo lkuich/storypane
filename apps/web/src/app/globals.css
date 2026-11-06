@@ -2153,6 +2153,18 @@ hr {
 .editor-fields > .field:last-child {
   margin-bottom: 0;
 }
+.field-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.field-schema-action {
+  width: 28px;
+  min-height: 28px;
+  padding: 6px;
+  color: var(--muted);
+}
 .block-list {
   border: 1px solid var(--line);
   border-radius: 10px;
@@ -2959,6 +2971,103 @@ hr {
   display: grid;
   place-items: center;
   background: var(--bg);
+}
+.workspace-error {
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  padding: 28px clamp(20px, 4vw, 64px);
+}
+.workspace-error-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+}
+.workspace-error-header .brand-lockup {
+  color: var(--ink);
+  text-decoration: none;
+}
+.workspace-error-main {
+  flex: 1;
+  display: grid;
+  place-items: center;
+  padding: 56px 0 96px;
+}
+.workspace-error-card {
+  width: min(100%, 600px);
+  padding: clamp(24px, 4vw, 44px);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  box-shadow: 0 16px 48px #00000008;
+}
+.workspace-error-symbol {
+  display: grid;
+  place-items: center;
+  width: 56px;
+  height: 56px;
+  margin-bottom: 28px;
+  border: 1px solid var(--warning-border);
+  border-radius: 16px;
+  color: var(--warning);
+  background: var(--warning-soft);
+}
+.workspace-error-symbol svg {
+  width: 26px;
+  height: 26px;
+  stroke-width: 1.6;
+}
+.workspace-error-card .eyebrow {
+  display: block;
+  margin-bottom: 12px;
+}
+.workspace-error-card h1 {
+  font-size: clamp(26px, 3vw, 34px);
+  letter-spacing: -1.1px;
+  line-height: 1.22;
+  margin-bottom: 16px;
+  text-wrap: balance;
+}
+.workspace-error-message {
+  font-size: 14px;
+  line-height: 1.8;
+  margin-bottom: 28px;
+  overflow-wrap: anywhere;
+}
+.workspace-error-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.workspace-error-actions .button {
+  min-height: 44px;
+  padding-inline: 18px;
+}
+.workspace-error-actions .spinner {
+  width: 16px;
+  height: 16px;
+}
+.workspace-error-help {
+  border-top: 1px solid var(--line);
+  padding-top: 20px;
+  margin: 28px 0 0;
+  font-size: 12px;
+  line-height: 1.8;
+}
+@media (max-width: 480px) {
+  .workspace-error-header .brand-name {
+    font-size: 24px;
+  }
+  .workspace-error-header {
+    gap: 12px;
+  }
+  .workspace-error-main {
+    padding: 40px 0;
+  }
+  .workspace-error-actions .button {
+    flex: 1;
+  }
 }
 .save-status[data-state='connecting'] {
   color: var(--muted);
