@@ -189,6 +189,67 @@ retires the rollback copy.
 
 ## Backups, upgrades and health
 
+### Use your cloud host's database backups
+
+Enable managed backups for the **installation database and every space database**
+in your database provider's dashboard. Choose the retention period and, where your
+provider supports it, point-in-time recovery. Check that newly created space
+databases are covered too. If you operate Postgres yourself, use its documented
+[backup and restore methods](https://www.postgresql.org/docs/current/backup.html).
+
+Database backups preserve content, schemas, migration history, permissions, and
+publication state. Original media lives separately in private object storage:
+enable the appropriate bucket backup/versioning or copy policy, and preserve your
+configuration and encryption keys securely. Database backups alone cannot recover
+missing originals or decrypt connection details without the original keys.
+
+Test a restore into an isolated environment. Check sign-in, each space, drafts and
+published content, media downloads, and encrypted settings. Contain outbound
+webhook/email effects during the test. A successful backup job is not a verified
+restore.
+
+### Change regions or cloud hosts
+
+Storypane runs as a Node/Docker application with PostgreSQL and private
+S3-compatible object storage. You can move the application host while retaining
+the same database/storage endpoints. Moving those services too means copying
+their data and updating their connections; there is no Storypane region or cloud
+subscription to change.
+
+1. Plan a maintenance window. Stop the old application, collaboration connections,
+   and background jobs so writes cannot race the copy. Take a coordinated backup
+   of the installation database, every space database, original media, and keys.
+2. Restore the databases with the same space IDs, histories, and required database
+   roles. Copy original media with its existing object keys and private access
+   rules. Keep the application version and encryption/authentication secrets
+   consistent with the snapshot.
+3. Set the new host's `INSTALLATION_DATABASE_URL`, private storage configuration,
+   and, if used, provisioning connection. If space database endpoints changed,
+   update their saved connections before starting jobs. Retaining private database
+   DNS names can avoid registry changes. Otherwise, use an authorized operator
+   process through `Installation.updateConnection`; it checks the restored space
+   identity and dedicated database role and encrypts the new URL. Do not replace
+   encrypted registry values with plaintext or attach the restored database as a
+   new, empty space.
+4. Run the transactional operator migrations against the intended target
+   databases, then start one application instance. Verify readiness, sign-in,
+   content, private media, and preview before switching traffic. If the public
+   origin changes, update `STORYPANE_APP_URL`, proxy/DNS, frontend configuration,
+   and the authentication provider's allowed origin as appropriate.
+
+For an individual space whose application is already running against the intended
+installation, an installation administrator can also use **Settings → Database
+connection → Update database connection**. The same space/role checks apply. The
+connection-update service is defined in
+[`packages/db/src/installation.ts`](../packages/db/src/installation.ts).
+
+Retain the old deployment and backup until the move is verified. After accepting
+writes on the new host, reverting to the old database without reconciling those
+writes loses changes. Region and provider moves are operator-managed migrations,
+not automatic background replication.
+
+### Preserve the complete installation
+
 Back up the installation database, every space database, private originals,
 `INSTALLATION_ENCRYPTION_KEY`, `WEBHOOK_ENCRYPTION_KEY` and `BETTER_AUTH_SECRET`.
 Restore a space with its media and the relevant installation identities, registry

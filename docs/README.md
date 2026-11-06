@@ -13,6 +13,8 @@ Already have an instance? Start with content and schemas below.
   with copyable instructions for a coding agent.
 - [Node installations](self-hosting.md): Docker setup, external Postgres and storage,
   authentication, operator commands, upgrades, backups, and recovery.
+- [Portable hosting and backups](self-hosting.md#backups-upgrades-and-health): move
+  regions or cloud hosts, enable provider-managed backups, and preserve media and keys.
 
 ## Migrate from Storyblok
 
