@@ -2,8 +2,10 @@
 import { useEffect, useRef, useState } from 'react';
 import { ExternalLink, Monitor, RefreshCw } from 'lucide-react';
 import { Button, ErrorNotice, Loading } from '@storypane/ui';
-import type { DeliverySettings, LocaleSnapshot, PreviewSession } from '@storypane/core';
+import type { DeliverySettings, Json, LocaleSnapshot, PreviewSession } from '@storypane/core';
 import { api, errorMessage, jsonRequest } from './api';
+
+export type ComponentPreview = { blockId: string } | { block: Record<string, Json> };
 
 export function PreviewPanel({
   settings,
@@ -14,6 +16,7 @@ export function PreviewPanel({
   spaceId,
   selectedId,
   onSelect,
+  component,
 }: {
   settings: DeliverySettings | null;
   onSettings: (settings: DeliverySettings) => void;
@@ -23,14 +26,18 @@ export function PreviewPanel({
   spaceId: string;
   selectedId: string | null;
   onSelect: (id: string) => Promise<void>;
+  component?: ComponentPreview;
 }) {
   const [error, setError] = useState(''),
     [status, setStatus] = useState('Waiting for your app'),
     [generation, setGeneration] = useState(0);
+  const [componentReady, setComponentReady] = useState(false);
   const iframe = useRef<HTMLIFrameElement>(null),
     selected = useRef(selectedId),
     snapshotRef = useRef(snapshot),
     selectRef = useRef(onSelect);
+  const componentRef = useRef(component);
+  componentRef.current = component;
   selected.current = selectedId;
   snapshotRef.current = snapshot;
   selectRef.current = onSelect;
@@ -69,6 +76,7 @@ export function PreviewPanel({
     if (!origin || !targetId) return;
     setStatus('Waiting for your app');
     setError('');
+    setComponentReady(false);
     let stopped = false,
       authorizing = false;
     async function message(event: MessageEvent) {
@@ -81,6 +89,10 @@ export function PreviewPanel({
         (data.locale === undefined || data.locale === current.locale.slug) &&
         (data.id === current.story.id || data.slug === current.locale.urlSlug)
       ) {
+        if (componentRef.current && data.componentPreview !== true) {
+          setError('Enable component previews in your app’s Storypane SDK integration.');
+          return;
+        }
         if (authorizing) return;
         authorizing = true;
         try {
@@ -94,6 +106,11 @@ export function PreviewPanel({
               { type: 'storypane:init', session },
               origin!,
             );
+            if (componentRef.current)
+              iframe.current?.contentWindow?.postMessage(
+                { type: 'storypane:component', ...componentRef.current },
+                origin!,
+              );
             iframe.current?.contentWindow?.postMessage(
               { type: 'storypane:select', blockId: selected.current },
               origin!,
@@ -105,6 +122,14 @@ export function PreviewPanel({
           authorizing = false;
         }
       }
+      if (componentRef.current && data?.type === 'storypane:component-rendered') {
+        setComponentReady(data.found === true);
+        setError(data.found === true ? '' : 'This block is no longer available.');
+      }
+      if (componentRef.current && data?.type === 'storypane:status' && data.status === 'error') {
+        setComponentReady(false);
+        setError('Component preview is unavailable.');
+      }
       if (data?.type === 'storypane:status' && typeof data.status === 'string')
         setStatus(
           data.status === 'connected'
@@ -115,6 +140,7 @@ export function PreviewPanel({
         );
       if (
         data?.type === 'storypane:click' &&
+        !componentRef.current &&
         data.storyId === current.story.id &&
         data.localeId === current.locale.id &&
         current.blocks.some((block) => block.id === data.blockId)
@@ -142,68 +168,86 @@ export function PreviewPanel({
         origin,
       );
   }, [selectedId, origin]);
+  useEffect(() => {
+    if (!component || !origin) return;
+    setComponentReady(false);
+    iframe.current?.contentWindow?.postMessage(
+      { type: 'storypane:component', ...component },
+      origin,
+    );
+  }, [component, origin]);
   return (
-    <section className="panel preview-panel" aria-label="Application preview">
-      <header className="preview-toolbar">
-        <span>
-          <Monitor size={16} aria-hidden="true" />
-          {status}
-        </span>
-        <div className="button-group">
-          <Button
-            variant="ghost"
-            className="icon-button"
-            aria-label="Reload preview"
-            onClick={() => {
-              setStatus('Waiting for your app');
-              setGeneration((value) => value + 1);
-            }}
-          >
-            <RefreshCw />
-          </Button>
-          {src && (
-            <a
-              className="button button--ghost icon-button"
-              href={src}
-              target="_blank"
-              rel="noreferrer"
-              aria-label="Open preview app"
-            >
-              <ExternalLink size={16} />
-            </a>
+    <section
+      className="panel preview-panel"
+      aria-label={component ? 'Component preview' : 'Application preview'}
+    >
+      {!component && (
+        <>
+          <header className="preview-toolbar">
+            <span>
+              <Monitor size={16} aria-hidden="true" />
+              {status}
+            </span>
+            <div className="button-group">
+              <Button
+                variant="ghost"
+                className="icon-button"
+                aria-label="Reload preview"
+                onClick={() => {
+                  setStatus('Waiting for your app');
+                  setGeneration((value) => value + 1);
+                }}
+              >
+                <RefreshCw />
+              </Button>
+              {src && (
+                <a
+                  className="button button--ghost icon-button"
+                  href={src}
+                  target="_blank"
+                  rel="noreferrer"
+                  aria-label="Open preview app"
+                >
+                  <ExternalLink size={16} />
+                </a>
+              )}
+            </div>
+          </header>
+          {target && (
+            <div className="preview-target-switch">
+              <label htmlFor="preview-url">Preview</label>
+              <select
+                id="preview-url"
+                aria-label="Preview URL"
+                value={target.id}
+                onChange={(event) => onPreviewId(event.target.value)}
+              >
+                {settings!.previewUrls.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.name}
+                    {item.id === settings!.defaultPreviewId ? ' (default)' : ''}
+                  </option>
+                ))}
+              </select>
+            </div>
           )}
-        </div>
-      </header>
-      {target && (
-        <div className="preview-target-switch">
-          <label htmlFor="preview-url">Preview</label>
-          <select
-            id="preview-url"
-            aria-label="Preview URL"
-            value={target.id}
-            onChange={(event) => onPreviewId(event.target.value)}
-          >
-            {settings!.previewUrls.map((item) => (
-              <option key={item.id} value={item.id}>
-                {item.name}
-                {item.id === settings!.defaultPreviewId ? ' (default)' : ''}
-              </option>
-            ))}
-          </select>
-        </div>
+        </>
       )}
       <ErrorNotice message={error} />
       {!settings && !error ? (
         <Loading label="Loading preview settings…" />
       ) : src ? (
         <>
-          <div className="preview-address">{src}</div>
+          {!component && <div className="preview-address">{src}</div>}
+          {component && !componentReady && !error && <Loading label="Loading block preview…" />}
           <iframe
             ref={iframe}
             key={`${target?.id}:${src}:${generation}`}
             src={src}
-            title="Live application preview"
+            title={component ? 'Block preview' : 'Live application preview'}
             referrerPolicy="no-referrer"
+            tabIndex={component ? -1 : undefined}
+            style={component && (!componentReady || error) ? { visibility: 'hidden' } : undefined}
           />
         </>
       ) : (

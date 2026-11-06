@@ -21,6 +21,9 @@ and see their changes in a live website preview.
   conflicting edits.
 - **Preview in your website.** Use your own components for live draft previews,
   including unpublished pages. Select a block in the preview to edit its fields.
+- **See a block before adding it.** Hover or focus a block to preview it on its
+  own. Existing blocks show saved content; the picker shows schema defaults.
+  [Connect component previews](packages/sdk/README.md#block-hover-previews).
 - **Publish deliberately.** Review a fixed checkpoint, publish linked content
   together, or group approved pages into [content releases](docs/releases.md).
   Schedule a launch, keep later edits in drafts, and publish the whole release
@@ -42,6 +45,8 @@ and see their changes in a live website preview.
 - **Connect your workflow.** Fetch published content with the SDK, automate through
   the management API, CLI, and MCP, and trigger builds or integrations with signed
   webhooks.
+
+![The Add a block picker with an isolated Hero preview rendered by the connected application](docs/images/component-previews.png)
 
 ## Get started
 

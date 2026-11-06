@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 import { createServer, type Server, type IncomingMessage, type ServerResponse } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { Pool } from 'pg';
-import { StorypaneStore } from '@storypane/db';
+import { getInstallation } from '@storypane/db/installation';
 import type { Actor, DeliverySettings, LocaleSnapshot, Story, StoryLocale } from '@storypane/core';
 import { createStorypaneClient } from '../packages/sdk/src/index';
 import { signInPage } from './auth';
@@ -18,20 +18,22 @@ test('a static app receives live drafts, selects blocks in the editor, and leave
   context,
 }) => {
   test.setTimeout(90000);
-  const db = new Pool({
-    connectionString:
-      process.env.DATABASE_URL ?? 'postgresql://storypane:storypane@127.0.0.1:55432/storypane',
-  });
-  let spaceId: string | undefined;
+  const installation = getInstallation();
+  const provisioningURL = installation.options.provisioningURL;
+  if (!provisioningURL || !['localhost', '127.0.0.1'].includes(new URL(provisioningURL).hostname))
+    throw new Error('Preview tests require disposable local database provisioning');
+  let selected: Awaited<ReturnType<typeof installation.acquire>> | undefined;
+  const spaceId = crypto.randomUUID();
   const servers: Server[] = [];
   try {
     await signInPage(page);
     const created = await page.request.post('/api/spaces', {
       headers: { Origin: cmsUrl },
-      data: { name: `SDK check ${crypto.randomUUID()}` },
+      data: { id: spaceId, name: `SDK check ${spaceId}`, mode: 'create' },
     });
-    expect(created.status()).toBe(201);
-    spaceId = (await created.json()).id;
+    expect(created.status(), await created.text()).toBe(201);
+    selected = await installation.acquire(spaceId);
+    const store = selected.store;
     const session = await (await page.request.get(`/api/session?space=${spaceId}`)).json();
     const actor: Actor = {
       spaceId: spaceId!,
@@ -39,7 +41,7 @@ test('a static app receives live drafts, selects blocks in the editor, and leave
       sessionId: session.sessionId,
       role: 'admin',
     };
-    await new StorypaneStore(db).seed(actor);
+    await store.seed(actor);
     const headers = { Origin: cmsUrl, 'x-storypane-space-id': spaceId! };
     const [story] = (await (
       await page.request.get('/api/cms/stories', { headers })
@@ -49,7 +51,6 @@ test('a static app receives live drafts, selects blocks in the editor, and leave
     ).json()) as StoryLocale[];
     const base = `/api/cms/stories/${story!.id}/locales/${locale!.id}`;
     const snapshot = (await (await page.request.get(base, { headers })).json()) as LocaleSnapshot;
-    const store = new StorypaneStore(db);
     const french = await store.createSpaceLocale(actor, { name: 'French', slug: 'fr' });
     await store.createLocale(actor, story.id, { spaceLocaleId: french.id });
     const publish = await page.request.post(`${base}/commands`, {
@@ -97,8 +98,14 @@ test('a static app receives live drafts, selects blocks in the editor, and leave
       .locator('.delivery-settings')
       .screenshot({ path: '/tmp/storypane-preview-urls-settings-mobile.png' });
     await page.setViewportSize({ width: 1440, height: 1000 });
-    await page.getByLabel('Token name', { exact: true }).fill('Public website');
-    await page.getByRole('button', { name: 'Create token', exact: true }).click();
+    await page
+      .locator('.delivery-settings')
+      .getByLabel('Token name', { exact: true })
+      .fill('Public website');
+    await page
+      .locator('.delivery-settings')
+      .getByRole('button', { name: 'Create token', exact: true })
+      .click();
     const publishedToken = page.getByLabel('New token — copy it now', { exact: true });
     await expect(publishedToken).toHaveValue(/^bl_pub_/);
     const delivery = createStorypaneClient({
@@ -107,9 +114,15 @@ test('a static app receives live drafts, selects blocks in the editor, and leave
       token: await publishedToken.inputValue(),
     });
     const initial = await delivery.getStory({ slug: 'home' });
-    await page.getByLabel('Token name', { exact: true }).fill('Server preview');
+    await page
+      .locator('.delivery-settings')
+      .getByLabel('Token name', { exact: true })
+      .fill('Server preview');
     await page.getByRole('combobox', { name: 'Access', exact: true }).selectOption('preview');
-    await page.getByRole('button', { name: 'Create token', exact: true }).click();
+    await page
+      .locator('.delivery-settings')
+      .getByRole('button', { name: 'Create token', exact: true })
+      .click();
     await expect(publishedToken).toHaveValue(/^bl_preview_/);
     const preview = createStorypaneClient({
       url: cmsUrl,
@@ -194,13 +207,84 @@ test('a static app receives live drafts, selects blocks in the editor, and leave
     const frame = page.frameLocator('iframe[title="Live application preview"]');
     const switcher = page.getByRole('combobox', { name: 'Preview URL', exact: true });
     await expect(switcher).toHaveValue(settings.defaultPreviewId!);
-    await expect(page.locator('iframe')).toHaveAttribute('src', `${siteUrl}/home?locale=&review=1`);
+    await expect(page.locator('iframe[title="Live application preview"]')).toHaveAttribute(
+      'src',
+      `${siteUrl}/home?locale=&review=1`,
+    );
     await expect(frame.locator('#status')).toHaveText('connected');
     const editor = page.getByRole('region', { name: 'Block editor' });
+    const heroButton = editor.getByRole('button', { name: 'Hero', exact: true });
+    const hoverPreview = page.locator('.block-hover-preview');
+    const blockFrame = page.frameLocator('iframe[title="Block preview"]');
+    let previewSessions = 0;
+    page.on('request', (request) => {
+      if (request.method() === 'POST' && new URL(request.url()).pathname.endsWith('/preview'))
+        previewSessions++;
+    });
+    await heroButton.hover();
+    await page.mouse.move(0, 0);
+    await page.waitForTimeout(450);
+    await expect(hoverPreview).toHaveCount(0);
+    expect(previewSessions).toBe(0);
+    await heroButton.hover();
+    await expect(hoverPreview).toBeVisible();
+    await expect(blockFrame.getByRole('heading', { level: 1 })).toHaveText(
+      String(hero.fields.title),
+    );
+    await expect(blockFrame.locator('[data-storypane-id]')).toHaveCount(1);
+    await expect(blockFrame.locator('header')).toBeHidden();
+    await hoverPreview.hover();
+    await expect(hoverPreview).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(hoverPreview).toHaveCount(0);
+    await expect(page.locator('iframe[title="Block preview"]')).toHaveCount(0);
+    await editor.getByRole('button', { name: 'Add block', exact: true }).click();
+    const picker = page.getByRole('dialog', { name: 'Add a block', exact: true });
+    await picker.getByRole('searchbox', { name: 'Search blocks' }).focus();
+    await page.keyboard.press('Tab');
+    await expect(picker.getByRole('button', { name: 'Add Footer', exact: true })).toBeFocused();
+    await expect(blockFrame.locator('main')).toContainText('Made with Storypane.');
+    await expect(blockFrame.locator('[data-storypane-id]')).toHaveCount(1);
+    await page.keyboard.press('Escape');
+    await expect(hoverPreview).toHaveCount(0);
+    await expect(picker).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(picker).not.toBeVisible();
+    await page.setViewportSize({ width: 390, height: 844 });
+    await editor.getByRole('button', { name: 'Add block', exact: true }).click();
+    await picker.getByRole('searchbox', { name: 'Search blocks' }).focus();
+    await page.keyboard.press('Tab');
+    await page.keyboard.press('Tab');
+    await expect(picker.getByRole('button', { name: 'Add Hero', exact: true })).toBeFocused();
+    await expect(blockFrame.getByRole('heading', { level: 1 })).toHaveText(
+      'Build something worth sharing.',
+    );
+    await expect(blockFrame.getByRole('heading', { level: 1 })).toBeVisible();
+    expect(
+      await hoverPreview.evaluate((element) => {
+        const bounds = element.getBoundingClientRect();
+        return (
+          bounds.left >= 0 &&
+          bounds.right <= innerWidth &&
+          bounds.top >= 0 &&
+          bounds.bottom <= innerHeight
+        );
+      }),
+    ).toBe(true);
+    await page.screenshot({ path: '/tmp/storypane-block-preview-mobile.png' });
+    await page.keyboard.press('Escape');
+    await page.keyboard.press('Escape');
+    await expect(picker).not.toBeVisible();
+    expect(
+      ((await (await page.request.get(base, { headers })).json()) as LocaleSnapshot).blocks,
+    ).toHaveLength(snapshot.blocks.length);
+    await page.setViewportSize({ width: 1280, height: 720 });
     await editor.getByRole('button', { name: 'Hero', exact: true }).click();
     await page.getByRole('textbox', { name: /^Title/ }).fill('Updated live without rebuilding');
+    await expect(page.getByText('All changes saved', { exact: true })).toBeVisible();
     await expect(frame.getByRole('heading', { level: 1 })).toHaveText(
       'Updated live without rebuilding',
+      { timeout: 20000 },
     );
     await expect(frame.locator(`[data-storypane-id="${hero.id}"]`)).toHaveAttribute(
       'data-storypane-selected',
@@ -208,7 +292,7 @@ test('a static app receives live drafts, selects blocks in the editor, and leave
     );
     await switcher.selectOption({ label: 'Staging' });
     await expect(frame.locator('#status')).toHaveText('connected');
-    await expect(page.locator('iframe')).toHaveAttribute(
+    await expect(page.locator('iframe[title="Live application preview"]')).toHaveAttribute(
       'src',
       'http://127.0.0.1:3133/home?locale=&review=1',
     );
@@ -227,13 +311,13 @@ test('a static app receives live drafts, selects blocks in the editor, and leave
     await expect(frame.locator('#status')).toHaveText('connected');
     await page.getByRole('tab', { name: 'French fr', exact: true }).click();
     await expect(switcher).toHaveValue(settings.previewUrls[0].id);
-    await expect(page.locator('iframe')).toHaveAttribute(
+    await expect(page.locator('iframe[title="Live application preview"]')).toHaveAttribute(
       'src',
       'http://127.0.0.1:3133/home?locale=fr&review=1',
     );
     await expect(frame.locator('#status')).toHaveText('connected');
     await page.getByRole('tab', { name: 'Default', exact: true }).click();
-    await expect(page.locator('iframe')).toHaveAttribute(
+    await expect(page.locator('iframe[title="Live application preview"]')).toHaveAttribute(
       'src',
       'http://127.0.0.1:3133/home?locale=&review=1',
     );
@@ -296,31 +380,18 @@ test('a static app receives live drafts, selects blocks in the editor, and leave
       server.closeAllConnections();
       await new Promise<void>((resolve) => server.close(() => resolve()));
     }
-    if (spaceId) {
-      // Delete only this test's local workspace, after closing its clients.
-      const locales =
-        '(SELECT l.id FROM story_locales l JOIN stories s ON s.id=l.story_id WHERE s.space_id=$1)';
-      const cleanup = await db.connect();
-      await cleanup.query('BEGIN');
-      try {
-        for (const table of ['mutation_receipts', 'publications', 'checkpoints', 'block_drafts'])
-          await cleanup.query(`DELETE FROM ${table} WHERE locale_id IN ${locales}`, [spaceId]);
-        await cleanup.query('DELETE FROM stories WHERE space_id=$1', [spaceId]);
-        await cleanup.query(
-          'DELETE FROM definition_versions WHERE definition_id IN (SELECT id FROM definitions WHERE space_id=$1)',
-          [spaceId],
-        );
-        await cleanup.query('DELETE FROM definitions WHERE space_id=$1', [spaceId]);
-        await cleanup.query('DELETE FROM spaces WHERE id=$1', [spaceId]);
-        await cleanup.query('COMMIT');
-      } catch (error) {
-        await cleanup.query('ROLLBACK');
-        // eslint-disable-next-line no-unsafe-finally -- Cleanup failures must fail the test rather than leave fixtures silently.
-        throw error;
-      } finally {
-        cleanup.release();
-      }
+    await selected?.close();
+    // This UUID was generated by this test; never remove an existing workspace.
+    const provisioner = new Pool({ connectionString: provisioningURL });
+    try {
+      const name = `sp_${spaceId.replaceAll('-', '')}`;
+      await installation.pool.query('DELETE FROM preview_routes WHERE space_id=$1', [spaceId]);
+      await installation.pool.query('DELETE FROM space_connections WHERE id=$1', [spaceId]);
+      await provisioner.query(`DROP DATABASE IF EXISTS "${name}" WITH (FORCE)`);
+      await provisioner.query(`DROP ROLE IF EXISTS "${name}"`);
+    } finally {
+      await provisioner.end();
+      await installation.pool.end();
     }
-    await db.end();
   }
 });

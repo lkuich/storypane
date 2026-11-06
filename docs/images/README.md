@@ -10,6 +10,9 @@ browser captures, with no mocked UI, customer content, or credentials.
   space marked.
 - `promotion-review.png`: review of that caption-field migration before applying
   it to production.
+- `component-previews.png`: the real Add a block picker and isolated Hero renderer
+  from the fictional Fieldwork example, captured November 6, 2026. No content is
+  inserted and no customer project or credentials appear in the capture.
 
 Refresh these when the corresponding UI changes. Keep image text legible and add
 alt text where each image is embedded. The website's `pnpm docs:sync` copies this

@@ -7,6 +7,7 @@ import {
   type PreviewMode,
   type PreviewSession,
   type StoryReference,
+  type StorypaneBlock,
 } from './types.js';
 
 export type PreviewStatus =
@@ -18,6 +19,8 @@ export interface PreviewOptions<T = StorypaneStory['content']> {
   story: StoryReference;
   mode?: PreviewMode;
   onChange: (story: StorypaneStory<T>) => void;
+  /** Opt in to isolated block previews using the same component renderer as your site. */
+  onComponent?: (block: T | undefined) => void;
   onStatus?: (status: PreviewStatus, error?: Error) => void;
   /** For standalone preview, fetch a short-lived session from your authenticated app server. */
   getSession?: () => Promise<PreviewSession>;
@@ -42,6 +45,8 @@ export function connectPreview<T>(options: PreviewOptions<T>): () => void {
     revision = -1,
     selected = '';
   let referencesRevision: string | undefined;
+  let content: T | undefined;
+  let component: { blockId: string } | { block: StorypaneBlock } | undefined;
   const embedded = window.parent !== window;
   const send = (message: unknown) => {
     if (embedded) window.parent.postMessage(message, editorOrigin);
@@ -67,6 +72,33 @@ export function connectPreview<T>(options: PreviewOptions<T>): () => void {
         element.setAttribute('data-storypane-selected', '');
       else element.removeAttribute('data-storypane-selected');
     }
+  }
+  function renderComponent() {
+    if (
+      !component ||
+      !options.onComponent ||
+      !session ||
+      Date.parse(session.expiresAt) <= Date.now() ||
+      content === undefined
+    )
+      return;
+    function find(value: unknown, id: string): unknown {
+      if (!value || typeof value !== 'object') return;
+      if (
+        '_uid' in value &&
+        value._uid === id &&
+        'component' in value &&
+        typeof value.component === 'string'
+      )
+        return value;
+      for (const child of Object.values(value)) {
+        const found = find(child, id);
+        if (found) return found;
+      }
+    }
+    const block = 'block' in component ? component.block : find(content, component.blockId);
+    options.onComponent(block as T | undefined);
+    send({ type: 'storypane:component-rendered', found: !!block });
   }
   function open(value: PreviewSession) {
     if (stopped || !matches(value)) return;
@@ -104,6 +136,8 @@ export function connectPreview<T>(options: PreviewOptions<T>): () => void {
           revision = message.story.revision;
           referencesRevision = message.story.referencesRevision;
           options.onChange(message.story);
+          content = message.story.content;
+          renderComponent();
           highlight();
         } else if (message.type === 'error')
           status('error', new Error(message.message ?? 'Preview is unavailable'));
@@ -143,6 +177,7 @@ export function connectPreview<T>(options: PreviewOptions<T>): () => void {
       } else if (embedded) {
         send({
           type: 'storypane:ready',
+          componentPreview: !!options.onComponent,
           spaceId: options.spaceId,
           ...options.story,
         });
@@ -151,6 +186,7 @@ export function connectPreview<T>(options: PreviewOptions<T>): () => void {
             () =>
               send({
                 type: 'storypane:ready',
+                componentPreview: !!options.onComponent,
                 spaceId: options.spaceId,
                 ...options.story,
               }),
@@ -169,6 +205,14 @@ export function connectPreview<T>(options: PreviewOptions<T>): () => void {
   function message(event: MessageEvent) {
     if (!embedded || event.source !== window.parent || event.origin !== editorOrigin) return;
     if (event.data?.type === 'storypane:init') open(event.data.session);
+    if (event.data?.type === 'storypane:component' && options.onComponent) {
+      const { blockId, block } = event.data;
+      if (typeof blockId === 'string') component = { blockId };
+      else if (block && typeof block._uid === 'string' && typeof block.component === 'string')
+        component = { block };
+      else return;
+      renderComponent();
+    }
     if (event.data?.type === 'storypane:select' && typeof event.data.blockId === 'string') {
       selected = event.data.blockId;
       highlight();
@@ -219,6 +263,7 @@ export function connectPreview<T>(options: PreviewOptions<T>): () => void {
   void authorize();
   return () => {
     stopped = true;
+    if (component) options.onComponent?.(undefined);
     if (socket) {
       socket.onclose = null;
       socket.close();

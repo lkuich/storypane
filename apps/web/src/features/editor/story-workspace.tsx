@@ -17,6 +17,7 @@ import {
   ChevronRight,
   Clock3,
   ClipboardPaste,
+  ClipboardX,
   Copy,
   FileJson,
   FileText,
@@ -64,6 +65,7 @@ import type { NavigationGuard, RegisterGuard } from './navigation';
 import { useStoryEditor } from './use-story-editor';
 import { useBlockClipboard } from './use-block-clipboard';
 import { PreviewPanel } from './preview-panel';
+import { BlockPreview } from './block-preview';
 import { BlockNavigation, blockSummary, blockTitle, definitionFor } from './block-navigation';
 import { SchemaDrawer } from '../schema/schema-drawer';
 import { StoryActionsDialog } from '../content/story-actions-dialog';
@@ -339,6 +341,7 @@ function LocaleEditor({
   const [addTo, setAddTo] = useState<{
     parentId: string;
     field: Extract<FieldDefinition, { type: 'blocks' }>;
+    position?: number;
   } | null>(null);
   const [addDefinition, setAddDefinition] = useState('');
   const [blockSearch, setBlockSearch] = useState('');
@@ -1213,6 +1216,20 @@ function LocaleEditor({
                     </p>
                   </div>
                   <div className="button-group">
+                    {copiedBlock && (
+                      <Button
+                        variant="ghost"
+                        disabled={busy}
+                        onClick={() =>
+                          void action(async () => {
+                            await writeClipboardText('');
+                            setClipboardNotice('Clipboard cleared.');
+                          })
+                        }
+                      >
+                        <ClipboardX aria-hidden="true" /> Clear clipboard
+                      </Button>
+                    )}
                     {definition.kind !== 'content-type' && (
                       <Button
                         variant="ghost"
@@ -1352,23 +1369,47 @@ function LocaleEditor({
                                 item.parentId === block.id && item.parentField === field.name,
                             )
                             .sort((a, b) => a.position - b.position)
-                            .map((child, position) => (
+                            .map((child, position, siblings) => (
                               <Fragment key={child.id}>
-                                {canPaste(block.id, field) && (
-                                  <div className="block-list-insert">
+                                <div className="block-list-insert">
+                                  {canPaste(block.id, field) && (
                                     <Button
                                       variant="ghost"
+                                      className="block-insert-paste"
                                       disabled={disabled}
                                       aria-label={`Paste block before ${blockTitle(snapshot, child)}`}
+                                      title="Paste block here"
                                       onClick={() =>
                                         void action(() => readAndPaste(block.id, field, position))
                                       }
                                     >
-                                      <ClipboardPaste aria-hidden="true" /> Paste here
+                                      <ClipboardPaste aria-hidden="true" />
                                     </Button>
-                                  </div>
-                                )}
-                                <div className="block-list-item" {...sortableProps(child)}>
+                                  )}
+                                  <Button
+                                    variant="ghost"
+                                    className="block-insert-add"
+                                    disabled={
+                                      disabled ||
+                                      (field.maxItems !== undefined &&
+                                        siblings.length >= field.maxItems)
+                                    }
+                                    aria-label={`Add block before ${blockTitle(snapshot, child)}`}
+                                    title="Add block here"
+                                    onClick={() => {
+                                      setAddTo({ parentId: block.id, field, position });
+                                      setAddDefinition('');
+                                      setBlockSearch('');
+                                    }}
+                                  >
+                                    <Plus aria-hidden="true" />
+                                  </Button>
+                                </div>
+                                <div
+                                  className="block-list-item"
+                                  data-preview-block={child.id}
+                                  {...sortableProps(child)}
+                                >
                                   {dragHandle(child)}
                                   <button
                                     className="entity-title"
@@ -1581,7 +1622,12 @@ function LocaleEditor({
           </div>
           <div className="block-tree">
             {tree.map(({ block: item, depth }) => (
-              <div className="tree-row" key={item.id} {...sortableProps(item)}>
+              <div
+                className="tree-row"
+                key={item.id}
+                data-preview-block={item.id}
+                {...sortableProps(item)}
+              >
                 <button
                   className="tree-item"
                   aria-current={item.id === editor.selectedId}
@@ -1740,6 +1786,7 @@ function LocaleEditor({
                   type="button"
                   key={item.id}
                   className="block-picker-item"
+                  data-preview-definition={item.id}
                   aria-label={`Add ${item.displayName}`}
                   disabled={busy || !can(session.space, 'content:edit')}
                   onClick={() => {
@@ -1753,6 +1800,7 @@ function LocaleEditor({
                             parentId: addTo.parentId,
                             parentField: addTo.field.name,
                             definitionId: item.id,
+                            position: addTo.position,
                           },
                         },
                         [addTo.parentId],
@@ -1790,6 +1838,20 @@ function LocaleEditor({
           </Button>
         </footer>
       </Modal>
+      {!snapshot.story.formOnly &&
+        snapshot.access?.preview !== false &&
+        (!previewSettings || previewSettings.previewUrls.length > 0) && (
+          <BlockPreview
+            key={snapshot.locale.id}
+            definitions={definitions}
+            settings={previewSettings}
+            onSettings={onPreviewSettings}
+            previewId={previewId}
+            onPreviewId={onPreviewId}
+            snapshot={snapshot}
+            spaceId={session.space.id}
+          />
+        )}
       <Modal
         open={historyOpen}
         onClose={() => !busy && setHistoryOpen(false)}

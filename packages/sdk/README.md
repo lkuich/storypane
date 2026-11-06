@@ -183,6 +183,39 @@ The [complete Next.js example](https://github.com/lkuich/storypane/blob/main/app
 It keeps published pages on the server and reuses the renderer inside `/preview`.
 Client preview components must not import server-only fetch modules.
 
+### Block hover previews
+
+Component previews are available in current source builds. The published
+`0.1.0-rc.2` SDK predates this API; use the workspace SDK or pack the updated
+`packages/sdk` for your app until a newer SDK candidate includes it.
+
+The editor can preview saved blocks and the add-block picker's schema defaults in
+one temporary iframe after a short hover or keyboard focus. It uses the selected
+preview URL and the same authenticated, read-only flow as the full preview.
+Escape dismisses the preview. Nothing is inserted or saved by hovering.
+
+Opt in by passing a stable `onComponent` callback to `useStorypanePreview`,
+`useStorypaneStory`, or `connectPreview`. Render that block alone with your existing
+component renderer, without page navigation or preview status chrome:
+
+```tsx
+const [component, setComponent] = useState<StorypaneComponent>();
+const { story } = useStorypanePreview<StorypaneComponent>({
+  cmsUrl,
+  spaceId,
+  story: { slug, locale },
+  onComponent: setComponent,
+});
+// Keep passing the story's references and other renderer context as usual.
+if (story) return <Block block={component ?? story.content} />;
+```
+
+Use the generated `StorypaneComponent` union here: picker previews include nestable
+blocks as well as content types. Both example apps demonstrate this integration.
+Picker previews contain defaults and empty nested block lists; components without
+defaults need sensible empty-state rendering. Existing integrations without
+`onComponent` keep full-page preview and show a setup message for hover previews.
+
 If you prefer preview on an existing published route, `useStorypaneStory(initial,
 options)` remains available. It starts with the publication and activates drafts
 only when its `mode` matches. For Next.js Draft Mode, pass the server's `isEnabled`

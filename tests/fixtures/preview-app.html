@@ -86,6 +86,12 @@
               }
             : undefined,
         onChange: render,
+        onComponent: (content) => {
+          if (!content) return;
+          document.querySelector('header').hidden = true;
+          document.querySelector('footer').hidden = true;
+          render({ content });
+        },
         onStatus: (status, error) => {
           document.getElementById('status').textContent = error?.message ?? status;
         },

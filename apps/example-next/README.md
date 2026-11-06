@@ -150,6 +150,12 @@ HTTPS. Draft images use the editor's CMS cookie; run the CMS and preview on the
 same site (locally, `127.0.0.1` on different ports). The example bypasses Next's
 image optimizer so authenticated draft images load in the browser.
 
+The preview component also enables [component hover previews](../../packages/sdk/README.md#block-hover-previews).
+Its `onComponent` callback selects a single block for the existing `StoryContent`
+renderer and hides the preview status bar. Hover or focus a block in the editor
+or picker to use it. Picker entries use schema defaults; this does not insert or
+publish content and needs no additional preview route or token.
+
 ## Run locally
 
 With an existing local Fieldwork space from the Astro demo:

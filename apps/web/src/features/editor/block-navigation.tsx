@@ -130,6 +130,7 @@ export function BlockNavigation({
                         {siblings.map((sibling, position) => (
                           <button
                             key={sibling.id}
+                            data-preview-block={sibling.id}
                             aria-current={sibling.id === selectedId ? 'true' : undefined}
                             onClick={() => select(sibling.id)}
                           >
@@ -158,6 +159,7 @@ export function BlockNavigation({
                   )}
                   <button
                     className="block-path-link"
+                    data-preview-block={item.id}
                     aria-current={item.id === selectedId ? 'location' : undefined}
                     onClick={() => select(item.id)}
                     title={blockSummary(item) || undefined}

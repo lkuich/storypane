@@ -171,6 +171,14 @@ content fields that your application can render.
 If the preview pane says **Connect your app**, you can choose **Hide preview**
 and continue editing. Connecting a website is optional for this walkthrough.
 
+To insert between two blocks, hover over their divider or tab to its controls.
+Choose the round **+** to open the block picker at that position. If you have a
+compatible copied block, the round clipboard button pastes an independent copy
+there. Touch screens keep these controls visible. Block limits and permissions
+still apply. **Clear clipboard** in the editor header empties the clipboard and
+removes the paste options; if the browser refuses clipboard access, the copy is
+retained and an error is shown.
+
 ## 7. Add an image
 
 1. In Hero's **Image** field, choose **Choose asset**.
@@ -243,6 +251,27 @@ explain local development origins, iframe access, and draft media authentication
 Published content tokens belong on your application's server or build system;
 never put them in browser code. See **Settings → API & preview → Access tokens**
 when your integration needs a delivery token.
+
+### Preview a component on its own
+
+Once your frontend enables [component previews](../packages/sdk/README.md#block-hover-previews),
+hover over a block row or focus it with the keyboard. After a brief delay, a
+small iframe shows just that component using your website's renderer and styles.
+This works in the block list, outline, breadcrumbs, and **Add a block** picker.
+
+![Component preview beside the Add a block picker, showing the Hero renderer without the surrounding page](images/component-previews.png)
+
+Existing blocks show saved content, including their nested blocks. Picker entries
+show schema defaults with empty nested lists, so components without defaults may
+look sparse. Hovering does not insert, save, publish, or take an editing lock.
+Move away or press **Escape** to dismiss the preview; you can move the pointer
+onto the preview to keep it open.
+
+Previews use the selected preview URL and existing preview permissions. Only one
+hover iframe is mounted at a time, and brief pointer passes do not start a preview
+session. If you see **Enable component previews in your app’s Storypane SDK
+integration**, update the app's SDK and connect its `onComponent` callback as
+shown in the SDK guide. Both framework examples already include that integration.
 
 ## Continue with your team
 

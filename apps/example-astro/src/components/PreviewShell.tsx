@@ -1,6 +1,6 @@
-import { useSyncExternalStore } from 'react';
+import { useState, useSyncExternalStore } from 'react';
 import { useStorypanePreview } from '@storypane/sdk/react';
-import { storypaneMigrationVersion, type StorypaneContentType } from '../types/storypane';
+import { storypaneMigrationVersion, type StorypaneComponent } from '../types/storypane';
 import { Content } from './content';
 import { referencesFor } from '../lib/content';
 
@@ -32,10 +32,12 @@ export default function PreviewShell({ cmsUrl, spaceId }: { cmsUrl: string; spac
   );
   const params = new URLSearchParams(search),
     slug = params.get('slug');
-  const { story, status, error } = useStorypanePreview<StorypaneContentType>({
+  const [component, setComponent] = useState<StorypaneComponent>();
+  const { story, status, error } = useStorypanePreview<StorypaneComponent>({
     cmsUrl,
     spaceId,
     migrationVersion: storypaneMigrationVersion,
+    onComponent: setComponent,
     story: slug ? { slug, locale: params.get('locale') ?? '' } : undefined,
   });
   const message =
@@ -47,13 +49,15 @@ export default function PreviewShell({ cmsUrl, spaceId }: { cmsUrl: string; spac
         : 'Connecting to Storypane…');
   return (
     <>
-      <div className="preview-status" role="status">
-        {message}
-      </div>
+      {!component && (
+        <div className="preview-status" role="status">
+          {message}
+        </div>
+      )}
       {story ? (
         <div lang={story.locale || 'en'}>
           <Content
-            block={story.content}
+            block={component ?? story.content}
             references={referencesFor(
               story.references ?? [],
               story.locale,

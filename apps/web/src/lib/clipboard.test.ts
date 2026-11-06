@@ -51,4 +51,22 @@ it('does not advertise a copy that failed, or forget a block when a later write 
   rememberClipboard(block);
   await expect(writeClipboardText('Text that was not copied')).rejects.toThrow('Denied');
   expect(copiedBlock()?.blocks[0].fields.title).toBe('Copied');
+  await expect(writeClipboardText('')).rejects.toThrow('Denied');
+  expect(copiedBlock()?.blocks[0].fields.title).toBe('Copied');
+});
+
+it('clears the system clipboard and forgets the copied block after a successful empty write', async () => {
+  const writeText = vi.fn().mockResolvedValue(undefined);
+  vi.stubGlobal('navigator', { clipboard: { writeText } });
+  rememberClipboard(block);
+  const listener = vi.fn();
+  const unsubscribe = subscribeClipboard(listener);
+  await writeClipboardText('');
+  expect(writeText).toHaveBeenCalledWith('');
+  expect(copiedBlock()).toBeNull();
+  expect(listener).toHaveBeenCalledOnce();
+  // The clipboard poll must not restore a cleared block.
+  rememberClipboard('');
+  expect(copiedBlock()).toBeNull();
+  unsubscribe();
 });

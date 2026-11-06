@@ -121,6 +121,12 @@ updates through its React island. Publishing requires rebuilding/redeploying the
 public site. Published pages ship no React runtime or preview subscription; a small
 script restores the decorative artwork if a hero image fails to load.
 
+The preview island also enables [component hover previews](../../packages/sdk/README.md#block-hover-previews).
+It passes `onComponent` to the SDK and renders that block through the same `Content`
+renderer, without the preview status bar. Hover or focus an existing block or a
+picker entry in the editor; saved blocks use their content, and picker entries
+use schema defaults. No separate preview route or token is needed.
+
 ## Pull schemas and generate TypeScript
 
 ```sh

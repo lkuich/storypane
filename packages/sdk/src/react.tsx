@@ -11,6 +11,7 @@ export function useStorypanePreview<T = StorypaneStory['content']>({
   spaceId,
   migrationVersion,
   getSession,
+  onComponent,
 }: Omit<PreviewOptions<T>, 'story' | 'mode' | 'onChange' | 'onStatus'> & {
   story?: StoryReference;
 }) {
@@ -36,12 +37,13 @@ export function useStorypanePreview<T = StorypaneStory['content']>({
       spaceId,
       migrationVersion,
       getSession,
+      onComponent,
       story: id ? { id, locale } : { slug: slug!, locale },
       mode: { draft: true },
       onChange: (story) => setResult((current) => ({ ...current, key, story })),
       onStatus: (status, error) => setResult((current) => ({ ...current, key, status, error })),
     });
-  }, [cmsUrl, spaceId, id, slug, locale, migrationVersion, getSession, key]);
+  }, [cmsUrl, spaceId, id, slug, locale, migrationVersion, getSession, onComponent, key]);
 
   // Never display the previous story while a new route is authorizing.
   const current =
@@ -74,6 +76,7 @@ export function useStorypaneStory<T>(
         story: { id: initial.id, locale: initial.locale },
         mode: JSON.parse(mode),
         getSession: options.getSession,
+        onComponent: options.onComponent,
         onChange: setStory,
         onStatus: (value, cause) => {
           setStatus(value);
@@ -87,6 +90,7 @@ export function useStorypaneStory<T>(
       options.spaceId,
       options.migrationVersion,
       options.getSession,
+      options.onComponent,
       mode,
     ],
   );
