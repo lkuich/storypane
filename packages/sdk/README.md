@@ -51,15 +51,25 @@ const storypane = createStorypaneClient({
   migrationVersion: storypaneMigrationVersion,
 });
 
-const page = await storypane.getStory({ slug: 'home', locale: '' });
-const byId = await storypane.getStory({ id: page.id, locale: '' });
-const { stories, nextOffset } = await storypane.listStories({ locale: '', limit: 50 });
+const page = await storypane.getStory({ slug: 'home' });
+const byId = await storypane.getStory({ id: page.id });
+const { stories, nextOffset } = await storypane.listStories();
+const allStories = await storypane.listAllStories();
 const locales = await storypane.listLocales(); // [{ id, name: 'Default', slug: '', isDefault: true }, ...]
 ```
 
+Locale is optional. These calls use the space's configured default locale;
+`listStories()` and `listAllStories()` need no options object. A single-story read
+still needs its ID or slug. Pass `{ locale: 'fr' }` to either list method, or add
+`locale: 'fr'` to a story reference, when you want a specific locale.
+You can also set pagination without a locale: `listStories({ limit: 100 })`.
+An explicit `locale: ''` selects the root locale, even if another locale is the
+configured default. Changing the default does not change URL prefixes.
+
 These reads use the CMS delivery API, which queries publication snapshots in
-Postgres. Drafts and unpublished locales never appear. No locale fallback is
-implicit. A missing published story throws `StorypaneError` with `status === 404`.
+Postgres. Drafts and unpublished locales never appear. A missing publication in
+the selected locale does not fall back to another locale; a single-story read
+throws `StorypaneError` with `status === 404`.
 Each content block includes `_uid` and `component`; nested block fields contain
 arrays. Schema-specific generics are supported: `storypane.getStory<MyPage>(...)`.
 
@@ -105,12 +115,10 @@ export default async function Page() {
 }
 ```
 
-For static routes, `listAllStories({ locale: '' })` returns every published story
-at root URLs, following pagination. Omit `locale` to use the space's configured default,
-as with `getStory`, `listStories`, and `createPreviewSession`. An explicit `locale: ''`
-always selects root, even when another locale is the default. Changing the default
-does not change URL prefixes. `listLocales()` includes `isDefault` and supports building
-routes for every locale.
+For static routes, `listAllStories()` returns every published story in the
+configured default locale, following pagination. To build routes for every locale,
+call `listLocales()` and fetch the others with `listAllStories({ locale: slug })`.
+Each locale includes `isDefault`; the default need not have an empty URL prefix.
 `getStory`, `listStories`, and `listAllStories` accept fetch options as their second
 argument. Choose static rendering or request-time fetching in your Next.js routes;
 the SDK does not impose a cache policy on story reads.
@@ -225,7 +233,7 @@ const stop = connectPreview({
   cmsUrl: 'https://cms.example',
   spaceId: 'your-space-id',
   migrationVersion: storypaneMigrationVersion,
-  story: { slug: 'home', locale: '' },
+  story: { slug: 'home' },
   mode: { query: { name: 'storypane_preview', value: '1' } },
   onChange: (story) => renderWithYourClientComponents(story.content),
 });
@@ -262,9 +270,12 @@ const previewClient = createStorypaneClient({
   spaceId: process.env.STORYPANE_SPACE_ID!,
   token: process.env.STORYPANE_PREVIEW_TOKEN!,
 });
-const session = await previewClient.createPreviewSession({ slug: 'home', locale: '' });
+const session = await previewClient.createPreviewSession({ slug: 'home' });
 // Return session as JSON with Cache-Control: no-store.
 ```
+
+`createPreviewSession` also uses the configured default when you omit `locale`.
+Include it in the story reference to request a specific locale.
 
 ```ts
 // In connectPreview(...) or useStorypaneStory(...) options:

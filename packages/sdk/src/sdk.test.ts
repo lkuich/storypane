@@ -16,11 +16,37 @@ describe('delivery and preview activation', () => {
     });
     await client.getStory({ slug: 'home' });
     await client.getStory({ slug: 'home', locale: '' });
+    await client.getStory({ id: 'story' });
+    await client.getStory({ id: 'story', locale: 'fr' });
+    await client.listStories();
+    await client.listStories({ locale: '' });
+    await client.listStories({ limit: 10 });
+    await client.listStories({ locale: 'fr' });
     await client.listAllStories();
     await client.listAllStories({ locale: '' });
+    await client.listAllStories({ locale: 'fr' });
     expect(
       fetch.mock.calls.map(([url]) => new URL(String(url)).searchParams.get('locale')),
-    ).toEqual([null, '', null, '']);
+    ).toEqual([null, '', null, 'fr', null, '', null, 'fr', null, '', 'fr']);
+  });
+  it('omits an unspecified preview locale and preserves explicit root and named locales', async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>(async () => Response.json({ token: 'session' }));
+    const client = createStorypaneClient({
+      url: 'https://cms.test',
+      spaceId: 'space',
+      token: 'preview-key',
+      fetch,
+    });
+    await client.createPreviewSession({ slug: 'home' });
+    await client.createPreviewSession({ id: 'story' });
+    await client.createPreviewSession({ slug: 'home', locale: '' });
+    await client.createPreviewSession({ slug: 'home', locale: 'fr' });
+    expect(fetch.mock.calls.map(([, init]) => JSON.parse(init!.body as string))).toEqual([
+      { slug: 'home' },
+      { id: 'story' },
+      { slug: 'home', locale: '' },
+      { slug: 'home', locale: 'fr' },
+    ]);
   });
   it('downloads published assets as bytes with server credentials only in the header', async () => {
     const bytes = new Uint8Array([137, 80, 78, 71]);

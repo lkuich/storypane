@@ -26,7 +26,9 @@ export const getLocales = cache(() => storypane.listLocales());
 export const getPublishedStories = cache(async () => {
   const locales = await getLocales();
   const stories = await Promise.all(
-    locales.map(({ slug }) => storypane.listAllStories({ locale: slug })),
+    locales.map(({ slug, isDefault }) =>
+      isDefault ? storypane.listAllStories() : storypane.listAllStories({ locale: slug }),
+    ),
   );
   return stories.flat();
 });

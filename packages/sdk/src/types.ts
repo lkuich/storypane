@@ -60,6 +60,7 @@ export interface StorypaneStory<T = StorypaneBlock> {
   references?: StorypaneStory[];
   referencesRevision?: string;
 }
+/** Identify a story by ID or slug. Locale is optional; omission selects the space's configured default. */
 export type StoryReference =
   { id: string; slug?: never; locale?: string } | { slug: string; id?: never; locale?: string };
 export interface PreviewSession {

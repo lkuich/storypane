@@ -47,7 +47,7 @@ Fetch content in your route. The generated union narrows when you check
 import { storypane } from '@/lib/storypane';
 
 export default async function AboutPage() {
-  const story = await storypane.getStory({ slug: 'about', locale: '' });
+  const story = await storypane.getStory({ slug: 'about' });
   if (story.content.component !== 'page') {
     return null;
   }
@@ -75,17 +75,23 @@ Next.js build / Server Component
   → StoryContent → Block → Hero / Feature / Footer
 ```
 
-- `getStory({ slug, locale })` reads one published story. Missing publications
+- `getStory({ slug })` reads one published story in the configured default locale.
+  Add `locale: 'fr'` to select another locale. Missing publications
   throw `StorypaneError` with status `404`; the catch-all route calls `notFound()`
   only for that case. Other failures surface rather than becoming false 404s.
-- `listAllStories({ locale })` follows pagination for one locale. `getPublishedStories`
-  calls it for each configured locale to build the site index.
+- `listStories()` reads one page; `listAllStories()` follows pagination. Both use
+  the configured default locale with no options object. `getPublishedStories`
+  also fetches the other configured locales with `listAllStories({ locale: slug })`
+  to build the site index.
 - `generateStaticParams` turns the index into paths. Default uses `/home`;
   French uses `/fr/home`; nested slugs work. Reserved or ambiguous paths fail the build.
 - [`lib/content.ts`](src/lib/content.ts) resolves story links and the selected
   footer. It prefers the page's locale and falls back to Default for shared content.
 - [`app/media/[assetId]/route.ts`](src/app/media/[assetId]/route.ts) copies referenced
   published assets into build output. The browser loads `/media/:id`, without a token.
+
+An explicit `locale: ''` selects the root URL locale, even if another locale is
+configured as the default. The catch-all route keeps this explicit to match its URL.
 
 This example explicitly prerenders pages and media at build time. Its SDK client
 bypasses persistent fetch caching, and React `cache()` deduplicates calls during

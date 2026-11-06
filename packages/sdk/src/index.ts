@@ -70,6 +70,7 @@ export function createStorypaneClient<TContent = StorypaneStory['content']>(
       warnMigration((body as { migrationVersion?: number })?.migrationVersion);
     return body as T;
   }
+  /** Read a page of publications. Omit the query to use the space's configured default locale. */
   function listStories<T = TContent>(
     query: { locale?: string; limit?: number; offset?: number } = {},
     init?: RequestInit,
@@ -100,6 +101,7 @@ export function createStorypaneClient<TContent = StorypaneStory['content']>(
     getAsset(assetId: string, init?: RequestInit) {
       return response('assets', { id: assetId }, init);
     },
+    /** Read a publication by ID or slug. Omit reference.locale to use the configured default locale. */
     async getStory<T = TContent>(
       reference: StoryReference,
       init?: RequestInit,
@@ -113,7 +115,7 @@ export function createStorypaneClient<TContent = StorypaneStory['content']>(
       return result.stories[0];
     },
     listStories,
-    /** Fetch every published story in one locale, following pagination. Omit locale for the configured default; use '' for root URLs. */
+    /** Fetch every publication in one locale. Omit the query for the configured default; use { locale: '' } for root URLs. */
     async listAllStories<T = TContent>(
       query: { locale?: string } = {},
       init?: RequestInit,
@@ -133,7 +135,7 @@ export function createStorypaneClient<TContent = StorypaneStory['content']>(
       }
       return stories;
     },
-    /** Server-side only: this client must hold a preview token, never a published token. */
+    /** Server-side only: requires a preview token. Omit reference.locale to use the configured default locale. */
     createPreviewSession(reference: StoryReference & { previewId?: string }) {
       return request<PreviewSession>(
         'preview',

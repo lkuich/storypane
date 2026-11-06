@@ -5,7 +5,11 @@ import { referencesFor } from './content';
 export async function fetchPublishedStories(client: ReturnType<typeof createStorypaneClient>) {
   const locales = await client.listLocales();
   const stories = await Promise.all(
-    locales.map(({ slug: locale }) => client.listAllStories<StorypaneContentType>({ locale })),
+    locales.map(({ slug: locale, isDefault }) =>
+      isDefault
+        ? client.listAllStories<StorypaneContentType>()
+        : client.listAllStories<StorypaneContentType>({ locale }),
+    ),
   );
   return { locales, stories: stories.flat() };
 }

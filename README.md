@@ -128,6 +128,9 @@ const page = await storypane.getStory({ slug: 'home' });
 // Render page.content with your components.
 ```
 
+Omit `locale` to use the space's configured default. For lists, call
+`storypane.listStories()` or `storypane.listAllStories()` with no options object.
+
 Published reads return publication snapshots. Draft preview uses a separate,
 authenticated connection. Keep delivery and preview tokens on the server; rebuild
 or revalidate static pages when content is published.

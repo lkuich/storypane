@@ -43,18 +43,27 @@ it('builds nested/localized routes with the selected footer and rejects ambiguou
   );
   expect(() => pageEntries([story, { ...story, slug: 'studio/équipe' }], locales)).not.toThrow();
 });
-it('uses SDK pagination for every configured locale', async () => {
-  const calls: unknown[] = [];
-  const client = {
-    listLocales: async () => locales,
-    listAllStories: async (query: { locale: string }) => {
-      calls.push(query);
-      return [{ ...story, locale: query.locale }];
-    },
-  } as unknown as Parameters<typeof fetchPublishedStories>[0];
-  expect(await fetchPublishedStories(client)).toEqual({
-    locales,
-    stories: [story, { ...story, locale: 'fr' }],
-  });
-  expect(calls).toEqual([{ locale: '' }, { locale: 'fr' }]);
-});
+it.each(['', 'fr'])(
+  'uses no query for default locale %j and explicitly fetches the others',
+  async (defaultLocale) => {
+    const configured = locales.map((locale) => ({
+      ...locale,
+      isDefault: locale.slug === defaultLocale,
+    }));
+    const calls: unknown[] = [];
+    const client = {
+      listLocales: async () => configured,
+      listAllStories: async (query?: { locale?: string }) => {
+        calls.push(query);
+        return [{ ...story, locale: query?.locale ?? defaultLocale }];
+      },
+    } as unknown as Parameters<typeof fetchPublishedStories>[0];
+    expect(await fetchPublishedStories(client)).toEqual({
+      locales: configured,
+      stories: [story, { ...story, locale: 'fr' }],
+    });
+    expect(calls).toEqual(
+      defaultLocale === '' ? [undefined, { locale: 'fr' }] : [{ locale: '' }, undefined],
+    );
+  },
+);

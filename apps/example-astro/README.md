@@ -43,7 +43,15 @@ Manage locale names and URL prefixes in **Space settings → Locales**. The buil
 discovers them with `client.listLocales()`; no `STORYPANE_LOCALES` environment variable
 is needed. A locale gets a public route only when that story locale is published.
 After adding or renaming locales, rebuild the site (or restart the dev server).
-The SDK paginates publications for every configured locale. Route generation rejects
+For the configured default locale, call `client.listStories()` for one page or
+`client.listAllStories()` for every publication; no options object is needed.
+Read one story with `client.getStory({ slug: 'home' })`. Add `locale: 'fr'` to
+select another locale. An explicit `locale: ''` selects the root URL locale,
+which may differ from the configured default.
+
+This example paginates publications for every configured locale, using
+`listAllStories()` for the default and `listAllStories({ locale: slug })` for the
+others. Route generation rejects
 invalid or duplicate paths, the reserved `preview`, `media`, and `_astro` prefixes,
 and Default slugs that occupy a configured locale prefix, such as `fr/home`.
 
