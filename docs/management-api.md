@@ -250,7 +250,8 @@ connection credentials are not exposed.
 ## MCP adapter
 
 `storypane mcp` runs a stdio MCP server using the same management client and API.
-It requires Node 20 or later. Configure your MCP client to launch the installed
+The SDK CLI requires Node 20 or later; running the CMS itself requires Node 24.22+
+within v24. Configure your MCP client to launch the installed
 `storypane` executable with `args: ["mcp"]` and these private environment values:
 
 ```json

@@ -38,8 +38,8 @@ content merely to complete a checklist.
   after recovery; an unavailable space reports degraded health while healthy spaces
   and their background jobs continue.
 - Railway: confirm one replica and sleeping disabled; verify simultaneous WebSocket
-  editing while scheduled jobs and uploads run. Cloudflare is unsupported by this
-  layout; its preflight must fail without changing resources.
+  editing while scheduled jobs and uploads run. Cloudflare is the static marketing
+  website host only; the CMS Worker runtime is unsupported by this layout.
 
 Record actual results, failures and evidence. Update the website provider status
 and deployment skill together only when every required step passes.
@@ -67,10 +67,11 @@ Concurrent schema and management API work was preserved.
   360/390/768/1440px overflow checks, keyboard navigation, primary color contrast,
   reduced motion, clipboard success/failure handling and browser-error checks.
 
-Fresh Cloudflare/Railway acceptance, signed-in browser editing on the Node runtime,
-and the shareable hosted Railway template remain **unverified and gated** at the
-owner's request. Website hosting, DNS, repository rename and public access remain
-separate. These local results do not enable either provider's deployment action.
+Fresh Railway acceptance, signed-in browser editing on the Node runtime, and the
+shareable hosted Railway template remain **unverified and gated** at the owner's
+request. Cloudflare CMS deployment is unsupported; Cloudflare Workers Static Assets hosts only the
+static website. Website hosting, DNS, repository rename and public access remain
+separate. These local results do not enable a Railway deployment action.
 
 ## Installation layout verification — 2026-11-05
 
@@ -105,4 +106,5 @@ For the Node installation/space split in this working tree:
 This is not full production acceptance: live SMTP delivery, a fresh Railway
 installation, the complete two-editor browser workflow and real Clerk account/session
 revocation still need the checklist above. Clerk revocation has automated coverage;
-no real user account was disabled to test it. Cloudflare remains unsupported.
+no real user account was disabled to test it. Cloudflare CMS deployment remains
+unsupported; Cloudflare Workers Static Assets website hosting is a separate static-site setup.

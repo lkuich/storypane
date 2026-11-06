@@ -184,6 +184,8 @@ Existing legacy `compose.yaml` and `db:setup` remain local fixture tools; invoke
 Use private `STORYPANE_SESSION_COOKIE` for example setup in local auth mode;
 Clerk mode also accepts `STORYPANE_SESSION_TOKEN`.
 
-Cloudflare support for this layout is deferred. This release's deployment
-preflight rejects Cloudflare before touching credentials or resources. Existing
-Cloudflare installations must remain on their previous supported release.
+Cloudflare hosts the static marketing website; this CMS release runs on Node and
+does not deploy to Workers. A previous Worker installation can be retired after
+its content, database, private media and encryption keys have been migrated or
+backed up, and the replacement has passed the relevant acceptance checks. See the
+[Cloudflare guide](deploy-cloudflare.md) before removing legacy resources.

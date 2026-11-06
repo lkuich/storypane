@@ -12,11 +12,13 @@ Configuration uses server-only `STORYPANE_*` variables.
 
 ## Run it
 
-From the monorepo root, start the local CMS first (see the root README):
+From the monorepo root, first configure local `.env` and start the current Node
+installation as described in [self-hosting](../../docs/self-hosting.md#backups-upgrades-and-health):
 
 ```sh
 pnpm db:start
-pnpm db:setup
+node --env-file=.env --import tsx scripts/admin.ts migrate
+node --env-file=.env --import tsx scripts/admin.ts bootstrap
 pnpm dev
 ```
 
@@ -32,6 +34,9 @@ Open **http://127.0.0.1:3132/home**. The setup command creates a separate
 Default and French locales, and an unpublished Work in progress story. It creates
 scoped API keys and writes them to an ignored, owner-readable `.env`. It only
 seeds a local CMS and preserves an existing `.env` and content on subsequent runs.
+Set `STORYPANE_SESSION_COOKIE` from your signed-in local editor session when
+running `pnpm example:setup`; Clerk installs can use the private
+`STORYPANE_SESSION_TOKEN`. Do not commit or share either value.
 The French hero is translated; the other blocks deliberately start as copies.
 
 Manage locale names and URL prefixes in **Space settings → Locales**. The build

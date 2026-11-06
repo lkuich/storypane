@@ -3,15 +3,17 @@
 A collaborative headless CMS: independent locale pages, automatic saving, exclusive
 block editing, versioned publishing, and a media library adapted from UGC Scout.
 
-This release runs on **Node/Docker**, including Railway, with built-in email/password
+This release runs on **Node/Docker** with built-in email/password
 sign-in and a PostgreSQL database per space. One installation database owns
 identities, sessions and encrypted connections. Clerk is an optional explicit
 installation provider; no Clerk keys or SMTP server are needed for local auth.
 
-## Run locally
+## Start here
 
-Requires Docker, Node **24.22+ within v24**, and pnpm **12.4.2**. Follow the
-[fresh Docker setup](docs/self-hosting.md) to configure secrets, start the private
+For a fresh installation, see the [getting started guide](docs/getting-started.md).
+The maintained guides are also published at [storypane.dev/docs](https://storypane.dev/docs).
+For local source development, the guide lists the setup and commands. This release
+runs on Node **24.22+ within v24** and pnpm **12.4.2**. Follow the [Node installation guide](docs/self-hosting.md) to configure secrets, start the private
 Postgres/object store services and create the first administrator through the CLI.
 There are no default accounts or public bootstrap endpoint. For source development,
 configure runtime settings in `.env`, migrate/bootstrap with the operator CLI, then
@@ -19,8 +21,9 @@ run `pnpm dev`.
 
 Existing shared-database installations need the documented maintenance-window
 [legacy split and rollback](docs/self-hosting.md#legacy-migration-and-rollback).
-Cloudflare deployment of this layout is deferred; use the previous supported
-release for existing Cloudflare installations.
+Cloudflare Workers Static Assets hosts the static marketing site. The current CMS runtime is Node;
+existing Worker installs require an explicit data and resource migration plan.
+See [Cloudflare status](docs/deploy-cloudflare.md).
 
 The monorepo includes a working Astro website. With the CMS running, use
 `STORYPANE_SESSION_COOKIE=<private session cookie> pnpm example:setup` then `pnpm dev:example`, and open **http://127.0.0.1:3132/home**.
@@ -45,11 +48,11 @@ when updating the CMS; preview messages and editable attributes use Storypane na
 Database setup preserves migration history, and the browser migrates saved drafts
 and theme preferences automatically.
 
-For an existing installation, keep its resource identifiers in the ignored root
-`.env`: `COMPOSE_PROJECT_NAME`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`,
-`DATABASE_URL`, `TEST_DATABASE_URL`, `R2_BUCKET`, `STORYPANE_WEB_WORKER_NAME`, and
-`STORYPANE_REALTIME_WORKER_NAME`. Changing defaults does not rename existing
-Docker volumes, databases, buckets, or Durable Object namespaces.
+For an existing Node installation, retain its database URLs, Docker volumes,
+private object storage, and encryption/authentication keys when upgrading. Do not
+reuse the legacy Cloudflare Worker deployment settings for this runtime. See the
+[Cloudflare guide](docs/deploy-cloudflare.md) before retiring an older Worker
+installation; confirm its data and media have been migrated or backed up first.
 
 ## What works
 
@@ -181,7 +184,7 @@ of a draft. This avoids a second draft database and a cross-database publish ste
 
 | Path                 | Responsibility                                                          |
 | -------------------- | ----------------------------------------------------------------------- |
-| `apps/web`           | Next.js App Router UI/API, authentication, Cloudflare entrypoint        |
+| `apps/web`           | vinext UI/API, local and Clerk authentication, Node entrypoint          |
 | `apps/realtime`      | Durable Object rooms and WebSockets                                     |
 | `apps/example-astro` | Static example website, generated block props, live preview             |
 | `apps/example-next`  | Self-contained Next.js integration with Server Components and preview   |
@@ -205,7 +208,7 @@ publishing the corrected draft, adjusting the schema, or reviewing the destructi
 option. History remains
 readable; restoring it applies intervening migrations. Database upgrade `013`
 retains legacy content until an admin deploys the initial migration.
-Run `pnpm db:setup` to apply upgrade `014`, which records destructive deployments.
+
 
 Select a block to include its ID in the editor URL, then copy the URL to share it.
 Links use `/?space=<id>&story=<id>&locale=<slug>&block=<id>` (omit `locale` for
@@ -242,11 +245,6 @@ from each story's page slug (`home`). Existing story locales are registered by
 migration `004_space_locales` without replacing content or history. Changing a
 locale prefix changes delivery lookups and preview URLs immediately; rebuild
 static sites and update links to the old prefix. Redirects are not generated.
-
-The app uses **vinext**, Cloudflare's beta implementation of Next.js APIs on Vite.
-The Cloudflare plugin is pinned to `2.0.0-beta.v.9`; beta.v.11 currently requests an
-unpublished build-output-utils dependency. WebSocket upgrades enter through the
-Worker directly because framework HTTP response cloning cannot preserve them.
 
 ## Verify
 
@@ -289,9 +287,9 @@ updating dependencies so linting and the `tsc` command continue to work together
 
 ## Self-hosting
 
-Use the [Node/Docker setup](docs/self-hosting.md) or the
-[Railway setup guide](docs/deploy-railway.md). Fresh hosted acceptance remains
-pending. Complete the [verification checklist](docs/deployment-verification.md)
+Use the [Node/Docker setup](docs/self-hosting.md). Railway is documented but
+remains unverified for a fresh hosted installation. Cloudflare hosts the static
+marketing website, not the current CMS runtime. Complete the [verification checklist](docs/deployment-verification.md)
 before rollout. Production configuration stays in ignored `.env.production`.
 
 See [the SDK integration guide](packages/sdk/README.md) for static Next.js/Astro
@@ -305,11 +303,9 @@ retention policy is added. CMS reads follow each member’s content scopes. Publ
 tokens remain space-wide service credentials; scoped readers cannot mint them.
 Public content and opted-in public media are unaffected by private CMS read scopes.
 
-See [the implementation work breakdown](docs/work-breakdown.md) for ownership,
-contracts, and acceptance criteria.
-
-See [the internal issue tracker](docs/issues/README.md) for researched feature TODOs,
-proposed behavior, implementation scope, and acceptance tests.
+See [docs/README.md](docs/README.md) for the maintained guide index. Historical
+implementation plans and issue notes under `docs/work-breakdown.md` and
+`docs/issues/` are design records, not current product instructions.
 
 Rich text preserves text colors and inline images imported from other CMSs. Inline
 images carry a space-scoped asset ID and an HTTP(S) source; publication validates

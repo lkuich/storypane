@@ -9,11 +9,12 @@ Secrets appear only when created or rotated. Configuration reads never return th
 
 ## Operator setup
 
-Run the normal database setup/migration command before deploying the application;
-`016_webhooks` adds the endpoint, event, delivery, and attempt tables. The application
-Worker configuration includes `triggers.scheduled({ schedule: '* * * * *' })`. The
-minute handler runs scheduled publications, invalidates changed editor rooms, and
-drains up to 25 webhook deliveries. It awaits its work and closes its database pool.
+Run `pnpm admin migrate` before starting a new Node release; migration
+`016_webhooks` adds the endpoint, event, delivery, and attempt tables. The Node
+application starts a minute scheduler that runs immediately at startup and every
+60 seconds. It runs scheduled publications, invalidates changed editor rooms, and
+drains up to 25 webhook deliveries. Overlapping local runs are skipped; failures
+are logged and persisted work is retried on the next tick.
 
 Set `WEBHOOK_HOSTS` to a comma-separated list of exact, operator-approved public
 HTTPS hostnames in the build/deployment environment. Wildcards are unsupported.
@@ -23,29 +24,23 @@ redirects. Approve hosts controlled by trusted operators: preflight DNS checks
 alone do not prevent DNS rebinding through a malicious hostname owner.
 
 Generate a 32-byte encryption key with `openssl rand -base64 32`. Store the value as
-the `WEBHOOK_ENCRYPTION_KEY` Worker secret; locally use the gitignored
-`apps/web/.dev.vars` file. Never prefix it with `VITE_`. Keep a protected backup:
+the server-side `WEBHOOK_ENCRYPTION_KEY` in ignored `.env.production` or your
+deployment secret manager. Never prefix it with `VITE_`. Keep a protected backup:
 losing/changing this encryption key makes existing endpoint secrets unreadable.
 Rotate individual endpoint signing secrets through Settings; this is different
 from replacing the master encryption key. Missing or malformed encryption
 configuration disables creation/sending. Cleanup still runs.
 
-The checked-in Cloudflare configuration declares both bindings. Deployment secret
-values belong in a protected secrets file supplied to the existing cf deployment
-process (`--secrets-file`), never committed config. Generate binding types with
-`pnpm types`. Neither documentation examples nor tests contain production secrets.
+The current CMS runtime is Node/Docker. The checked-in Worker configuration is
+retained for the previous runtime and test compatibility; it does not make this
+release deployable on Workers. Keep runtime secrets in the Node process
+environment and never commit them. `pnpm types` only generates legacy Worker
+binding declarations; it is not part of Node setup.
 
-For local runtime testing, start the application with `pnpm dev`, then invoke:
-
-```sh
-curl 'http://127.0.0.1:3130/cdn-cgi/local/scheduled?format=json'
-```
-
-The installed Cloudflare Vite plugin v2 uses `/cdn-cgi/local/scheduled`; the legacy
-`/cdn-cgi/handler/scheduled` path no longer applies. Local cron does not run
-on a timer automatically. This is a development runtime endpoint, not a production
-application route. See [Cloudflare local cron testing](https://developers.cloudflare.com/workers/configuration/cron-triggers/#test-cron-triggers)
-and the [Vite v2 endpoint changes](https://developers.cloudflare.com/workers/vite-plugin/v2-beta/).
+The Worker handler and its `/cdn-cgi/local/scheduled` test endpoint belong to the
+previous Cloudflare runtime. They are not part of the current Node application.
+The Node scheduler starts with the application and runs automatically. See the
+[self-hosting guide](self-hosting.md) for the supported runtime.
 
 ## Events and delivery
 
