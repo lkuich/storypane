@@ -30,6 +30,10 @@ and see their changes in a live website preview.
 - **Model content that fits.** Combine reusable blocks, rich text, media, links,
   and data sources. Review schema migrations and generate TypeScript types for
   your frontend.
+- **Choose your sign-in.** Use built-in Better Auth email/password accounts or
+  optional Clerk, with company SSO configured through your Clerk instance. Adapt
+  your source for a direct Okta or other identity-provider flow. See
+  [authentication](docs/authentication.md) for setup and customization boundaries.
 - **Control access.** Organize work into spaces with separate PostgreSQL databases.
   Assign roles and scope reading, editing, and publishing down to individual fields.
 - **Manage media in one place.** Upload files with pause and resume, organize

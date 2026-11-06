@@ -2,7 +2,9 @@
 
 Storypane includes invitation-only email/password sign-in. Accounts and sessions
 live in your installation PostgreSQL database; you do not need Clerk or SMTP to
-get started. Clerk is an optional, explicitly selected provider.
+get started. The local provider is built on Better Auth. Clerk is an optional,
+explicitly selected provider, with an existing path to company SSO. You own the
+authentication code and can adapt your copy for another identity provider.
 
 Authentication identifies a person. Space memberships, roles, and content scopes
 determine what that person can do. Neither a successful sign-in nor an API token
@@ -138,6 +140,66 @@ permissions are checked during authenticated operations. Clerk adds an external
 authentication dependency; configure its production instance and test its own
 account recovery and session revocation. Enabling an upstream sign-up method
 does not itself grant a Storypane space membership.
+
+## Company SSO, including Okta
+
+Use Storypane's existing **Clerk provider** to connect your company's identity
+provider. Clerk supports enterprise connections over SAML and OIDC, including
+Okta Workforce. Configure the connection in your Clerk instance; Storypane keeps
+using Clerk sessions and its own space permissions. SSO availability and charges
+depend on your Clerk plan, not a Storypane enterprise license. See
+[Clerk enterprise SSO](https://clerk.com/docs/guides/configure/auth-strategies/enterprise-connections/overview).
+
+1. Configure Storypane's Clerk provider using the setup above. For an existing
+   local installation, complete the identity mapping/provider switch below first;
+   preserve existing user IDs rather than creating duplicate accounts.
+2. In the Clerk Dashboard, create an enterprise connection for your company.
+   For Okta Workforce, follow [Clerk's Okta SAML guide](https://clerk.com/docs/guides/configure/auth-strategies/enterprise-connections/saml/okta).
+   Exchange the actual callback/ACS URLs, entity IDs, and certificates shown by
+   Clerk and Okta; do not guess values from a generic example. Configure domain
+   matching and the allowed application origin for your installation.
+3. Test the full sign-in flow using a verified primary email and a deliberately
+   invited Storypane account. Signing in through your company's IdP does not
+   automatically grant space membership, a role, or installation administration.
+4. Verify sign-out, session expiry/revocation, disabled/locked users, and access
+   through HTTP, preview, and collaboration. Test your provider's MFA and recovery
+   policy separately. Record the result for your own installation.
+
+This is a provider configuration guide, not a claim that an Okta-backed fresh
+installation has passed acceptance for this RC.
+
+## Customize your sign-in flow
+
+Your authentication flow belongs to your copy. A coding agent can extend the
+existing Better Auth integration, connect Okta directly, or adapt another company
+identity provider in application code. Keep the change focused on that provider;
+there is no need for a generic authentication extension framework.
+
+Better Auth offers [SSO support over OIDC and SAML](https://better-auth.com/docs/plugins/sso)
+and an [Okta SAML guide](https://better-auth.com/docs/guides/saml-sso-with-okta).
+These are upstream capabilities: Storypane's default Better Auth configuration
+currently exposes local email/password sign-in. A direct Okta flow or Better Auth
+SSO extension requires implementation and verification in your copy.
+
+Give your coding agent this task alongside the setup instructions above:
+
+```text
+Read AGENTS.md and docs/authentication.md. Connect our specified identity provider
+in this checkout, using the existing authentication services. Prefer the existing
+Clerk enterprise connection path if it meets our requirements. For a direct Okta
+or Better Auth SSO customization, inspect packages/db/src/local-auth.ts,
+apps/web/src/app/api/auth/[...all]/route.ts, apps/web/src/lib/context.ts,
+apps/web/src/lib/clerk-auth.ts, packages/db/src/installation.ts, scripts/admin.ts,
+and the sign-in UI and realtime session checks before changing them. The auth
+route has an explicit endpoint allowlist; adding an upstream plugin alone will
+not expose its callbacks. Review callback methods/origins individually rather
+than relaxing origin checks for all auth routes. Preserve stable identity IDs,
+explicit account linking, invitation-only space membership, role/content scopes,
+revocation and expired-session behavior for HTTP and WebSockets. Keep IdP secrets
+server-side and out of chat. Add focused tests and run the authentication and
+installation-isolation tests against disposable databases. Do not claim support
+until sign-in, logout, recovery and permission/revocation checks pass end to end.
+```
 
 ## Change providers on an existing installation
 

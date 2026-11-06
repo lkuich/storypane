@@ -66,28 +66,67 @@ team grows.
 
 ### One-time npm setup
 
-The maintainer must control the `@storypane` npm scope and have permission to
-publish `@storypane/sdk`. This checkout is not itself proof of that permission.
-For a new package, make the first publication from a private authenticated
-terminal (with npm's required account/2FA checks):
+Only `@storypane/sdk` goes to npm. The CMS is installed from the source tag or
+Docker build; the root and internal workspace packages stay private.
 
-```sh
-pnpm install --frozen-lockfile
-pnpm test:package
-npm publish artifacts/storypane-sdk-0.1.0-rc.2.tgz --access public --tag rc
-```
+1. Create or sign in to your npm account, verify its email, and enable account
+   two-factor authentication. Create an npm organization named **storypane**
+   (or join it with publish permission). Choose **Unlimited public packages**;
+   that organization plan is free. The npm scope is independent of the GitHub
+   repository name. If the scope is unavailable, resolve ownership or deliberately
+   rename the package and its callers before publishing. See
+   [npm organization setup](https://docs.npmjs.com/creating-an-organization/).
+2. In a private terminal, use Node 24.22+ within v24 and sign in to the public npm
+   registry. Complete npm's browser/account verification privately:
 
-Then configure the package's **Trusted Publisher** on npm:
+   ```sh
+   npm login --registry=https://registry.npmjs.org/
+   npm whoami --registry=https://registry.npmjs.org/
+   ```
 
-- GitHub owner: `lkuich`
-- Repository: `storypane`
-- Workflow filename: `release.yml`
-- Environment: leave empty (the workflow has no environment).
-- Allow direct publishing with `npm publish`.
+3. Bootstrap the package with the **already verified GitHub release archive**.
+   Run from the repository root with the GitHub CLI available. This downloads the
+   exact published artifact rather than building different bytes from a moving
+   branch. The destination is an ignored build-artifact directory:
 
-Future RCs can use the manual workflow above without an npm token. Do not
-republish the already bootstrapped version from CI; use the next candidate.
-Trusted publishing needs a GitHub-hosted runner and npm 11.5.1+ / Node 22.14+;
+   ```sh
+   mkdir -p artifacts
+   gh release download v0.1.0-rc.2 --repo lkuich/storypane \
+     --pattern storypane-sdk-0.1.0-rc.2.tgz --dir artifacts --clobber
+   npm publish artifacts/storypane-sdk-0.1.0-rc.2.tgz --access public --tag rc
+   npm view @storypane/sdk@rc version
+   npm view @storypane/sdk dist-tags --json
+   ```
+
+   Complete any requested npm account/2FA checks. The version should be
+   `0.1.0-rc.2` and the `rc` tag should point to it. Keep candidates off `latest`.
+   The `@storypane` organization must grant your signed-in account publish access.
+   Never paste credentials into a chat, workflow file, or repository.
+
+4. Open **@storypane/sdk → Settings → Trusted Publisher** on npm and add GitHub
+   Actions with these exact values:
+
+   | Field                | Value                                         |
+   | -------------------- | --------------------------------------------- |
+   | Organization or user | `lkuich`                                      |
+   | Repository           | `storypane`                                   |
+   | Workflow filename    | `release.yml`                                 |
+   | Environment          | Leave empty; the workflow has no environment. |
+   | Allowed action       | Direct publishing with `npm publish`.         |
+
+5. For the **next** version, update versions and notes, commit, and push its new
+   tag using the release steps above. Then open GitHub **Actions → Release
+   candidate → Run workflow**, choose that **matching release tag** and enable
+   `publish_npm`. CI publishes through OIDC with provenance on the `rc` channel.
+   No `NPM_TOKEN` repository secret is required. Do not run npm publication again
+   for the version you already bootstrapped; npm versions cannot be overwritten.
+
+Users can then install `npm install @storypane/sdk@rc`, or pin the exact version.
+Confirm registry availability before replacing the GitHub archive installation
+instructions. A package name in this source tree does not establish npm ownership
+or mean the package has already been published.
+
+Trusted publishing requires a GitHub-hosted runner and npm 11.5.1+ / Node 22.14+;
 the pinned Node 24.22 runtime meets that baseline. See the
 [official npm instructions](https://docs.npmjs.com/trusted-publishers/).
 
