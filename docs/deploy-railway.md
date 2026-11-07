@@ -4,7 +4,7 @@
 
 Deploy the **release candidate** into your own Railway workspace. The template
 builds the public repository’s `main` branch; it does not pin a stable release.
-See [recorded hosted checks and remaining acceptance](deployment-verification.md#railway-template-checks--2026-11-06)
+See [recorded hosted checks and remaining acceptance](deployment-verification.md#operational-recovery-rehearsal--2026-11-06)
 before production use.
 
 The Node runtime reuses vinext's standalone production server, the frontend,

@@ -230,6 +230,20 @@ Authenticated suites use `STORYPANE_TEST_ADMIN_STATE` and
 `STORYPANE_TEST_EDITOR_STATE` session files. Build any configured example sites
 first using their integration guides above. Never commit session files or credentials.
 
+For the collaboration and private multipart checks on a disposable hosted fixture,
+set `STORYPANE_LOCAL_AUTH_TEST_URL` to its HTTPS origin and
+`STORYPANE_TEST_SPACE_ID` to its space ID, then run:
+
+```sh
+pnpm exec playwright test tests/editor.e2e.ts tests/assets.e2e.ts \
+  --grep 'two editors work|private multipart'
+```
+
+The fixture needs the deployed `page` definition with a `body` blocks field, a
+`hero` with `title` (label **Title**), and a `footer` with `text` (label
+**Footer text**). Both authenticated users need editor access. These checks write
+sample content and media. Use a disposable installation.
+
 ## Documentation
 
 - [Getting started](docs/getting-started.md) — installation and first steps.

@@ -1,4 +1,4 @@
-import { signInPage as login } from './auth';
+import { cmsOrigin as origin, cmsSpace, signInPage as login } from './auth';
 import { expect, test, type APIRequestContext } from '@playwright/test';
 import type {
   BlockDefinition,
@@ -10,12 +10,15 @@ import type {
   SpaceLocale,
 } from '@storypane/core';
 
-const origin = 'http://127.0.0.1:3130';
+const spaceHeaders = { 'x-storypane-space-id': cmsSpace };
 async function json<T>(request: APIRequestContext, path: string, body?: unknown): Promise<T> {
   const response =
     body === undefined
-      ? await request.get(`/api/cms${path}`)
-      : await request.post(`/api/cms${path}`, { headers: { Origin: origin }, data: body });
+      ? await request.get(`/api/cms${path}`, { headers: spaceHeaders })
+      : await request.post(`/api/cms${path}`, {
+          headers: { ...spaceHeaders, Origin: origin },
+          data: body,
+        });
   expect(response.ok(), await response.text()).toBeTruthy();
   return (await response.json()) as T;
 }
@@ -49,7 +52,7 @@ async function fixture(request: APIRequestContext) {
   expect(
     (
       await request.delete(`/api/cms${base}/leases`, {
-        headers: { Origin: origin },
+        headers: { ...spaceHeaders, Origin: origin },
         data: { blockId: root, token: lease.token },
       })
     ).ok(),
@@ -61,8 +64,8 @@ test('two editors work on separate blocks, autosave, publish a fixed checkpoint,
   browser,
 }) => {
   test.setTimeout(90_000);
-  const admin = await browser.newContext();
-  const peer = await browser.newContext();
+  const admin = await browser.newContext({ baseURL: origin });
+  const peer = await browser.newContext({ baseURL: origin });
   try {
     const page = await admin.newPage();
     const other = await peer.newPage();
@@ -85,7 +88,7 @@ test('two editors work on separate blocks, autosave, publish a fixed checkpoint,
       .getByRole('button', { name: 'Hero', exact: true })
       .click();
     await expect(
-      other.getByText('Another editor is working on this block. Other blocks are available.'),
+      other.getByText(/is working on this block\. Other blocks are available\./),
     ).toBeVisible();
     await expect(other.getByRole('textbox', { name: /^Title/ })).toBeDisabled();
     await other.getByRole('button', { name: 'Outline', exact: true }).click();

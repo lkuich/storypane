@@ -281,3 +281,70 @@ This verifies the application boundary, not a real Okta or other custom provider
 token exchange, callbacks, session service or upstream revocation. Clerk remote
 checks were mocked. Fresh hosted acceptance, backup/restore rehearsal and the
 other production reliability gaps remain outstanding.
+
+## Operational recovery rehearsal — 2026-11-06
+
+Checked pushed CMS revision `cdab8c5` using the published Railway template in a
+new disposable project, `storypane-operational-acceptance`
+(`02ea3bf6-9f2b-41d9-8d19-6f4b8db4ace1`). It provisioned PostgreSQL, a private
+bucket and the Node application with one replica and sleeping disabled. The
+installation used local authentication, two isolated spaces and sample content;
+no existing user installation or production content was changed.
+
+- Fresh setup, administrator sign-in, deployed schema, manual invitation and a
+  separate editor account passed. The existing browser regression passed two
+  editors saving separate blocks, conflicting locks, checkpoint publication with
+  later drafts, and offline/reconnect recovery with preserved unsent input.
+- The private multipart regression passed size validation, owner-only upload
+  state, resume, repeated completion, byte-identical originals, HEAD/ranges and
+  archive retention. An upload interrupted across a real app restart resumed
+  from its stored first part and completed byte-identically.
+- Hosted HTTP and real WebSocket snapshots omitted restricted fields. Removing
+  content access disconnected the editor socket; removing the originating
+  editor's access disconnected its authenticated preview socket.
+- The hosted minute scheduler published both approved page revisions in a
+  scheduled release after restart. Later edits stayed in the drafts. This checks
+  that restart scenario, not the complete release failure/concurrency matrix.
+- Disabling connections to one space database produced degraded readiness while
+  the other space remained usable. Restoring it recovered access. Disabling the
+  installation database returned 503; recovery returned 200 and preserved the
+  existing session.
+- With the disposable application stopped, a coordinated logical backup captured
+  the installation database, both space databases, the provider's empty default
+  database, database roles, private originals, configuration and encryption keys.
+  Backup took 33 seconds. The three originals totalled 21,462,739 bytes.
+- Restoration into separate local PostgreSQL 18 and S3-compatible storage took
+  8 seconds for data restoration and comparison. Every public table's row count
+  and canonical row hash matched the source, as did database role flags/password
+  hashes and every original's SHA-256. The first comparison incorrectly depended
+  on database collation; consistent row ordering resolved it without changing data.
+- The restored installation decrypted the original registry connections and
+  updated their endpoints through `Installation.updateConnection`. Transactional
+  migrations reran successfully. Sign-in with both original passwords, both
+  spaces, approved publications/later drafts, private original downloads, WebP
+  thumbnails and the existing delivery/management tokens passed. Authenticated
+  preview worked; a foreign preview origin was rejected. A held foreign lease
+  appeared in scoped HTTP/WebSocket snapshots without its token.
+
+The restored target was local, not a second hosted failover installation. These
+small-fixture timings are not production recovery objectives. No fixture writes
+occurred between stopping the source and backup; no loss was observed in the
+captured records or originals. Pending release execution was checked across app
+restart before backup; pending jobs/outbox recovery from backup was not exercised.
+Private dumps, manifests and assertion scripts are retained locally under ignored
+`artifacts/operational-confidence/`; credentials and session states are not public
+evidence. The temporary hosted project and restore containers were removed after
+verification.
+
+For repeatable collaboration/media checks, see the
+[hosted browser test instructions](../README.md#checks-and-contributions). The provider build
+[CI run](https://github.com/lkuich/storypane/actions/runs/42344373632) passed for
+`cdab8c5`; this hosted rehearsal supplements that run.
+
+Full acceptance remains open: signed hosted webhook delivery/retries/outbox
+recovery, real SMTP and upstream identity-provider revocation, the remaining
+schema/CLI/preview/release matrix, pending-job restore, a fresh hosted restore,
+independent security review and representative production load benchmarks.
+Keep the single-replica constraint until shared room transport is implemented and
+verified. This record supersedes the matching outstanding items in earlier dated
+records; it does not declare the release production-ready.

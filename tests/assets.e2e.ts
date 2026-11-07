@@ -1,4 +1,4 @@
-import { signInPage, signInApi, authState } from './auth';
+import { cmsOrigin as origin, cmsSpace, signInPage, signInApi, authState } from './auth';
 import { expect, test, type APIResponse } from '@playwright/test';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
@@ -11,7 +11,6 @@ import type {
   StoryLocale,
 } from '@storypane/core';
 
-const origin = 'http://127.0.0.1:3130';
 const landscape = readFileSync(new URL('./fixtures/landscape.png', import.meta.url));
 const apiPath = '/api/cms/assets';
 const partBytes = 10 * 1024 * 1024;
@@ -20,18 +19,18 @@ async function expectStatus(response: APIResponse, status: number) {
   expect(response.status(), `${response.url()}: ${await response.text()}`).toBe(status);
 }
 
-test('R2 multipart upload survives resume and archive, with authenticated range delivery', async ({
+test('private multipart upload survives resume and archive, with authenticated range delivery', async ({
   playwright,
 }) => {
   const client = await playwright.request.newContext({
     storageState: authState('admin'),
     baseURL: origin,
-    extraHTTPHeaders: { Origin: origin },
+    extraHTTPHeaders: { Origin: origin, 'x-storypane-space-id': cmsSpace },
   });
   const otherEditor = await playwright.request.newContext({
     storageState: authState('editor'),
     baseURL: origin,
-    extraHTTPHeaders: { Origin: origin },
+    extraHTTPHeaders: { Origin: origin, 'x-storypane-space-id': cmsSpace },
   });
   const anonymous = await playwright.request.newContext({ baseURL: origin });
   let assetId: string | undefined;
