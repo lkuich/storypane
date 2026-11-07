@@ -1,3 +1,4 @@
+import { spawnSync } from 'node:child_process';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { Pool } from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -18,6 +19,31 @@ it('rejects a shared role or different database host before connecting', async (
         'postgresql://storypane_installation:password@other/storypane_installation',
     }),
   ).rejects.toThrow('dedicated');
+});
+
+it.each([
+  ['INSTALLATION_DATABASE_URL', 'postgresql://secret:do-not-log@invalid'],
+  ['PROVISIONING_DATABASE_URL', 'not-a-url-do-not-log'],
+  ['INSTALLATION_ENCRYPTION_KEY', 'do-not-log'],
+  ['AUTH_PROVIDER', 'INVALID-do-not-log'],
+])('logs the rejected %s without leaking its value', (field, value) => {
+  const result = spawnSync(process.execPath, ['--import', 'tsx', 'scripts/prepare-railway.ts'], {
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      INSTALLATION_DATABASE_URL:
+        'postgresql://storypane_installation:password@localhost/storypane_installation',
+      PROVISIONING_DATABASE_URL: 'postgresql://operator:password@localhost/railway',
+      INSTALLATION_ENCRYPTION_KEY: randomBytes(32).toString('base64'),
+      AUTH_PROVIDER: 'local',
+      [field]: value,
+    },
+  });
+  expect(result.status).toBe(1);
+  expect(result.stderr).toContain(`validating ${field}`);
+  expect(result.stderr).toContain('Existing databases were retained');
+  expect(result.stderr).not.toContain(value);
+  expect(result.stderr).not.toContain('do-not-log');
 });
 
 const source = process.env.RAILWAY_TEST_DATABASE_URL;
@@ -55,6 +81,21 @@ describe.skipIf(!source)('Railway first install on a disposable PostgreSQL servi
     await operator.end();
   });
 
+  it('reports provisioning authentication failure without logging driver credentials', () => {
+    const rejected = new URL(source!);
+    rejected.username = 'do-not-log-user';
+    rejected.password = 'do-not-log-password';
+    const result = spawnSync(process.execPath, ['--import', 'tsx', 'scripts/prepare-railway.ts'], {
+      encoding: 'utf8',
+      env: { ...process.env, ...env, PROVISIONING_DATABASE_URL: rejected.href },
+    });
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('connecting to PROVISIONING_DATABASE_URL');
+    expect(result.stderr).toContain('Database authentication failed');
+    expect(result.stderr).not.toContain('do-not-log');
+    expect(result.stderr).not.toContain(rejected.href);
+  });
+
   it('refuses automatic provisioning on a shared cluster', async () => {
     await operator.query('CREATE DATABASE unrelated');
     try {
@@ -75,7 +116,14 @@ describe.skipIf(!source)('Railway first install on a disposable PostgreSQL servi
     } finally {
       await operator.query('DROP TABLE unrelated');
     }
-    await expect(prepareRailway({ ...env, STORYPANE_ADMIN_PASSWORD: 'short' })).rejects.toThrow();
+    await expect(prepareRailway({ ...env, STORYPANE_ADMIN_PASSWORD: 'short' })).rejects.toThrow(
+      'STORYPANE_ADMIN_PASSWORD (12–128 characters)',
+    );
+    await expect(
+      prepareRailway({ ...env, STORYPANE_ADMIN_NAME: '', STORYPANE_ADMIN_EMAIL: 'invalid' }),
+    ).rejects.toThrow(
+      'STORYPANE_ADMIN_NAME (1–120 characters), STORYPANE_ADMIN_EMAIL (valid email address)',
+    );
     expect((await installation.pool.query('SELECT 1 FROM "user"')).rowCount).toBe(0);
     await Promise.all([prepareRailway(env), prepareRailway(env)]);
     const users = (await installation.pool.query('SELECT * FROM "user"')).rows;
@@ -142,7 +190,7 @@ describe.skipIf(!source)('Railway first install on a disposable PostgreSQL servi
     changed.password = 'incorrect-database-password';
     await expect(
       prepareRailway({ ...env, INSTALLATION_DATABASE_URL: changed.href }),
-    ).rejects.toThrow();
+    ).rejects.toThrow('Database authentication failed');
     await expect(installation.pool.query('SELECT 1')).resolves.toBeDefined();
   });
 });

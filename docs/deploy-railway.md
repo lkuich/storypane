@@ -99,6 +99,14 @@ passwords or database ownership, and uses the same bootstrap lock as the operato
 CLI. Interrupted setup can be retried without recreating storage. On redeploy,
 it migrates every registered space and stops the deployment if any migration fails.
 
+If pre-deploy fails, inspect its logs for the specific validation field or setup
+step printed before the final summary. Invalid initial admin fields include their
+requirements; database failures identify the provisioning or installation connection
+and report known authentication, permission, or network failures without credentials.
+Correct the indicated variable or database permission and redeploy. Do not regenerate
+keys or delete databases to retry setup. Initial admin fields are only required until
+the first administrator exists.
+
 For an **existing installation** with manually prepared databases, retain
 `node --import tsx scripts/migrate-production.ts` as the pre-deploy command.
 Do not switch it to automatic setup. Follow [database preparation](self-hosting.md)
