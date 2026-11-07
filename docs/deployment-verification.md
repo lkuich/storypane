@@ -235,7 +235,19 @@ using Node 24.22.0 and pnpm 12.4.2:
   locale navigation, unsaved-edit protection, cancellation and personal preview
   defaults/save-error recovery. These include responsive layouts and keyboard access.
 
+The tagged [release CI](https://github.com/lkuich/storypane/actions/runs/42338962456)
+passed for `7f23422`, including the dedicated installation/isolation/Railway
+PostgreSQL checks, production and Docker builds, and packed SDK verification:
+539 tests passed, with only two opt-in live-service tests skipped. The separate
+[npm publication run](https://github.com/lkuich/storypane/actions/runs/42339252786)
+repeated full CI and published rc.3 through OIDC with provenance.
+
+A clean install from npm loaded all five SDK entrypoints and started the CLI.
+The registry package checksum matched the attached GitHub release archive, and
+npm provenance attestations were present. The `rc` channel resolves to rc.3;
+`latest` remains on rc.2. npm processing delayed availability for a few minutes
+after the successful upload.
+
 These checks do not establish a fresh installation or full hosted acceptance.
 The outstanding hosted workflows and backup/restore rehearsal listed above remain
-unverified for this candidate. The tagged release workflow must pass its full CI,
-including the Docker build, before publication.
+unverified for this candidate.

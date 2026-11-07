@@ -81,9 +81,11 @@ team grows.
 verified GitHub archive, then installed from npm in an isolated consumer. All
 entrypoints and the CLI passed. The trusted publisher is configured for
 `lkuich/storypane` and `release.yml`, with publishing enabled and no environment.
-No npm token secret is required by CI. Later candidates use the trusted-publishing
-workflow; verify its result and registry version after each publication. Do not
-republish the existing rc.2 version.
+No npm token secret is required by CI. The first OIDC publication succeeded for
+`0.1.0-rc.3`; a clean registry install and its provenance attestations were verified.
+The `rc` channel now points to rc.3; `latest` remains on rc.2. Later candidates use
+the same workflow; verify its result and registry version after each publication.
+Do not republish an existing version.
 
 The steps below document the initial setup. Existing maintainers should verify
 the publisher configuration and use the next-version workflow rather than repeat
