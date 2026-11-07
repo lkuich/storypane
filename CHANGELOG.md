@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.1.0-rc.3 — 2026-11-06
+
+- Prepare fresh Railway installations automatically, including the isolated
+  installation database and first administrator. Record scoped hosted verification.
+- Add authenticated component hover previews and explicit sample-data previews in
+  the block picker, with matching SDK callbacks and both example integrations.
+- Add a read-only page map below live preview, loaded on expansion, with a
+  transactional connection index and an upgrade backfill.
+- Add personal preview defaults with the shared space default as fallback, plus
+  desktop/tablet/mobile preview sizes and inline sizing controls.
+- Add an SEO/AI metadata preset and published Markdown examples.
+- Preserve rich-text cursor/selection through autosave, focus publication reviews
+  on changed components, and improve block insertion and asset publication status.
+- Advance the CMS and SDK together. Upgrades apply space migrations 028 and 029
+  through the transactional migration runner; preserve coordinated backups and keys.
+
+This remains an evaluation candidate. Full hosted acceptance, backup/restore
+rehearsal, independent security review and production load benchmarks remain
+outstanding; see [verification results](docs/deployment-verification.md).
+
 ## 0.1.0-rc.2 — 2026-11-06
 
 - Publish the verified SDK archive to npm and configure the GitHub trusted

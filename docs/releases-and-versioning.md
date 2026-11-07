@@ -1,7 +1,7 @@
 # Releases and versioning
 
-The current version is **0.1.0-rc.2**, the current public release candidate. The
-CMS checkout and SDK share that version. Tags use `v0.1.0-rc.2`; later candidates
+The current version is **0.1.0-rc.3**, the current public release candidate. The
+CMS checkout and SDK share that version. Tags use `v0.1.0-rc.3`; later candidates
 increment the final number. `0.1.0` will be the first stable release only after
 its acceptance checks pass. An RC is for evaluation, not a production-readiness
 promise.
@@ -13,13 +13,13 @@ Check out an explicit tag rather than tracking a moving branch:
 ```sh
 git clone https://github.com/lkuich/storypane.git
 cd storypane
-git checkout v0.1.0-rc.2
+git checkout v0.1.0-rc.3
 node scripts/setup-env.mjs
 ```
 
 Continue with [getting started](getting-started.md). The Docker Compose setup
 builds the checked-out source; it does not require an unpublished container image.
-Install the SDK from npm with `npm install @storypane/sdk@0.1.0-rc.2`, or use
+Install the SDK from npm with `npm install @storypane/sdk@0.1.0-rc.3`, or use
 `@storypane/sdk@rc` to follow candidates. The verified archive remains attached to
 the [GitHub release](https://github.com/lkuich/storypane/releases).
 
@@ -31,8 +31,8 @@ Treat the version's `-rc` suffix and release notes as the stability indicator;
 an explicit version or the `rc` channel in your integration.
 
 The [Railway template](deploy-railway.md) currently builds `main`, including the
-automatic installation setup added after rc.2. It is an evaluation path, not a
-pinned rc.2 deployment. Review the [hosted verification record](deployment-verification.md#railway-template-checks--2026-11-06)
+automatic installation setup included in rc.3. It is an evaluation path, not a
+pinned rc.3 deployment. Review the [hosted verification record](deployment-verification.md#railway-template-checks--2026-11-06)
 and retain backups before pulling newer source.
 
 ## What CI checks
@@ -60,7 +60,7 @@ and persistence after restart. Record the tested revision, providers, and result
 2. Run the checks above and the relevant browser/deployment acceptance checks.
    Document any unverified areas instead of calling them verified.
 3. Commit and push. Tag that exact commit and push the tag, for example:
-   `git tag v0.1.0-rc.2` then `git push origin v0.1.0-rc.2`.
+   `git tag v0.1.0-rc.3` then `git push origin v0.1.0-rc.3`.
 4. The release workflow repeats CI, validates tag/version agreement, then creates
    a GitHub **prerelease** and uploads the installable SDK tarball. A tag push
    does not publish to npm.
@@ -81,8 +81,9 @@ team grows.
 verified GitHub archive, then installed from npm in an isolated consumer. All
 entrypoints and the CLI passed. The trusted publisher is configured for
 `lkuich/storypane` and `release.yml`, with publishing enabled and no environment.
-No npm token secret is required by CI. Its first actual OIDC publication remains
-to be exercised on a later candidate; do not republish this existing version.
+No npm token secret is required by CI. Later candidates use the trusted-publishing
+workflow; verify its result and registry version after each publication. Do not
+republish the existing rc.2 version.
 
 The steps below document the initial setup. Existing maintainers should verify
 the publisher configuration and use the next-version workflow rather than repeat

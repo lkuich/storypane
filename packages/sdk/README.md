@@ -12,10 +12,10 @@ Start with the [Next.js integration guide](https://github.com/lkuich/storypane/b
 server-side fetching, typed block components, and a separate live preview route.
 An [Astro example](https://github.com/lkuich/storypane/blob/main/apps/example-astro/README.md) is also included.
 
-The current version is **0.1.0-rc.2**, published on npm as a release candidate:
+The current version is **0.1.0-rc.3**, published on npm as a release candidate:
 
 ```sh
-npm install @storypane/sdk@0.1.0-rc.2
+npm install @storypane/sdk@0.1.0-rc.3
 # Or follow the candidate channel:
 npm install @storypane/sdk@rc
 ```
@@ -29,7 +29,7 @@ You can also build from this monorepo with `pnpm --filter @storypane/sdk build`
 and pack/link `packages/sdk`, or install the verified GitHub archive:
 
 ```sh
-npm install https://github.com/lkuich/storypane/releases/download/v0.1.0-rc.2/storypane-sdk-0.1.0-rc.2.tgz
+npm install https://github.com/lkuich/storypane/releases/download/v0.1.0-rc.3/storypane-sdk-0.1.0-rc.3.tgz
 ```
 
 Entrypoints:
@@ -191,9 +191,7 @@ Client preview components must not import server-only fetch modules.
 
 ### Block hover previews
 
-Component previews are available in current source builds. The published
-`0.1.0-rc.2` SDK predates this API; use the workspace SDK or pack the updated
-`packages/sdk` for your app until a newer SDK candidate includes it.
+Component previews are available starting with `@storypane/sdk@0.1.0-rc.3`.
 
 The editor can preview saved blocks and the add-block picker's sample content in
 one temporary iframe after a short hover or keyboard focus. It uses the selected
@@ -719,7 +717,7 @@ Launch the pinned package directly (Node 20+), with `STORYPANE_URL`,
 your MCP client's environment:
 
 ```sh
-npx --yes --package=@storypane/sdk@0.1.0-rc.2 storypane mcp
+npx --yes --package=@storypane/sdk@0.1.0-rc.3 storypane mcp
 ```
 
 If installed in your project, `pnpm exec storypane mcp` also works from its root.

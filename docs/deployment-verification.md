@@ -218,3 +218,24 @@ Existing local coverage for several of these is recorded above; it does not coun
 as hosted acceptance. Independent security review and production load benchmarks
 also remain outstanding. Cloudflare edge image optimization was not provisioned;
 origin image transformations were checked.
+
+## rc.3 release checks — 2026-11-06
+
+Checked source revision `57d539d` with the rc.3 version/documentation changes,
+using Node 24.22.0 and pnpm 12.4.2:
+
+- 519 Vitest tests passed, including the local PostgreSQL database suites; 22
+  opt-in checks were skipped (dedicated isolation/Railway clusters and live services).
+  Release CI supplies the dedicated database clusters before creating artifacts.
+- Lint/format, SDK/app/both-example type checks and the Node production build
+  passed. The production dependency audit reported no known vulnerabilities.
+- The rc.3 packed SDK passed a clean consumer installation, all public entrypoints,
+  CLI startup, type declaration presence and license checks.
+- Four browser checks passed against the local CMS: page-map expansion/loading,
+  locale navigation, unsaved-edit protection, cancellation and personal preview
+  defaults/save-error recovery. These include responsive layouts and keyboard access.
+
+These checks do not establish a fresh installation or full hosted acceptance.
+The outstanding hosted workflows and backup/restore rehearsal listed above remain
+unverified for this candidate. The tagged release workflow must pass its full CI,
+including the Docker build, before publication.
