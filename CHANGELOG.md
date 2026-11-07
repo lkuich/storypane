@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- Create independent locale pages from Default, including page fields and selected
+  sections. Review later source changes without overwriting translations by default.
+- Add explicit linking for existing locale copies, scoped block updates, translation
+  review markers, and safe update selection. Space migration 033 retains source
+  baselines and mappings; legacy database splitting preserves these relationships.
+
 ## 0.1.0-rc.5 — 2026-11-07
 
 - Add story and block reviews, comments, inline @mentions, and a Reviews inbox.

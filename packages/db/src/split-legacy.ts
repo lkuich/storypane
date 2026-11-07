@@ -26,6 +26,8 @@ const scoped: Record<string, string> = {
     'locale_id IN (SELECT l.id FROM story_locales l JOIN stories s ON s.id=l.story_id WHERE s.space_id=$1)',
   page_connections:
     'locale_id IN (SELECT l.id FROM story_locales l JOIN stories s ON s.id=l.story_id WHERE s.space_id=$1)',
+  locale_sources:
+    'locale_id IN (SELECT l.id FROM story_locales l JOIN stories s ON s.id=l.story_id WHERE s.space_id=$1)',
   story_pins: 'story_id IN (SELECT id FROM stories WHERE space_id=$1)',
   asset_folder_placements: 'asset_id IN (SELECT id FROM assets WHERE space_id=$1)',
   webhook_attempts: 'delivery_id IN (SELECT id FROM webhook_deliveries WHERE space_id=$1)',

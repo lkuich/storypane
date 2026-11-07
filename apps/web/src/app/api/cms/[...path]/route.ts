@@ -480,6 +480,15 @@ async function handle(request: Request, route: { params: Promise<{ path: string[
             201,
           );
         if (localeId) {
+          if (action === 'locale-source' && method === 'GET')
+            return jsonResponse(
+              await store.reviewLocaleSource(
+                actor,
+                id,
+                localeId,
+                new URL(request.url).searchParams.get('blockId') ?? undefined,
+              ),
+            );
           if (action === 'schedules') {
             if (method === 'GET' && targetId)
               return jsonResponse(

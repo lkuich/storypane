@@ -1,6 +1,9 @@
 # Improve locale copying and visibility into default changes
 
-Status: open; implementation not started.
+Status: implemented (unreleased).
+
+The [locale guide](../locales.md) documents the implemented copy, source review,
+existing-locale linking, permission boundaries and migration behavior.
 Recorded: 2026-11-06.
 
 ## Problem
@@ -34,19 +37,16 @@ automatic synchronization.
 - Apply existing read/edit scopes to copying and change visibility; restricted
   source values must not appear in comparisons or copied content.
 
-## Implementation decisions still needed
+## Implementation
 
-Determine the smallest useful comparison and how to retain its source baseline.
-Current imports use fresh block IDs and do not establish persistent source-to-copy
-mapping; timestamps alone cannot identify corresponding blocks after layouts
-diverge. Decide whether page-level change awareness is sufficient before adding
-block-level tracking or selective update controls. Define how existing locale
-copies establish a baseline without inventing historical correspondence.
+A private source baseline and explicit block mapping distinguish source changes
+from intentional translations. Existing locales require explicit section matching;
+no migration guesses their history. Safe field changes and new sections can be
+selected together; structural changes and translation conflicts require a choice.
+Keeping a locale version acknowledges only that source change. Page and scoped
+block reviews use the same dialog, transactional commands, permissions and locks.
 
-Reuse existing locale tabs, import controls, history, and review UI where practical.
-No translation service, marketplace, or general workflow framework is required.
-
-## Verification when implemented
+## Verification
 
 Add focused tests for root-field copying, source changes after copying, local
 layout divergence, acknowledgement, and recipient permissions. Exercise the flow

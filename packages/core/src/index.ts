@@ -1,3 +1,5 @@
+import { localeSourceInputSchema } from './locale-source.js';
+export * from './locale-source.js';
 import { z } from 'zod';
 import {
   contentScopesSchema,
@@ -881,6 +883,13 @@ export const commandSchema = z.discriminatedUnion('type', [
       ...mutationBase,
       type: z.literal('deleteBlock'),
       payload: z.object({ blockId: id }).strict(),
+    })
+    .strict(),
+  z
+    .object({
+      ...mutationBase,
+      type: z.literal('updateLocaleSource'),
+      payload: localeSourceInputSchema,
     })
     .strict(),
   z

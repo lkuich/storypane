@@ -48,6 +48,7 @@ export async function migrate(
       '030_reviews',
       '031_block_previews',
       '032_release_previews',
+      '033_locale_sources',
     ]) {
       if (included && !included.has(name)) continue;
       if (

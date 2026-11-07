@@ -51,6 +51,7 @@ it.skipIf(!url).each([false, true])(
       const tokens: string[] = [];
       const transfers: string[] = [];
       const discussions: string[] = [];
+      const localizedIds: string[] = [];
       for (const spaceId of ids) {
         const actor = {
           spaceId,
@@ -131,6 +132,30 @@ it.skipIf(!url).each([false, true])(
             expectedVersion: version,
           },
         );
+        const french = await store.createSpaceLocale(actor, { name: 'French', slug: 'fr' });
+        const localized = await store.createLocale(actor, story.id, { spaceLocaleId: french.id });
+        localizedIds.push(localized.locale.id);
+        const sourceReview = await store.reviewLocaleSource(actor, story.id, localized.locale.id);
+        const rootLease = await store.acquireLease(
+          actor,
+          story.id,
+          localized.locale.id,
+          localized.locale.rootBlockId,
+        );
+        await store.command(actor, story.id, localized.locale.id, {
+          mutationId: randomUUID(),
+          type: 'updateLocaleSource',
+          expectedRevisions: { [localized.locale.rootBlockId]: localized.blocks[0].revision },
+          leaseTokens: { [localized.locale.rootBlockId]: rootLease.token! },
+          payload: {
+            action: 'copy',
+            token: sourceReview.token,
+            copyRoot: true,
+            blockIds: sourceReview.source.blocks
+              .filter((b) => b.parentId === sourceReview.source.locale.rootBlockId)
+              .map((b) => b.id),
+          },
+        });
         const transferId = randomUUID();
         transfers.push(transferId);
         await source.query(
@@ -181,6 +206,17 @@ it.skipIf(!url).each([false, true])(
         const selected = await installation.acquire(id);
         try {
           expect((await selected.db.query('SELECT id FROM spaces')).rows).toEqual([{ id }]);
+          expect((await selected.db.query('SELECT locale_id FROM locale_sources')).rows).toEqual([
+            { locale_id: localizedIds[index] },
+          ]);
+          expect((await selected.db.query('SELECT * FROM locale_sources')).rows).toEqual(
+            (
+              await source.query('SELECT * FROM locale_sources WHERE locale_id=$1', [
+                localizedIds[index],
+              ])
+            ).rows,
+          );
+
           expect((await selected.db.query('SELECT id FROM discussions')).rows).toEqual([
             { id: discussions[index] },
           ]);
