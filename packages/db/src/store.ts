@@ -1,3 +1,4 @@
+import { localeSourceReview, applyLocaleSource, type LocaleSourceState } from './locale-source.js';
 import * as reviews from './reviews.js';
 import { teamInputSchema, discussionInputSchema, discussionActionSchema } from '@storypane/core';
 import { readPageMap } from './page-map.js';
@@ -4051,6 +4052,67 @@ export class StorypaneStore {
       return created;
     });
   }
+  private async localeSourceState(
+    client: PoolClient,
+    actor: Actor,
+    storyId: string,
+    target: LocaleSnapshot,
+  ) {
+    const defaultLocale = (
+      await client.query(
+        'SELECT l.id FROM story_locales l JOIN space_locales c ON c.id=l.space_locale_id WHERE l.story_id=$1 AND c.space_id=$2 AND c.is_default',
+        [storyId, actor.spaceId],
+      )
+    ).rows[0];
+    if (!defaultLocale || defaultLocale.id === target.locale.id)
+      throw new StorypaneError(
+        'invalid',
+        'Open a non-default locale with an existing Default page.',
+      );
+    await this.lockLocale(client, actor, storyId, defaultLocale.id);
+    const source = await this.snapshot(client, actor, storyId, defaultLocale.id);
+    const row = (
+      await client.query('SELECT * FROM locale_sources WHERE locale_id=$1', [target.locale.id])
+    ).rows[0];
+    if (row && row.source_locale_id !== source.locale.id)
+      throw new StorypaneError(
+        'invalid',
+        'The default locale changed. This page remains linked to its original source; restore that default before reviewing updates.',
+      );
+    const state = row as (LocaleSourceState & { source_locale_id: string }) | undefined;
+    const access = await this.contentAccess(client, actor);
+    for (const snapshot of [
+      source,
+      target,
+      ...(state ? [{ ...state.baseline, story: source.story }] : []),
+    ]) {
+      assertSnapshotAccess(access, snapshot, 'content:read');
+      if (
+        !projectSnapshot(access, {
+          ...snapshot,
+          definitions: snapshot.definitions.filter((d) =>
+            snapshot.blocks.some((b) => b.schemaVersionId === d.versionId),
+          ),
+        }).access.complete
+      )
+        throw new StorypaneError(
+          'forbidden',
+          'Locale updates require read access to all source and localized fields and references.',
+        );
+    }
+    return { source, state: state ?? null };
+  }
+  async reviewLocaleSource(actor: Actor, storyId: string, localeId: string, blockId?: string) {
+    if (blockId) parseInput(z.uuid(), blockId);
+    return this.tx(actor, async (client) => {
+      await this.lockLocale(client, actor, storyId, localeId);
+      const target = await this.snapshot(client, actor, storyId, localeId);
+      const { source, state } = await this.localeSourceState(client, actor, storyId, target);
+      const review = localeSourceReview(source, target, state, blockId);
+      review.source = projectSnapshot(await this.contentAccess(client, actor), review.source);
+      return review;
+    });
+  }
   async getSnapshot(actor: Actor, storyId: string, localeId: string): Promise<LocaleSnapshot> {
     return this.tx(actor, async (client) => {
       await this.lockLocale(client, actor, storyId, localeId);
@@ -4492,7 +4554,19 @@ export class StorypaneStore {
       let publicationId: string | undefined;
       const requireOwned = (block: BlockDraft) =>
         this.requireLease(client, actor, localeId, block, command);
-      if (command.type === 'saveBlock') {
+      if (command.type === 'updateLocaleSource') {
+        await requireOwned(requireBlock(before, before.locale.rootBlockId));
+        const { source, state } = await this.localeSourceState(client, actor, storyId, before);
+        assertSnapshotAccess(access, before, 'content:edit');
+        await this.noCompetingLeases(
+          client,
+          actor,
+          localeId,
+          before.blocks.map((block) => block.id),
+        );
+        for (const id of await applyLocaleSource(client, source, before, state, command.payload))
+          changed.add(id);
+      } else if (command.type === 'saveBlock') {
         const block = requireBlock(before, command.payload.blockId);
         await requireOwned(block);
         const definition = before.definitions.find((d) => d.versionId === block.schemaVersionId)!;

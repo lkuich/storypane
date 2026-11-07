@@ -52,11 +52,11 @@ copy, reorder or replace sections, and adapt layouts for the local market. Edito
 can import from the default locale as a starting point and publish locales
 independently. Do not treat field-level translation parity as a backlog requirement.
 
-The implementation imports selected block subtrees into a destination blocks field
-with fresh IDs. Copies retain their nested content and become independent; later
-default edits do not propagate. The current UI excludes the source root block,
-so this is not a whole-page copy of root fields such as page-level metadata.
-Import appends copies rather than merging updates into an earlier import.
+**Create from Default** copies page fields and selected sections with fresh IDs.
+**Updates from Default** reviews later source changes against a remembered
+baseline. Translations remain independent; no update propagates automatically.
+**Copy blocks from Default…** remains a separate operation for adding copies.
+See [Locales and updates from Default](../locales.md).
 
 References: [editor import UI](../../apps/web/src/features/editor/story-workspace.tsx),
 [import command](../../packages/db/src/store.ts),
@@ -76,10 +76,9 @@ Independent copies suit market-specific landing pages and regional layouts.
 Field-level translation is more economical when many languages share a structure
 and most non-translated values should remain shared. With independent copies,
 source corrections and common layout changes must be applied deliberately to each
-affected locale; re-importing adds copies, it does not reconcile existing edits.
+affected locale through an explicit source review.
 Copied text is a starting point, not a completed translation.
 
-Track easier root-field copying and visibility into default changes in the
-[locale copying issue](locale-copying-and-source-changes.md). Implementation is
-not started; the issue preserves independent locales without automatic inheritance
-or a field-level translation system.
+The [locale copying issue](locale-copying-and-source-changes.md) records the
+implemented source-review work and its limits. This preserves independent locales
+without automatic inheritance or a field-level translation system.

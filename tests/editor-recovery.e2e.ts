@@ -88,17 +88,17 @@ test('uncertain imports retry once and inserted blocks recover across reload wit
     .getByRole('tab', { name: `${configured.name} ${configured.slug}`, exact: true })
     .click();
   await expect(page.getByRole('textbox', { name: 'Page title', exact: true })).toBeEditable();
-  await page.getByRole('button', { name: 'Import from Default', exact: true }).click();
-  const imports = page.getByRole('dialog', { name: 'Import from Default' });
+  await page.getByRole('button', { name: 'Copy blocks from Default…', exact: true }).click();
+  const imports = page.getByRole('dialog', { name: 'Copy blocks from Default' });
   await imports.getByRole('checkbox').check();
-  await imports.getByRole('button', { name: 'Import 1 selected', exact: true }).click();
+  await imports.getByRole('button', { name: 'Copy 1 selected', exact: true }).click();
   await expect(
     imports.getByText('Connection interrupted. Your unsaved edits are kept on this device.', {
       exact: true,
     }),
   ).toBeVisible();
   expect((await json<LocaleSnapshot>(page.request, base)).blocks).toHaveLength(2);
-  await imports.getByRole('button', { name: 'Import 1 selected', exact: true }).click();
+  await imports.getByRole('button', { name: 'Copy 1 selected', exact: true }).click();
   await expect(imports).not.toBeVisible();
   const importRequests = requests.filter((command) => command.type === 'importBlocks');
   expect(importRequests).toHaveLength(2);

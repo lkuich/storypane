@@ -70,6 +70,7 @@ import { useBlockClipboard } from './use-block-clipboard';
 import { ReviewDialog } from '../reviews/review-dialog';
 import { PageMapPanel } from '../page-map/page-map-panel';
 import { PreviewPanel } from './preview-panel';
+import { LocaleSourceDialog } from './locale-source-dialog';
 import { ReleaseStoryView } from './release-story-view';
 import { BlockPreview } from './block-preview';
 import { BlockNavigation, blockSummary, blockTitle, definitionFor } from './block-navigation';
@@ -420,6 +421,7 @@ function LocaleEditor({
     parentId: string;
     field: Extract<FieldDefinition, { type: 'blocks' }>;
   } | null>(null);
+  const [sourceScope, setSourceScope] = useState<string | null | undefined>(undefined);
   const [source, setSource] = useState<LocaleSnapshot | null>(null);
   const [importIds, setImportIds] = useState<string[]>([]);
   const [importError, setImportError] = useState<string | null>(null);
@@ -1036,6 +1038,14 @@ function LocaleEditor({
             >
               <Clock3 aria-hidden="true" />
             </Button>
+            {defaultLocale && snapshot.locale.id !== defaultLocale.id && (
+              <Button
+                disabled={busy || viewRelease || !can(session.space, 'content:edit')}
+                onClick={() => setSourceScope(null)}
+              >
+                <Globe2 aria-hidden="true" /> Updates from {defaultLocale.name}
+              </Button>
+            )}
             {!snapshot.story.formOnly && (
               <Button
                 aria-pressed={previewOpen}
@@ -1408,6 +1418,20 @@ function LocaleEditor({
                       </p>
                     </div>
                     <div className="button-group">
+                      {defaultLocale &&
+                        snapshot.locale.id !== defaultLocale.id &&
+                        block.id !== snapshot.locale.rootBlockId && (
+                          <Button
+                            variant="ghost"
+                            className="icon-button"
+                            aria-label={`Source updates for ${definition.displayName}`}
+                            title="Updates to this block"
+                            disabled={busy || !can(session.space, 'content:edit')}
+                            onClick={() => setSourceScope(block.id)}
+                          >
+                            <Globe2 aria-hidden="true" />
+                          </Button>
+                        )}
                       <Button
                         variant="ghost"
                         className="icon-button"
@@ -1743,7 +1767,7 @@ function LocaleEditor({
                                     }
                                     onClick={() => void startImport(block.id, field)}
                                   >
-                                    <Copy /> Import from {defaultLocale.name}
+                                    <Copy /> Copy blocks from {defaultLocale.name}…
                                   </Button>
                                 )}
                               </div>
@@ -2261,11 +2285,29 @@ function LocaleEditor({
           </>
         )}
       </Modal>
+      {sourceScope !== undefined && defaultLocale && (
+        <LocaleSourceDialog
+          key={`${snapshot.locale.id}:${sourceScope ?? 'page'}`}
+          snapshot={snapshot}
+          blockId={sourceScope ?? undefined}
+          sourceName={defaultLocale.name}
+          onClose={() => setSourceScope(undefined)}
+          prepare={async () => {
+            if (!(await editor.flush())) throw new Error('Save or resolve pending edits first.');
+            await editor.sync();
+          }}
+          apply={(input) =>
+            editor.runCommand({ type: 'updateLocaleSource', payload: input }, [
+              snapshot.locale.rootBlockId,
+            ])
+          }
+        />
+      )}
       <Modal
         open={!!importTo}
         onClose={() => !busy && setImportTo(null)}
-        title={`Import from ${defaultLocale?.name ?? 'default locale'}`}
-        description="Selected blocks and their nested content become independent copies in this locale."
+        title={`Copy blocks from ${defaultLocale?.name ?? 'default locale'}`}
+        description="Add independent copies to this field. To update existing content, use Updates from Default in the page toolbar."
         wide
       >
         <ErrorNotice message={importError} />
@@ -2275,7 +2317,13 @@ function LocaleEditor({
           source && (
             <div className="import-list">
               {outline(source)
-                .filter(({ block }) => !!block.parentId)
+                .filter(
+                  ({ block }) =>
+                    !!block.parentId &&
+                    !!importTo &&
+                    !!definitionFor(source, block) &&
+                    isBlockAllowed(importTo.field, definitionFor(source, block)!),
+                )
                 .map(({ block, depth }) => {
                   const definition = definitionFor(source, block);
                   const allowed =
@@ -2325,7 +2373,7 @@ function LocaleEditor({
             onClick={() => void importSelected()}
           >
             <Copy />
-            {busy ? 'Importing…' : `Import ${importIds.length} selected`}
+            {busy ? 'Copying…' : `Copy ${importIds.length} selected`}
           </Button>
         </div>
       </Modal>

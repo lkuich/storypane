@@ -1,0 +1,167 @@
+.locale-source-dialog {
+  display: grid;
+  gap: 18px;
+  min-width: 0;
+}
+.locale-source-dialog > p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.65;
+}
+.locale-source-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.locale-source-list {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+}
+.locale-source-list:empty {
+  display: none;
+}
+.locale-source-option {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px;
+  cursor: pointer;
+}
+.locale-source-option + .locale-source-option,
+.locale-source-change + .locale-source-change,
+.locale-source-pair + .locale-source-pair {
+  border-top: 1px solid var(--border);
+}
+.locale-source-option input {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+}
+.locale-source-option span,
+.locale-source-pair label {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+.locale-source-option small,
+.locale-source-pair small {
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.locale-source-change {
+  padding: 20px;
+}
+.locale-source-change header,
+.locale-source-pair {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(180px, 240px);
+  gap: 18px;
+  align-items: start;
+}
+.locale-source-pair {
+  padding: 16px;
+  align-items: center;
+}
+.locale-source-change h3 {
+  font-size: 15px;
+  margin: 8px 0;
+  overflow-wrap: anywhere;
+}
+.locale-source-change p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+.locale-source-status {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+.locale-source-status.is-safe {
+  color: var(--accent);
+}
+.locale-source-change select,
+.locale-source-pair select {
+  width: 100%;
+  min-width: 0;
+}
+.locale-source-change details {
+  margin-top: 16px;
+}
+.locale-source-dialog summary {
+  cursor: pointer;
+  font-weight: 600;
+  line-height: 1.6;
+}
+.locale-source-field h4 {
+  font-size: 13px;
+  margin: 18px 0 8px;
+}
+.locale-source-comparison {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+.locale-source-comparison > div {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+  min-width: 0;
+}
+.locale-source-comparison span {
+  color: var(--muted);
+  font-size: 11px;
+}
+.locale-source-comparison pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 240px;
+  overflow: auto;
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.6;
+  margin: 10px 0 0;
+}
+.locale-source-translation {
+  border-top: 1px solid var(--border);
+  padding-top: 16px;
+}
+.locale-source-translation > p {
+  color: var(--muted);
+  font-size: 13px;
+}
+.locale-source-translation > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 6px 0;
+}
+.locale-source-translation > div > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 600px) {
+  .locale-source-change header,
+  .locale-source-pair,
+  .locale-source-comparison {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .locale-source-change {
+    padding: 16px;
+  }
+  .locale-source-dialog .dialog-actions {
+    flex-wrap: wrap;
+  }
+  .locale-source-translation > div {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}

@@ -253,6 +253,7 @@ backup/restore, with an option to provision and remove a fresh Railway source.
 
 ## Documentation
 
+- [Locales and updates from Default](docs/locales.md)
 - [Reviews, comments and Teams](docs/reviews.md)
 
 - [Getting started](docs/getting-started.md) — installation and first steps.

@@ -298,11 +298,11 @@ test('locale imports copy blocks independently and restoration keeps history', a
     .getByRole('tab', { name: `${configured.name} ${configured.slug}`, exact: true })
     .click();
   await expect(page.getByRole('textbox', { name: /^Page title/ })).toBeEditable();
-  await page.getByRole('button', { name: 'Import from Default', exact: true }).click();
-  const imports = page.getByRole('dialog', { name: 'Import from Default' });
+  await page.getByRole('button', { name: 'Copy blocks from Default…', exact: true }).click();
+  const imports = page.getByRole('dialog', { name: 'Copy blocks from Default' });
   await imports.getByRole('checkbox').nth(0).check();
   await imports.getByRole('checkbox').nth(1).check();
-  await imports.getByRole('button', { name: 'Import 2 selected' }).click();
+  await imports.getByRole('button', { name: 'Copy 2 selected' }).click();
   await expect(imports).not.toBeVisible();
   const locales = await json<StoryLocale[]>(page.request, `/stories/${story.id}/locales`);
   const frenchBase = `/stories/${story.id}/locales/${locales.find((l) => l.slug === 'fr')!.id}`;

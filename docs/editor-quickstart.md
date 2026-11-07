@@ -317,8 +317,9 @@ upgrade details.
   different Hero instances. Block locks protect the selected block while teammates
   work elsewhere on the page.
 - **Locales:** configure them in **Settings → Locales**, then select a story's
-  locale tab. Locale content is independent. Importing from the default locale is
-  a one-time copy, not automatic translation; publish each locale separately.
+  locale tab. Use **Updates from Default** to create its initial copy or review
+  subsequent source changes while preserving translations. Publish each locale
+  separately. See [Locales and updates from Default](locales.md).
 - **Agent help:** use [For agents](https://storypane.dev/docs/agents/) for setup
   prompts, maintained skills, and scoped API/CLI/MCP access. An agent can help
   implement the frontend for this `page` / `hero` model; review its changes and
