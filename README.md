@@ -247,6 +247,9 @@ sample content and media. Use a disposable installation.
 The [webhook crash-recovery suite](docs/webhooks.md#real-https-and-process-crash-regression)
 creates its own isolated installation and public HTTPS test receiver. It requires
 Docker and `cloudflared` and runs separately from the default browser suite.
+The [operational regression runner](docs/deployment-verification.md#repeatable-operational-regressions)
+also covers scoped access, scheduled releases, upload recovery, outages and
+backup/restore, with an option to provision and remove a fresh Railway source.
 
 ## Documentation
 

@@ -1,4 +1,5 @@
-import { expect, test, type APIRequestContext } from '@playwright/test';
+import type { APIRequestContext } from '@playwright/test';
+import { expect, test } from './fixtures/operational';
 import { createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
 import type { ServerResponse } from 'node:http';
 import type {
@@ -9,18 +10,18 @@ import type {
   WebhookDelivery,
   WebhookEvent,
 } from '@storypane/core';
-import { webhookInstallation } from './fixtures/webhook-installation';
 
 test('signed HTTPS deliveries survive queued retries and a crash after receiver acceptance', async ({
   page,
+  installation: fixture,
 }) => {
   test.setTimeout(240_000);
-  const fixture = await webhookInstallation();
   const received: { body: string; id: string; timestamp: string; signature: string }[] = [];
   const effects = new Map<string, string>();
   const failures: string[] = [];
   const held: ServerResponse[] = [];
   const path = '/webhook/' + randomUUID();
+  const endpointName = 'Operational receiver ' + randomUUID();
   let secret = '',
     token = '',
     responseStatus = 503,
@@ -68,7 +69,7 @@ test('signed HTTPS deliveries survive queued retries and a crash after receiver 
       if (event.type === 'story.published' && !effects.has(event.id)) {
         const published = await fetch(
           fixture.origin + `/api/delivery/stories?space=${fixture.spaceId}`,
-          { headers: { Authorization: 'Bearer ' + token } },
+          { headers: { Authorization: 'Bearer ' + token }, signal: AbortSignal.timeout(10000) },
         );
         expect(published.status).toBe(200);
         effects.set(event.id, await published.text());
@@ -127,16 +128,16 @@ test('signed HTTPS deliveries survive queued retries and a crash after receiver 
       .click();
     await page.getByRole('button', { name: 'New webhook' }).click();
     const dialog = page.getByRole('dialog', { name: 'Create webhook' });
-    await dialog.getByLabel('Name', { exact: true }).fill('Operational receiver');
+    await dialog.getByLabel('Name', { exact: true }).fill(endpointName);
     await dialog.getByLabel('Endpoint URL').fill(fixture.destination + path);
     await dialog.getByRole('button', { name: 'Save webhook' }).click();
     const secretDialog = page.getByRole('dialog', { name: 'Save your webhook secret' });
     secret = await secretDialog.getByLabel('Signing secret').inputValue();
     expect(secret.startsWith('whsec_')).toBe(true);
     await secretDialog.getByRole('button', { name: 'Done' }).click();
-    const {
-      endpoints: [endpoint],
-    } = await api<{ endpoints: { id: string }[] }>(page.request, '/webhooks');
+    const endpoint = (
+      await api<{ endpoints: { id: string; name: string }[] }>(page.request, '/webhooks')
+    ).endpoints.find((item) => item.name === endpointName)!;
     const deliveries = async () =>
       (
         await api<{ deliveries: WebhookDelivery[] }>(
@@ -160,7 +161,7 @@ test('signed HTTPS deliveries survive queued retries and a crash after receiver 
     });
     expect(Date.parse(queued.nextAttemptAt)).toBeGreaterThan(Date.now());
     await refresh();
-    const logs = page.getByRole('dialog', { name: 'Deliveries · Operational receiver' });
+    const logs = page.getByRole('dialog', { name: 'Deliveries · ' + endpointName });
     await expect(logs.getByText('pending', { exact: true })).toBeVisible();
     await expect(logs.getByRole('button', { name: 'Retry delivery' })).toHaveCount(0);
     responseStatus = 204;
@@ -236,7 +237,7 @@ test('signed HTTPS deliveries survive queued retries and a crash after receiver 
     expect([...effects.values()][0]).toContain('APPROVED PUBLICATION');
     expect([...effects.values()][0]).not.toContain('LATER PRIVATE DRAFT');
     hold = false;
-    await fixture.restart(); // SIGKILL after acceptance, before the sender records a response.
+    await fixture.crash(); // Stop before the sender can record acceptance.
     held.forEach((response) => response.end());
     await expect
       .poll(async () => (await deliveries()).find((d) => d.id === publishing.id)?.status, {
@@ -275,6 +276,5 @@ test('signed HTTPS deliveries survive queued retries and a crash after receiver 
     await expect(logs).not.toBeVisible();
   } finally {
     held.forEach((response) => response.end());
-    await fixture.close();
   }
 });

@@ -390,3 +390,55 @@ See [the repeatable commands and prerequisites](webhooks.md#real-https-and-proce
 This verifies a local production Node build through public HTTPS. It does not
 complete Railway webhook acceptance, receiver database disaster recovery or
 production load testing. The broader acceptance checklist remains open.
+
+## Repeatable operational regressions
+
+The checks from the operational rehearsal now live in
+`tests/operational.recovery.ts`, alongside `tests/webhooks.recovery.ts`. They cover
+recipient-filtered HTTP/WebSocket snapshots with a real foreign lease, editor and
+preview revocation, a two-page scheduled release and multipart upload across a
+forced process exit, database outages, and a coordinated backup/restore with a
+pending signed outbox delivery. The restore target is separate local PostgreSQL
+and S3-compatible storage, even when the source is Railway.
+
+Run the full local suite with Node 24.22+, Docker, Google Chrome, `cloudflared` and
+outbound HTTPS available:
+
+```sh
+pnpm build
+pnpm exec vitest run tests/recovery-data.test.ts
+pnpm exec playwright test --config playwright.operational.config.ts
+```
+
+For a fresh Railway source, authenticate the Railway CLI and choose the billing
+workspace explicitly:
+
+```sh
+STORYPANE_RAILWAY_TEST_WORKSPACE_ID=<workspace-id> \
+  node --import tsx scripts/test-railway.ts
+```
+
+The runner deploys the published `storypane` template, which builds `main`, creates
+fresh administrator credentials, a database TCP proxy and a temporary SSH key,
+then runs the same suite. It changes the webhook allowlist only on that generated
+project and removes its project and SSH key afterwards. Railway charges apply.
+It never uses the CLI's linked project. The crash check requires the published
+image's single Node process as PID 1, and verifies that process start time changes.
+
+The suite uses real minute ticks and retry delays; allow several minutes. It
+stops the generated source during backup, captures all databases/roles, originals
+and runtime keys, compares every public table and original before endpoint
+rewrites, reruns transactional migrations and tests the restored application.
+The test enqueues one owned test delivery through the existing database service
+after stopping the source, so it remains pending in the backup. The restore also
+exercises the preserved token hashes and webhook encryption key.
+Unit tests check the row comparison against collation/property-order differences,
+lost/duplicated/changed rows, nested content order and scalar types. They also
+reject unrelated projects and invalid target origins before destructive testing.
+
+Private dumps, keys, logs and manifests stay under ignored
+`artifacts/operational-runs/` with restricted permissions. Do not publish that
+directory. Test media uses an isolated 256 MiB temporary filesystem; fixtures
+remove only their own containers. Traces remain disabled for signing secrets.
+These small-fixture checks do not establish production recovery times, a second
+hosted restore, production load limits or the complete acceptance checklist above.

@@ -162,6 +162,14 @@ References: [Railway buckets](https://docs.railway.com/storage-buckets),
 [vinext](https://github.com/cloudflare/vinext),
 [Sharp](https://sharp.pixelplumbing.com/api-resize/).
 
+## Repeat the operational checks
+
+Use the [operational regression runner](deployment-verification.md#repeatable-operational-regressions)
+to provision a disposable template in an explicitly selected Railway workspace.
+It tests crashes, scheduled work, scoped access, database outages and recovery
+from a coordinated backup, then removes its hosted resources. Never point these
+destructive checks at an existing installation.
+
 ## Optional Cloudflare image CDN
 
 Images work immediately using Storypane’s existing image service: private originals

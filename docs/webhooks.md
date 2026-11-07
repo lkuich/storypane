@@ -178,7 +178,8 @@ pnpm exec playwright test --config playwright.operational.config.ts
 This separate Playwright suite creates and removes its own PostgreSQL container,
 local-auth installation and temporary public HTTPS tunnel to a local test receiver.
 It uses fresh credentials, random loopback ports and sample content; it does not
-attach to your configured installation. No object storage is used in this test.
+attach to your configured installation. The shared fixture also provides isolated
+S3-compatible storage for the upload and restore regressions.
 The receiver hostname is explicitly allowlisted; the production DNS, HTTPS,
 signature and private-address checks remain enabled. The test prefers IPv4 for
 tunnel connectivity and ignores saved tunnel configuration.
@@ -193,8 +194,9 @@ Traces are disabled so the one-time secret is not captured.
 
 Allow several minutes and outbound access to the temporary tunnel service. This
 network-dependent suite is separate from the default browser suite and CI's Vitest
-checks. It tests a local production Node build through public HTTPS; it does not
-establish Railway webhook acceptance or production load limits.
+checks. The same suite can run against a fresh Railway template using the
+[operational test runner](deployment-verification.md#repeatable-operational-regressions).
+Passing runs establish only their recorded scenarios, not production load limits.
 
 The [2026-11-06 verification record](deployment-verification.md#webhook-process-recovery-regressions--2026-11-06)
 records a passing run, the dispatcher queue fix, focused unit/database coverage

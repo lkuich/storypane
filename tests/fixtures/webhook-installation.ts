@@ -1,26 +1,28 @@
 import assert from 'node:assert/strict';
 import { spawn, execFileSync, type ChildProcess } from 'node:child_process';
 import { once } from 'node:events';
-import { devNull } from 'node:os';
-import { getDefaultResultOrder, setDefaultResultOrder } from 'node:dns';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { createServer } from 'node:http';
 import { Pool } from 'pg';
+import { mkdirSync, mkdtempSync, openSync, closeSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { expect } from '@playwright/test';
 import { Installation } from '@storypane/db/installation';
 import { prepareRailway } from '../../scripts/prepare-railway';
+import { publicWebhookReceiver } from './webhook-receiver';
+import { startTestMedia } from './test-media';
 
 export async function webhookInstallation() {
-  const dnsOrder = getDefaultResultOrder();
-  // Prefer IPv4 for the public tunnel on hosts without reliable IPv6 routing.
-  setDefaultResultOrder('ipv4first');
+  mkdirSync('artifacts/operational-runs', { recursive: true, mode: 0o700 });
+  const directory = mkdtempSync(resolve('artifacts/operational-runs/local-'));
+  const webhook = await publicWebhookReceiver();
+  let media: Awaited<ReturnType<typeof startTestMedia>> | undefined;
   const container = `storypane-webhook-test-${randomUUID()}`;
   const spaceId = randomUUID();
   const password = randomBytes(24).toString('hex');
   const email = 'admin@webhook.test';
-  let app: ChildProcess | undefined, tunnel: ChildProcess | undefined;
+  let app: ChildProcess | undefined;
   let installation: Installation | undefined;
-  const receiver = createServer();
   const docker = (...args: string[]) =>
     execFileSync('docker', args, {
       encoding: 'utf8',
@@ -35,12 +37,10 @@ export async function webhookInstallation() {
   }
   async function close() {
     await stop(app);
-    await stop(tunnel);
-    receiver.closeAllConnections();
-    if (receiver.listening) await new Promise<void>((resolve) => receiver.close(() => resolve()));
+    await webhook.close();
+    await media?.close();
     await installation?.pool.end();
     docker('rm', '--force', container);
-    setDefaultResultOrder(dnsOrder);
   }
   try {
     docker(
@@ -79,45 +79,6 @@ export async function webhookInstallation() {
       await operator.end();
     }
 
-    receiver.listen(0, '127.0.0.1');
-    await once(receiver, 'listening');
-    const receiverAddress = receiver.address();
-    assert(receiverAddress && typeof receiverAddress !== 'string');
-    tunnel = spawn(
-      'cloudflared',
-      [
-        'tunnel',
-        '--config',
-        devNull,
-        '--no-autoupdate',
-        '--protocol',
-        'http2',
-        '--url',
-        `http://127.0.0.1:${receiverAddress.port}`,
-      ],
-      { stdio: ['ignore', 'ignore', 'pipe'] },
-    );
-    const destination = await new Promise<string>((resolve, reject) => {
-      let log = '',
-        url = '';
-      const timer = setTimeout(
-        () => reject(new Error('Public HTTPS test tunnel did not start')),
-        60_000,
-      );
-      tunnel!.once('error', (error) => {
-        clearTimeout(timer);
-        reject(error);
-      });
-      tunnel!.stderr!.on('data', (chunk) => {
-        log = (log + String(chunk)).slice(-8192);
-        const match = log.match(/https:\/\/[a-z0-9-]+\.trycloudflare\.com/);
-        if (match) url = match[0];
-        if (url && log.includes('Registered tunnel connection')) {
-          clearTimeout(timer);
-          resolve(url);
-        }
-      });
-    });
     // Bind the CMS port before handing it to the child so we never reuse a running installation.
     const probe = createServer();
     probe.listen(0, '127.0.0.1');
@@ -126,6 +87,7 @@ export async function webhookInstallation() {
     assert(address && typeof address !== 'string');
     const origin = `http://127.0.0.1:${address.port}`;
     await new Promise<void>((resolve) => probe.close(() => resolve()));
+    media = await startTestMedia();
     const env = {
       ...process.env,
       AUTH_PROVIDER: 'local',
@@ -137,18 +99,13 @@ export async function webhookInstallation() {
       INSTALLATION_ENCRYPTION_KEY: randomBytes(32).toString('base64'),
       BETTER_AUTH_SECRET: randomBytes(32).toString('hex'),
       WEBHOOK_ENCRYPTION_KEY: randomBytes(32).toString('base64'),
-      WEBHOOK_HOSTS: new URL(destination).hostname,
+      WEBHOOK_HOSTS: new URL(webhook.destination).hostname,
       STORYPANE_ADMIN_NAME: 'Webhook tester',
       STORYPANE_ADMIN_EMAIL: email,
       STORYPANE_ADMIN_PASSWORD: password,
       SMTP_URL: '',
       MAIL_FROM: '',
-      S3_ENDPOINT: 'http://127.0.0.1:1',
-      S3_REGION: 'us-east-1',
-      S3_BUCKET: 'unused',
-      S3_ACCESS_KEY_ID: 'unused',
-      S3_SECRET_ACCESS_KEY: 'unused',
-      S3_FORCE_PATH_STYLE: 'true',
+      ...media.env,
     };
     await prepareRailway(env);
     installation = new Installation({
@@ -172,14 +129,16 @@ export async function webhookInstallation() {
       await selected.close();
     }
     async function start() {
+      const log = openSync(directory + '/app.log', 'a', 0o600);
       app = spawn(
         process.execPath,
         ['--dns-result-order=ipv4first', '--import', 'tsx', 'apps/web/src/node.ts'],
         {
           env,
-          stdio: 'ignore',
+          stdio: ['ignore', log, log],
         },
       );
+      closeSync(log);
       await expect
         .poll(
           async () => {
@@ -204,8 +163,20 @@ export async function webhookInstallation() {
       spaceId,
       email,
       password,
-      destination,
-      receiver,
+      destination: webhook.destination,
+      receiver: webhook.receiver,
+      environment: env,
+      operatorURL: source,
+      databaseSSL: false as const,
+      installation,
+      async crash() {
+        await stop(app);
+        await start();
+      },
+      async stop() {
+        await stop(app);
+      },
+      start,
       close,
       async restart() {
         await stop(app);
