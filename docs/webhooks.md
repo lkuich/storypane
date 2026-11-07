@@ -199,5 +199,6 @@ checks. The same suite can run against a fresh Railway template using the
 Passing runs establish only their recorded scenarios, not production load limits.
 
 The [2026-11-06 verification record](deployment-verification.md#webhook-process-recovery-regressions--2026-11-06)
-records a passing run, the dispatcher queue fix, focused unit/database coverage
-and the remaining acceptance limits.
+records the original local run and dispatcher fix. The
+[2026-11-07 operational record](deployment-verification.md#automated-operational-checks--2026-11-07)
+adds the repeatable Railway and backup/restore checks and their acceptance limits.

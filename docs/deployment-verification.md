@@ -442,3 +442,57 @@ directory. Test media uses an isolated 256 MiB temporary filesystem; fixtures
 remove only their own containers. Traces remain disabled for signing secrets.
 These small-fixture checks do not establish production recovery times, a second
 hosted restore, production load limits or the complete acceptance checklist above.
+
+## Automated operational checks — 2026-11-07
+
+Checked CMS runtime revision `674b4b4` with the new test suite in an isolated
+checkout, preserving concurrent application work in the primary checkout. The
+fresh Railway project `5f0d5675-4dff-4654-9b4c-ccb73a21b82a` completed all five
+tests in 9.2 minutes. Its application, databases, private bucket, TCP proxy and
+registered SSH key were removed by the runner afterwards.
+
+- All five operational Playwright tests passed locally, including recipient-safe
+  snapshots and revocation, interrupted multipart/release recovery, database
+  outages, backup/restore and signed webhook retry/claim recovery. The isolated
+  run took 4.8 minutes.
+- All 78 focused Vitest tests passed against a separate disposable database,
+  including 10 new backup-comparison and destructive-target guard tests. SDK,
+  application and both examples passed type checks; lint and the Node production
+  build passed.
+- A new published Railway template was provisioned with one app replica,
+  PostgreSQL and a private bucket. Scoped HTTP/WebSocket snapshots and editor/
+  preview revocation passed. A forced process exit changed the process start time;
+  the upload resumed byte-identically and the minute scheduler published both
+  approved pages while preserving their later drafts. Database outages recovered
+  without losing the existing session or blocking the healthy space.
+
+- The Railway backup captured five databases and two original objects totalling
+  10,972,883 bytes. Every public table, role flag/password hash and original matched
+  before endpoint changes. Original administrator sign-in, access to every space and
+  token-authorized APIs, private originals, WebP variants and authenticated preview
+  passed after restore. The pending test delivery was signed with the preserved
+  key and completed on the restored installation. Backup took 49 seconds and data
+  restore/startup took 7 seconds; these are small-fixture measurements.
+- Railway's real HTTPS receiver independently verified signatures. A queued 503
+  retry survived restart with the same event/payload and a fresh signature.
+  Crashing the sender after receiver acceptance recovered the expired claim,
+  retained interrupted attempt history and redelivered the same event. Receiver
+  deduplication produced one effect, and delivery excluded later drafts.
+- The [CI run for the test commit](https://github.com/lkuich/storypane/actions/runs/42353311132)
+  passed, including dedicated database/isolation/Railway setup tests, type checks,
+  lint, production and Docker builds and packed SDK validation.
+
+The stricter crash assertion caught an initial false positive: `SIGKILL` sent
+inside the container did not terminate PID 1. The corrected hosted fixture uses
+Node's loopback inspector to request an immediate exit without the application's
+shutdown handler, disconnects the inspector, and requires a changed process start
+time before continuing. Railway's explicit `deploymentStopped` flag and an
+unavailable readiness endpoint verify source shutdown for backup; deployment
+`SUCCESS` alone cannot do that. A local MinIO free-disk threshold exposed a fixture
+limit; only disposable test media now uses a bounded temporary filesystem.
+
+These checks use generated sample data. The restore target remains local;
+production recovery objectives, hosted failover, live SMTP/upstream provider
+revocation, the remaining schema/CLI/release matrix, security review and load
+benchmarks remain open. This is scoped operational evidence, not full production
+acceptance.

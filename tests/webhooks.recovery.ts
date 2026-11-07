@@ -15,7 +15,7 @@ test('signed HTTPS deliveries survive queued retries and a crash after receiver 
   page,
   installation: fixture,
 }) => {
-  test.setTimeout(240_000);
+  test.setTimeout(300_000);
   const received: { body: string; id: string; timestamp: string; signature: string }[] = [];
   const effects = new Map<string, string>();
   const failures: string[] = [];
