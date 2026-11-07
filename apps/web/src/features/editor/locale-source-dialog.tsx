@@ -2,7 +2,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Check, RefreshCw } from 'lucide-react';
 import { Button, EmptyState, ErrorNotice, Loading, Modal } from '@storypane/ui';
-import type { LocaleSnapshot, LocaleSourceInput, LocaleSourceReview, Json } from '@storypane/core';
+import type {
+  LocaleSnapshot,
+  LocaleSourceInput,
+  LocaleSourceReview,
+  Json,
+  CommitResult,
+} from '@storypane/core';
 import { api, errorMessage } from './api';
 import { blockTitle, blockSummary } from './block-navigation';
 import './locale-source.css';
@@ -26,7 +32,7 @@ export function LocaleSourceDialog({
   sourceName: string;
   onClose: () => void;
   prepare: () => Promise<void>;
-  apply: (input: LocaleSourceInput) => Promise<unknown>;
+  apply: (input: LocaleSourceInput) => Promise<CommitResult>;
 }) {
   const [review, setReview] = useState<LocaleSourceReview | null>(null),
     [error, setError] = useState(''),
@@ -69,7 +75,11 @@ export function LocaleSourceDialog({
     setBusy(true);
     setError('');
     try {
-      await apply(input);
+      const result = await apply(input);
+      if (blockId && !result.snapshot.blocks.some((block) => block.id === blockId)) {
+        onClose();
+        return;
+      }
       setNotice(
         input.action === 'copy'
           ? 'Content copied. Translate and review it before publishing.'

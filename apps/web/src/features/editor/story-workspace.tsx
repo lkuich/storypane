@@ -2285,24 +2285,26 @@ function LocaleEditor({
           </>
         )}
       </Modal>
-      {sourceScope !== undefined && defaultLocale && (
-        <LocaleSourceDialog
-          key={`${snapshot.locale.id}:${sourceScope ?? 'page'}`}
-          snapshot={snapshot}
-          blockId={sourceScope ?? undefined}
-          sourceName={defaultLocale.name}
-          onClose={() => setSourceScope(undefined)}
-          prepare={async () => {
-            if (!(await editor.flush())) throw new Error('Save or resolve pending edits first.');
-            await editor.sync();
-          }}
-          apply={(input) =>
-            editor.runCommand({ type: 'updateLocaleSource', payload: input }, [
-              snapshot.locale.rootBlockId,
-            ])
-          }
-        />
-      )}
+      {sourceScope !== undefined &&
+        defaultLocale &&
+        (!sourceScope || snapshot.blocks.some((block) => block.id === sourceScope)) && (
+          <LocaleSourceDialog
+            key={`${snapshot.locale.id}:${sourceScope ?? 'page'}`}
+            snapshot={snapshot}
+            blockId={sourceScope ?? undefined}
+            sourceName={defaultLocale.name}
+            onClose={() => setSourceScope(undefined)}
+            prepare={async () => {
+              if (!(await editor.flush())) throw new Error('Save or resolve pending edits first.');
+              await editor.sync();
+            }}
+            apply={(input) =>
+              editor.runCommand({ type: 'updateLocaleSource', payload: input }, [
+                snapshot.locale.rootBlockId,
+              ])
+            }
+          />
+        )}
       <Modal
         open={!!importTo}
         onClose={() => !busy && setImportTo(null)}

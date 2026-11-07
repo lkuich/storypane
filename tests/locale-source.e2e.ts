@@ -127,6 +127,13 @@ test('create, compare, keep translations and apply scoped locale updates with ke
     await dialog.getByRole('button', { name: 'Apply 1 update', exact: true }).click();
     await dialog.getByRole('button', { name: 'Done', exact: true }).click();
     await expect(title).toHaveValue('Next English hero');
+    await installation.db.query('DELETE FROM block_drafts WHERE id=$1', [hero.id]);
+    await page.getByRole('button', { name: 'Source updates for Hero', exact: true }).click();
+    dialog = page.getByRole('dialog');
+    await expect(dialog.getByText('Removed in source', { exact: true })).toBeVisible();
+    await dialog.getByRole('combobox').selectOption('apply');
+    await dialog.getByRole('button', { name: 'Apply 1 update', exact: true }).click();
+    await expect(dialog).not.toBeVisible();
     expect(errors).toEqual([]);
   } finally {
     await context.close();
