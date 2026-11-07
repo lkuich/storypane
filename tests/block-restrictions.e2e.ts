@@ -19,6 +19,8 @@ test('keeps selected allowed blocks visible across scrolling, search and tabs', 
       ? []
       : [{ name: 'body', label: 'Body', type: 'blocks', allowedDefinitionIds: [id(23), id(24)] }],
   }));
+  definitions[22].parentDefinitionId = id(1);
+  definitions[24].kind = 'universal';
   definitions[24].displayName = 'Shared section with a long name that wraps on small screens';
   await page.route('**/api/cms/definitions**', (route) => {
     expect(route.request().method()).toBe('GET');
@@ -55,6 +57,24 @@ test('keeps selected allowed blocks visible across scrolling, search and tabs', 
   await expect(choices.getByRole('checkbox')).toHaveCount(0);
   await expect(selected.getByRole('button')).toHaveCount(2);
   await picker.getByRole('button', { name: 'Blocks', exact: true }).click();
+  const excludeNested = picker.getByRole('checkbox', { name: 'Exclude nested blocks' });
+  await expect(excludeNested).not.toBeChecked();
+  await expect(choices.getByRole('checkbox')).toHaveCount(24);
+  await search.focus();
+  await page.keyboard.press('Tab');
+  await expect(excludeNested).toBeFocused();
+  await page.keyboard.press('Space');
+  await expect(choices.getByRole('checkbox')).toHaveCount(1);
+  await expect(choices.getByRole('checkbox', { name: /Shared section/ })).toBeChecked();
+  await expect(selected.getByRole('button')).toHaveCount(2);
+  await search.fill('Section 23');
+  await expect(choices.getByRole('checkbox')).toHaveCount(0);
+  await picker.getByRole('button', { name: 'Nested', exact: true }).click();
+  await expect(excludeNested).toHaveCount(0);
+  await expect(choices.getByRole('checkbox', { name: /Section 23/ })).toBeChecked();
+  await picker.getByRole('button', { name: 'Blocks', exact: true }).click();
+  await expect(excludeNested).toBeChecked();
+  await excludeNested.uncheck();
   await expect(selected.getByRole('button')).toHaveCount(2);
   await expect(choices.getByRole('checkbox', { name: /Section 23/ })).toBeChecked();
   await selected.getByRole('button', { name: 'Remove Section 23 from allowed blocks' }).focus();
@@ -68,6 +88,12 @@ test('keeps selected allowed blocks visible across scrolling, search and tabs', 
   await selected.scrollIntoViewIfNeeded();
   await page.screenshot({ path: testInfo.outputPath('allowed-blocks-selected-desktop.png') });
   await page.setViewportSize({ width: 390, height: 844 });
+  await excludeNested.focus();
+  await page.keyboard.press('Space');
+  await expect(excludeNested).toBeChecked();
+  await expect(choices.getByRole('checkbox')).toHaveCount(1);
+  await expect(selected.getByRole('button')).toHaveCount(2);
+  await page.keyboard.press('Space');
   await selected.scrollIntoViewIfNeeded();
   await expect
     .poll(() =>

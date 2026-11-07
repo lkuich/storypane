@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.1.0-rc.4 — 2026-11-07
+
+- Add story and block reviews, comments, inline @mentions, and a Reviews inbox.
+  Teams live under Members & roles with configurable approval thresholds.
+- Enforce review approvals at publication and scheduling boundaries, preserving
+  content scopes and invalidating approvals when reviewed content changes.
+- Unify comment and review composition, add block-row comment buttons, and
+  improve invitations, empty states, refresh controls, and the page map height.
+- Display selected blocks without waiting for the previous edit lock to release;
+  protect rapid navigation and new leases from stale snapshots. Load rich-text
+  code on demand and keep hover previews stable across unrelated lock updates.
+- Add a personal block hover preview setting under API & preview.
+- Add the optional nested-block filter and simplify pinned-story rows.
+- Preview saved release versions read-only and retain review decisions by content
+  version, keeping later draft changes separate from approved releases.
+- Advance CMS and SDK versions together; there is no new SDK API in this candidate.
+  Apply space migrations 030 (reviews and Teams), 031 (personal block previews),
+  and 032 (release previews and versioned review decisions) with the transactional
+  migration runner. Preserve databases, media and keys.
+
+See [Reviews and comments](docs/reviews.md) and the
+[verification record](docs/deployment-verification.md). This is an evaluation
+candidate, not a stable production release.
+
 ## 0.1.0-rc.3 — 2026-11-06
 
 - Prepare fresh Railway installations automatically, including the isolated

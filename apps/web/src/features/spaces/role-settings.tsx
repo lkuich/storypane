@@ -21,6 +21,7 @@ const labels: Record<Permission, string> = {
   'content:read': 'Read content',
   'content:edit': 'Create and edit content',
   'content:publish': 'Publish content',
+  'content:review': 'Review content',
   'assets:write': 'Upload and manage assets',
   'schemas:write': 'Manage block schemas',
   'datasources:write': 'Manage datasources',

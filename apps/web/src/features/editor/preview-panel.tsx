@@ -29,6 +29,7 @@ export function PreviewPanel({
   selectedId,
   onSelect,
   component,
+  schedule,
 }: {
   settings: UserDeliverySettings | null;
   onSettings: (settings: UserDeliverySettings) => void;
@@ -39,6 +40,7 @@ export function PreviewPanel({
   selectedId: string | null;
   onSelect: (id: string) => Promise<void>;
   component?: ComponentPreview;
+  schedule?: { id: string; revision: number };
 }) {
   const [error, setError] = useState(''),
     [status, setStatus] = useState('Waiting for your app'),
@@ -85,6 +87,8 @@ export function PreviewPanel({
     url.searchParams.set(settings.previewParameter, '1');
   }
   const targetId = target?.id;
+  const scheduleId = schedule?.id,
+    scheduleRevision = schedule?.revision;
   const src = url?.href,
     origin = url?.origin;
   useEffect(() => {
@@ -121,7 +125,10 @@ export function PreviewPanel({
         try {
           const session = await api<PreviewSession>(
             `/stories/${current.story.id}/locales/${current.locale.id}/preview`,
-            jsonRequest('POST', { previewId: targetId }),
+            jsonRequest('POST', {
+              previewId: targetId,
+              ...(scheduleId ? { scheduleId, scheduleRevision } : {}),
+            }),
           );
           if (!stopped) {
             setError('');
@@ -156,7 +163,9 @@ export function PreviewPanel({
       if (data?.type === 'storypane:status' && typeof data.status === 'string')
         setStatus(
           data.status === 'connected'
-            ? 'Live preview'
+            ? scheduleId
+              ? 'Release preview'
+              : 'Live preview'
             : data.status === 'error'
               ? 'Preview unavailable'
               : 'Connecting…',
@@ -183,7 +192,7 @@ export function PreviewPanel({
       stopped = true;
       window.removeEventListener('message', message);
     };
-  }, [origin, src, targetId, spaceId, generation]);
+  }, [origin, src, targetId, spaceId, generation, scheduleId, scheduleRevision]);
   useEffect(() => {
     if (origin)
       iframe.current?.contentWindow?.postMessage(
@@ -287,6 +296,7 @@ export function PreviewPanel({
               ref={iframe}
               key={`${target?.id}:${src}:${generation}`}
               src={src}
+              loading="lazy"
               title={component ? 'Block preview' : 'Live application preview'}
               referrerPolicy="no-referrer"
               tabIndex={component ? -1 : undefined}

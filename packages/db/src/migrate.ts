@@ -45,6 +45,9 @@ export async function migrate(
       '027_content_releases',
       '028_page_connections',
       '029_personal_preview',
+      '030_reviews',
+      '031_block_previews',
+      '032_release_previews',
     ]) {
       if (included && !included.has(name)) continue;
       if (

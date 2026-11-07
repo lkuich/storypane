@@ -18,6 +18,7 @@ export function BlockRestrictions({
 }) {
   const [query, setQuery] = useState('');
   const [chosenTab, setChosenTab] = useState<'nested' | 'blocks' | null>(null);
+  const [excludeNested, setExcludeNested] = useState(false);
   const search = useRef<HTMLInputElement>(null);
   const selected = field.allowedDefinitionIds ?? [];
   const eligible = definitions.filter((item) => item.kind !== 'content-type');
@@ -25,7 +26,10 @@ export function BlockRestrictions({
     (item) => definitionId && item.parentDefinitionId === definitionId,
   );
   const tab = chosenTab ?? (nested.length ? 'nested' : 'blocks');
-  const choices = tab === 'nested' ? nested : eligible;
+  const choices =
+    tab === 'nested'
+      ? nested
+      : eligible.filter((item) => !excludeNested || !item.parentDefinitionId);
   const filtered = choices.filter((item) =>
     `${item.displayName} ${item.name} ${(item.tags ?? []).join(' ')}`
       .toLowerCase()
@@ -68,6 +72,16 @@ export function BlockRestrictions({
             onChange={(event) => setQuery(event.target.value)}
           />
         </div>
+        {tab === 'blocks' && (
+          <label className="checkbox-field">
+            <input
+              type="checkbox"
+              checked={excludeNested}
+              onChange={(event) => setExcludeNested(event.target.checked)}
+            />
+            Exclude nested blocks
+          </label>
+        )}
         <div className="restriction-selection">
           <span>
             {field.allowedTags?.length

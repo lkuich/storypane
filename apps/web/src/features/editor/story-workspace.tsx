@@ -26,6 +26,8 @@ import {
   Layers,
   LockKeyhole,
   Monitor,
+  MessageSquare,
+  CheckCheck,
   MoreHorizontal,
   Plus,
   RotateCcw,
@@ -36,6 +38,7 @@ import {
   Upload,
 } from 'lucide-react';
 import type {
+  Discussion,
   BlockDefinition,
   BlockDraft,
   UserDeliverySettings,
@@ -64,8 +67,10 @@ import { FieldInput } from './field-input';
 import type { NavigationGuard, RegisterGuard } from './navigation';
 import { useStoryEditor } from './use-story-editor';
 import { useBlockClipboard } from './use-block-clipboard';
+import { ReviewDialog } from '../reviews/review-dialog';
 import { PageMapPanel } from '../page-map/page-map-panel';
 import { PreviewPanel } from './preview-panel';
+import { ReleaseStoryView } from './release-story-view';
 import { BlockPreview } from './block-preview';
 import { BlockNavigation, blockSummary, blockTitle, definitionFor } from './block-navigation';
 import { SchemaDrawer } from '../schema/schema-drawer';
@@ -133,10 +138,11 @@ export function StoryWorkspace({
     setLoading(true);
     setError(null);
     void (async () => {
-      const [available, blocks, configured] = await Promise.all([
+      const [available, blocks, configured, settings] = await Promise.all([
         api<StoryLocale[]>(`/stories/${story.id}/locales`),
         api<BlockDefinition[]>('/definitions?deployed=true'),
         api<SpaceLocale[]>('/locales'),
+        api<UserDeliverySettings>('/delivery-settings').catch(() => null),
       ]);
       const requestedLocale = new URLSearchParams(window.location.search).get('locale');
       const target =
@@ -168,6 +174,7 @@ export function StoryWorkspace({
       );
       setConfiguredLocales(configured);
       setDefinitions(blocks);
+      setPreviewSettings(settings);
       setInitialSnapshot(snapshot);
       setStoryLocation(
         story.id,
@@ -315,14 +322,55 @@ function LocaleEditor({
   onLocale: (id: string) => void;
   onManageLocales: () => void;
 }) {
+  const [scheduledRelease, setScheduledRelease] = useState<PublicationSchedule | null>(null);
+  const [viewRelease, setViewRelease] = useState(false);
+  const [releaseView, setReleaseView] = useState<{
+    id: string;
+    revision: number;
+    snapshot: LocaleSnapshot;
+  } | null>(null);
+  const [releaseError, setReleaseError] = useState<string | null>(null);
+  const [switchingView, setSwitchingView] = useState(false);
   const editor = useStoryEditor({
     storyId: story.id,
     initialSnapshot,
     userId: session.user.id,
     sessionId: session.sessionId,
     spaceId: session.space.id,
-    editable: can(session.space, 'content:edit'),
+    editable: !viewRelease && can(session.space, 'content:edit'),
   });
+  const releaseId = scheduledRelease?.id;
+  const releaseRevision = scheduledRelease?.revision;
+  useEffect(() => {
+    setReleaseView(null);
+    setReleaseError(null);
+    if (!viewRelease) return;
+    if (!releaseId || !releaseRevision) {
+      setViewRelease(false);
+      return;
+    }
+    let stopped = false;
+    void api<LocaleSnapshot>(`${editor.base}/schedules/${releaseId}?revision=${releaseRevision}`)
+      .then((value) => {
+        if (!stopped) setReleaseView({ id: releaseId, revision: releaseRevision, snapshot: value });
+      })
+      .catch((cause) => {
+        if (!stopped) setReleaseError(errorMessage(cause));
+      });
+    return () => {
+      stopped = true;
+    };
+  }, [viewRelease, releaseId, releaseRevision, editor.base]);
+  async function toggleRelease(checked: boolean) {
+    setSwitchingView(true);
+    try {
+      if (await editor.leave()) setViewRelease(checked);
+    } catch (cause) {
+      editor.setError(errorMessage(cause));
+    } finally {
+      setSwitchingView(false);
+    }
+  }
   useEffect(() => {
     let stopped = false;
     void api<BlockDefinition[]>('/definitions?deployed=true')
@@ -408,6 +456,36 @@ function LocaleEditor({
     if (command?.type === 'publishCheckpoint') setReview(null);
   }, [editor.completedCommand]);
   const snapshot = editor.snapshot;
+  const visibleSnapshot = viewRelease && releaseView ? releaseView.snapshot : snapshot;
+  const [discussionScope, setDiscussionScope] = useState<{
+    blockId: string | null;
+    request: boolean;
+  } | null>(null);
+  const [discussions, setDiscussions] = useState<Discussion[]>([]);
+  useEffect(() => {
+    let stopped = false;
+    const refresh = () =>
+      api<Discussion[]>(
+        `/reviews?${new URLSearchParams({ storyId: story.id, localeId: snapshot.locale.id })}`,
+      )
+        .then((items) => {
+          if (!stopped) setDiscussions(items);
+        })
+        .catch(() => {
+          if (!stopped) setDiscussions([]);
+        });
+    void refresh();
+    const timer = setInterval(() => void refresh(), 30000);
+    window.addEventListener('reviews-changed', refresh);
+    return () => {
+      stopped = true;
+      clearInterval(timer);
+      window.removeEventListener('reviews-changed', refresh);
+    };
+  }, [story.id, snapshot.locale.id, snapshot.revision]);
+  const pendingReviews = discussions.filter(
+    (item) => item.kind === 'review' && ['pending', 'changes_requested'].includes(item.status),
+  );
   const pageEditors = usePageEditors(
     true,
     snapshot.leases
@@ -453,6 +531,7 @@ function LocaleEditor({
       : (snapshot.publicationStatus ?? 'changed');
   const referenceSelection = publicationSelection(review, referenceChoices);
   const reviewPublishDisabled =
+    !!review?.reviewBlocked ||
     !referenceSelection.complete ||
     !can(session.space, 'content:publish') ||
     review?.snapshot.access?.publish === false ||
@@ -804,6 +883,7 @@ function LocaleEditor({
       !structureDisabled &&
       !!item.parentId &&
       !!item.parentField &&
+      snapshot?.access?.blocks[item.parentId]?.fields[item.parentField]?.edit !== false &&
       !isLocked(item.id, item.parentId)
     );
   }
@@ -929,13 +1009,17 @@ function LocaleEditor({
       <div className="story-heading">
         <div className="story-identity">
           <div className="story-title-status">
-            <h1>{snapshot.story.name}</h1>
-            <PublicationStatus status={publicationStatus} localeName={snapshot.locale.name} />
+            <h1>{visibleSnapshot.story.name}</h1>
+            {viewRelease ? (
+              <span className="pill">Release version · Read-only</span>
+            ) : (
+              <PublicationStatus status={publicationStatus} localeName={snapshot.locale.name} />
+            )}
           </div>
           <div className="story-metadata">
             <span className="story-path mono">
-              /{snapshot.locale.slug ? `${snapshot.locale.slug}/` : ''}
-              {snapshot.locale.urlSlug}
+              /{visibleSnapshot.locale.slug ? `${visibleSnapshot.locale.slug}/` : ''}
+              {visibleSnapshot.locale.urlSlug}
             </span>
             <CopyableValue value={snapshot.story.id} label="Page ID" name={snapshot.story.name} />
           </div>
@@ -948,7 +1032,7 @@ function LocaleEditor({
               aria-label="History"
               title="Story history"
               onClick={() => void openHistory()}
-              disabled={busy}
+              disabled={busy || viewRelease}
             >
               <Clock3 aria-hidden="true" />
             </Button>
@@ -968,17 +1052,28 @@ function LocaleEditor({
               </Button>
             )}
             <Button
-              variant="primary"
-              onClick={() => void openReview()}
-              disabled={
-                !can(session.space, 'content:publish') ||
-                snapshot.access?.publish === false ||
-                busy ||
-                editor.connection !== 'connected'
-              }
+              onClick={() => setDiscussionScope({ blockId: null, request: false })}
+              disabled={busy || viewRelease || snapshot.access?.complete === false}
             >
-              <Upload aria-hidden="true" /> Review & publish
+              <MessageSquare aria-hidden="true" /> Reviews & comments
             </Button>
+            {can(session.space, 'content:publish') && snapshot.access?.publish !== false ? (
+              <Button
+                variant="primary"
+                onClick={() => void openReview()}
+                disabled={busy || viewRelease || editor.connection !== 'connected'}
+              >
+                <Upload aria-hidden="true" /> Review & publish
+              </Button>
+            ) : (
+              <Button
+                variant="primary"
+                onClick={() => setDiscussionScope({ blockId: null, request: true })}
+                disabled={busy || viewRelease || snapshot.access?.complete === false}
+              >
+                <CheckCheck aria-hidden="true" /> Request review
+              </Button>
+            )}
             {(can(session.space, 'content:edit') ||
               (snapshot.locale.publishedVersionId &&
                 can(session.space, 'content:publish') &&
@@ -986,7 +1081,7 @@ function LocaleEditor({
               <ActionDropdown
                 label="Story actions"
                 icon={<MoreHorizontal aria-hidden="true" />}
-                disabled={busy}
+                disabled={busy || viewRelease}
               >
                 {snapshot.locale.publishedVersionId &&
                   can(session.space, 'content:publish') &&
@@ -1030,7 +1125,7 @@ function LocaleEditor({
             <EditorAvatars editors={currentEditors} currentUserId={session.user.id} />
             <span className="save-status" data-state={state} role="status" aria-live="polite">
               <span className="status-dot" />
-              {label}
+              {viewRelease ? 'Read-only release version' : label}
             </span>
           </div>
         </div>
@@ -1064,34 +1159,49 @@ function LocaleEditor({
         canPublish={can(session.space, 'content:publish') && snapshot.access?.publish !== false}
         onReview={(id) => void openReview(id)}
         onUpdate={() => void openReview()}
+        onChange={setScheduledRelease}
+        readOnly={viewRelease}
       />
-      <div
-        className={`publication-note story-publication-note${publicationStatus === 'published' ? ' publication-note--live' : ''}`}
-        role="status"
-      >
-        {publicationStatus === 'draft' ? (
-          <>
-            <FileText aria-hidden="true" />
-            <span>
-              <strong>{snapshot.locale.name} is a draft.</strong> This locale is not live until you
-              publish it.
-            </span>
-          </>
-        ) : publicationStatus === 'changed' ? (
-          <>
-            <Clock3 aria-hidden="true" />
-            <span>
-              <strong>Unpublished changes.</strong> The previously published version of{' '}
-              {snapshot.locale.name} is still live.
-            </span>
-          </>
-        ) : (
-          <>
-            <Check aria-hidden="true" />
-            <span>{snapshot.locale.name} is published. No pending changes.</span>
-          </>
-        )}
-      </div>
+      {scheduledRelease && (
+        <label className="checkbox-row release-view-toggle">
+          <input
+            type="checkbox"
+            checked={viewRelease}
+            disabled={switchingView || busy}
+            onChange={(event) => void toggleRelease(event.target.checked)}
+          />
+          View release version (read-only)
+        </label>
+      )}
+      {!viewRelease && (
+        <div
+          className={`publication-note story-publication-note${publicationStatus === 'published' ? ' publication-note--live' : ''}`}
+          role="status"
+        >
+          {publicationStatus === 'draft' ? (
+            <>
+              <FileText aria-hidden="true" />
+              <span>
+                <strong>{snapshot.locale.name} is a draft.</strong> This locale is not live until
+                you publish it.
+              </span>
+            </>
+          ) : publicationStatus === 'changed' ? (
+            <>
+              <Clock3 aria-hidden="true" />
+              <span>
+                <strong>Unpublished changes.</strong> The previously published version of{' '}
+                {snapshot.locale.name} is still live.
+              </span>
+            </>
+          ) : (
+            <>
+              <Check aria-hidden="true" />
+              <span>{snapshot.locale.name} is published. No pending changes.</span>
+            </>
+          )}
+        </div>
+      )}
       <div className="locale-bar">
         <div className="locale-tabs" role="tablist" aria-label="Story locale">
           {configuredLocales.map((locale) => (
@@ -1122,7 +1232,11 @@ function LocaleEditor({
           ))}
         </div>
         <div className="button-group">
-          <Button variant="ghost" onClick={onManageLocales} disabled={switchingLocale}>
+          <Button
+            variant="ghost"
+            onClick={onManageLocales}
+            disabled={switchingLocale || viewRelease}
+          >
             <Globe2 /> Manage locales
           </Button>
           {snapshot.locale.publishedVersionId && (
@@ -1180,420 +1294,529 @@ function LocaleEditor({
           device.
         </div>
       )}
-      <div
-        className={
-          previewOpen && !snapshot.story.formOnly && snapshot.access?.preview !== false
-            ? 'visual-workspace'
-            : undefined
-        }
-      >
-        {previewOpen && !snapshot.story.formOnly && (
-          <div className="story-preview-column">
-            {snapshot.access?.preview !== false && (
-              <PreviewPanel
-                settings={previewSettings}
-                onSettings={onPreviewSettings}
-                previewId={previewId}
-                onPreviewId={onPreviewId}
-                snapshot={snapshot}
-                spaceId={session.space.id}
-                selectedId={editor.selectedId}
-                onSelect={editor.select}
-              />
-            )}
-            <PageMapPanel storyId={story.id} locale={snapshot.locale.slug} onOpen={onOpen} />
-          </div>
-        )}
+      {pendingReviews.length > 0 && (
+        <div className="notice story-review-notice" role="status">
+          <span>
+            <strong>
+              {pendingReviews.length} {pendingReviews.length === 1 ? 'review is' : 'reviews are'}{' '}
+              awaiting approval.
+            </strong>{' '}
+            Publishing unapproved changes is blocked.
+          </span>
+          <Button
+            className="button--small"
+            onClick={() =>
+              setDiscussionScope({ blockId: pendingReviews[0].blockId, request: false })
+            }
+          >
+            View reviews
+          </Button>
+        </div>
+      )}
+      {discussionScope && (
+        <ReviewDialog
+          key={`${snapshot.locale.id}:${discussionScope.blockId}`}
+          storyId={story.id}
+          localeId={snapshot.locale.id}
+          blockId={discussionScope.blockId}
+          scopeName={`${snapshot.story.name} · ${snapshot.locale.name} · ${
+            discussionScope.blockId
+              ? snapshot.blocks.some((item) => item.id === discussionScope.blockId)
+                ? blockTitle(
+                    snapshot,
+                    snapshot.blocks.find((item) => item.id === discussionScope.blockId)!,
+                  )
+                : 'Removed block'
+              : 'Whole story'
+          }`}
+          onClose={() => setDiscussionScope(null)}
+          beforeRequest={editor.flush}
+          refreshKey={snapshot.revision}
+          request={discussionScope.request}
+        />
+      )}
+      {viewRelease ? (
+        releaseView && releaseView.id === releaseId && releaseView.revision === releaseRevision ? (
+          <ReleaseStoryView
+            key={`${releaseView.id}:${releaseView.revision}`}
+            snapshot={releaseView.snapshot}
+            schedule={{ id: releaseView.id, revision: releaseView.revision }}
+            previewOpen={previewOpen}
+            settings={previewSettings}
+            onSettings={onPreviewSettings}
+            previewId={previewId}
+            onPreviewId={onPreviewId}
+            spaceId={session.space.id}
+          />
+        ) : releaseError ? (
+          <ErrorNotice message={releaseError} />
+        ) : (
+          <Loading label="Loading approved release version…" />
+        )
+      ) : (
         <div
-          className="editor-layout"
-          id="locale-editor"
-          role="tabpanel"
-          aria-labelledby={`locale-tab-${snapshot.locale.spaceLocaleId}`}
+          className={
+            previewOpen && !snapshot.story.formOnly && snapshot.access?.preview !== false
+              ? 'visual-workspace'
+              : undefined
+          }
         >
-          <section className="panel editor-panel" aria-label="Block editor">
-            <BlockNavigation
-              snapshot={snapshot}
-              selectedId={editor.selectedId}
-              editors={currentEditors}
-              currentUserId={session.user.id}
-              onSelect={editor.select}
-              onOutline={() => setOutlineOpen(true)}
-            />
-            {block && definition ? (
-              <>
-                <div className="editor-panel-heading">
-                  <div>
-                    <h2>{definition.displayName}</h2>
-                    <p>
-                      <span className="mono">{definition.name}</span> · schema v{definition.version}
-                      <PendingSchemaMigration definitionId={definition.id} schemaOpen={!!schema} />
-                    </p>
+          {previewOpen && !snapshot.story.formOnly && (
+            <div className="story-preview-column">
+              {snapshot.access?.preview !== false && (
+                <PreviewPanel
+                  settings={previewSettings}
+                  onSettings={onPreviewSettings}
+                  previewId={previewId}
+                  onPreviewId={onPreviewId}
+                  snapshot={snapshot}
+                  spaceId={session.space.id}
+                  selectedId={editor.selectedId}
+                  onSelect={editor.select}
+                />
+              )}
+              <PageMapPanel storyId={story.id} locale={snapshot.locale.slug} onOpen={onOpen} />
+            </div>
+          )}
+          <div
+            className="editor-layout"
+            id="locale-editor"
+            role="tabpanel"
+            aria-labelledby={`locale-tab-${snapshot.locale.spaceLocaleId}`}
+          >
+            <section className="panel editor-panel" aria-label="Block editor">
+              <BlockNavigation
+                snapshot={snapshot}
+                selectedId={editor.selectedId}
+                editors={currentEditors}
+                currentUserId={session.user.id}
+                onSelect={editor.select}
+                onOutline={() => setOutlineOpen(true)}
+              />
+              {block && definition ? (
+                <>
+                  <div className="editor-panel-heading">
+                    <div>
+                      <h2>{definition.displayName}</h2>
+                      <p>
+                        <span className="mono">{definition.name}</span> · schema v
+                        {definition.version}
+                        <PendingSchemaMigration
+                          definitionId={definition.id}
+                          schemaOpen={!!schema}
+                        />
+                      </p>
+                    </div>
+                    <div className="button-group">
+                      <Button
+                        variant="ghost"
+                        className="icon-button"
+                        aria-label={`Comments and review for ${definition.displayName}`}
+                        title="Block comments and review"
+                        disabled={busy || snapshot.access?.blocks[block.id]?.complete === false}
+                        onClick={() => setDiscussionScope({ blockId: block.id, request: false })}
+                      >
+                        <MessageSquare aria-hidden="true" />
+                      </Button>
+                      {copiedBlock && (
+                        <Button
+                          variant="ghost"
+                          disabled={busy}
+                          onClick={() =>
+                            void action(async () => {
+                              await writeClipboardText('');
+                              setClipboardNotice('Clipboard cleared.');
+                            })
+                          }
+                        >
+                          <ClipboardX aria-hidden="true" /> Clear clipboard
+                        </Button>
+                      )}
+                      {definition.kind !== 'content-type' && (
+                        <Button
+                          variant="ghost"
+                          disabled={busy}
+                          onClick={() => void action(() => copyBlock(block.id))}
+                        >
+                          <Copy aria-hidden="true" />
+                          Copy block
+                        </Button>
+                      )}
+                      {can(session.space, 'schemas:write') && (
+                        <Button
+                          id="edit-block-schema"
+                          variant="ghost"
+                          onClick={() => void openSchema()}
+                          disabled={busy}
+                          title={`Edit ${definition.displayName} schema`}
+                        >
+                          <Settings2 aria-hidden="true" /> Edit schema
+                        </Button>
+                      )}
+                      {ownsLease ? (
+                        <EditorAvatars
+                          editors={[
+                            {
+                              userId: session.user.id,
+                              name: session.user.name,
+                              avatarUrl:
+                                currentEditors.find((item) => item.userId === session.user.id)
+                                  ?.avatarUrl ?? null,
+                              locales: [snapshot.locale.name],
+                            },
+                          ]}
+                          currentUserId={session.user.id}
+                        />
+                      ) : editor.connection === 'connecting' ? (
+                        <span className="pill">Connecting…</span>
+                      ) : (
+                        <Button
+                          onClick={() =>
+                            void action(async () => {
+                              await editor.acquire(block.id);
+                              await editor.sync();
+                            })
+                          }
+                          disabled={
+                            !can(session.space, 'content:edit') ||
+                            snapshot.access?.blocks[block.id]?.edit === false ||
+                            busy ||
+                            editor.connection !== 'connected'
+                          }
+                        >
+                          <LockKeyhole />{' '}
+                          {can(session.space, 'content:edit') &&
+                          snapshot.access?.blocks[block.id]?.edit !== false
+                            ? 'Start editing'
+                            : 'Read only'}
+                        </Button>
+                      )}
+                    </div>
                   </div>
-                  <div className="button-group">
-                    {copiedBlock && (
-                      <Button
-                        variant="ghost"
-                        disabled={busy}
-                        onClick={() =>
-                          void action(async () => {
-                            await writeClipboardText('');
-                            setClipboardNotice('Clipboard cleared.');
-                          })
-                        }
-                      >
-                        <ClipboardX aria-hidden="true" /> Clear clipboard
-                      </Button>
-                    )}
-                    {definition.kind !== 'content-type' && (
-                      <Button
-                        variant="ghost"
-                        disabled={busy}
-                        onClick={() => void action(() => copyBlock(block.id))}
-                      >
-                        <Copy aria-hidden="true" />
-                        Copy block
-                      </Button>
-                    )}
-                    {can(session.space, 'schemas:write') && (
-                      <Button
-                        id="edit-block-schema"
-                        variant="ghost"
-                        onClick={() => void openSchema()}
-                        disabled={busy}
-                        title={`Edit ${definition.displayName} schema`}
-                      >
-                        <Settings2 aria-hidden="true" /> Edit schema
-                      </Button>
-                    )}
-                    {ownsLease ? (
-                      <EditorAvatars
-                        editors={[
-                          {
-                            userId: session.user.id,
-                            name: session.user.name,
-                            avatarUrl:
-                              currentEditors.find((item) => item.userId === session.user.id)
-                                ?.avatarUrl ?? null,
-                            locales: [snapshot.locale.name],
-                          },
-                        ]}
+                  {selectedLease && (
+                    <div className="locked-banner">
+                      <LockKeyhole />
+                      <BlockEditorAvatar
+                        blockId={block.id}
+                        snapshot={snapshot}
+                        editors={currentEditors}
                         currentUserId={session.user.id}
                       />
-                    ) : editor.connection === 'connecting' ? (
-                      <span className="pill">Connecting…</span>
-                    ) : (
-                      <Button
-                        onClick={() =>
-                          void action(async () => {
-                            await editor.acquire(block.id);
-                            await editor.sync();
-                          })
-                        }
-                        disabled={
-                          !can(session.space, 'content:edit') ||
-                          snapshot.access?.blocks[block.id]?.edit === false ||
-                          busy ||
-                          editor.connection !== 'connected'
-                        }
-                      >
-                        <LockKeyhole />{' '}
-                        {can(session.space, 'content:edit') &&
-                        snapshot.access?.blocks[block.id]?.edit !== false
-                          ? 'Start editing'
-                          : 'Read only'}
-                      </Button>
-                    )}
-                  </div>
-                </div>
-                {selectedLease && (
-                  <div className="locked-banner">
-                    <LockKeyhole />
-                    <BlockEditorAvatar
-                      blockId={block.id}
-                      snapshot={snapshot}
-                      editors={currentEditors}
-                      currentUserId={session.user.id}
-                    />
-                    <span>
-                      {selectedEditor?.name ?? 'Another editor'} is working on this block. Other
-                      blocks are available.
-                    </span>
-                  </div>
-                )}
-                {blockError && (
-                  <div className="panel-body" style={{ paddingBottom: 0 }}>
-                    <ErrorNotice message={blockError.message} retry={() => void editor.retry()} />
-                    {['stale_revision', 'forbidden'].includes(blockError.code) && currentBuffer && (
-                      <>
-                        <p className="small muted">
-                          Copy your unsaved content before using the saved version. It will not be
-                          overwritten automatically.
-                        </p>
-                        <div className="button-group">
-                          <Button onClick={() => void copyRecovery()}>
-                            <Copy /> Copy my changes
-                          </Button>
-                          <Button
-                            onClick={() => {
-                              if (
-                                window.confirm(
-                                  'Discard your local unsaved changes and use the saved block?',
-                                )
-                              )
-                                void editor.discard(block.id);
-                            }}
-                          >
-                            Use saved version
-                          </Button>
-                        </div>
-                        <details style={{ marginTop: 12 }}>
-                          <summary className="small">View my unsaved content</summary>
-                          <pre>{JSON.stringify(currentBuffer.fields, null, 2)}</pre>
-                        </details>
-                      </>
-                    )}
-                  </div>
-                )}
-                <div className="editor-fields">
-                  {definition.fields.map((field) =>
-                    snapshot.access?.blocks[block.id]?.fields[field.name]?.read === false ? (
-                      <p className="field-hint" key={field.name}>
-                        Restricted field — your role cannot read this value.
-                      </p>
-                    ) : field.type === 'blocks' ? (
-                      <div className="field" key={field.name}>
-                        <div className="field-heading">
-                          <span className="field-label">
-                            {field.label}
-                            {field.required ? ' *' : ''}
-                          </span>
-                          {fieldSchemaAction(field)}
-                        </div>
-                        {field.description && <p className="field-hint">{field.description}</p>}
-                        <fieldset
-                          className="block-list"
-                          disabled={
-                            snapshot.access?.blocks[block.id]?.fields[field.name]?.edit === false
-                          }
-                          style={{ padding: 0, margin: 0, minWidth: 0 }}
-                        >
-                          {snapshot.blocks
-                            .filter(
-                              (item) =>
-                                item.parentId === block.id && item.parentField === field.name,
-                            )
-                            .sort((a, b) => a.position - b.position)
-                            .map((child, position, siblings) => (
-                              <Fragment key={child.id}>
-                                <div className="block-list-insert">
-                                  {canPaste(block.id, field) && (
-                                    <Button
-                                      variant="ghost"
-                                      className="block-insert-paste"
-                                      disabled={disabled}
-                                      aria-label={`Paste block before ${blockTitle(snapshot, child)}`}
-                                      title="Paste block here"
-                                      onClick={() =>
-                                        void action(() => readAndPaste(block.id, field, position))
-                                      }
-                                    >
-                                      <ClipboardPaste aria-hidden="true" />
-                                    </Button>
-                                  )}
-                                  <Button
-                                    variant="ghost"
-                                    className="block-insert-add"
-                                    disabled={
-                                      disabled ||
-                                      (field.maxItems !== undefined &&
-                                        siblings.length >= field.maxItems)
-                                    }
-                                    aria-label={`Add block before ${blockTitle(snapshot, child)}`}
-                                    title="Add block here"
-                                    onClick={() => {
-                                      setAddTo({ parentId: block.id, field, position });
-                                      setAddDefinition('');
-                                      setBlockSearch('');
-                                    }}
-                                  >
-                                    <Plus aria-hidden="true" />
-                                  </Button>
-                                </div>
-                                <div
-                                  className="block-list-item"
-                                  data-preview-block={child.id}
-                                  {...sortableProps(child)}
-                                >
-                                  {dragHandle(child)}
-                                  <button
-                                    className="entity-title"
-                                    onClick={() => void editor.select(child.id)}
-                                  >
-                                    {blockTitle(snapshot, child)}
-                                  </button>
-                                  <span className="small muted">{blockSummary(child)}</span>
-                                  <div className="button-group">
-                                    <BlockEditorAvatar
-                                      blockId={child.id}
-                                      snapshot={snapshot}
-                                      editors={currentEditors}
-                                      currentUserId={session.user.id}
-                                    />
-                                    <Button
-                                      variant="ghost"
-                                      className="icon-button"
-                                      disabled={busy}
-                                      aria-label={`Copy ${blockTitle(snapshot, child)}`}
-                                      title="Copy block and nested content"
-                                      onClick={() => void action(() => copyBlock(child.id))}
-                                    >
-                                      <Copy aria-hidden="true" />
-                                    </Button>
-                                    <Button
-                                      variant="ghost"
-                                      className="icon-button"
-                                      disabled={disabled}
-                                      aria-label={`Remove ${blockTitle(snapshot, child)}`}
-                                      onClick={() => {
-                                        if (
-                                          window.confirm(
-                                            `Remove ${blockTitle(snapshot, child)} and its nested blocks? You can restore the page from history.`,
-                                          )
-                                        )
-                                          void action(() =>
-                                            editor.runCommand(
-                                              {
-                                                type: 'deleteBlock',
-                                                payload: { blockId: child.id },
-                                              },
-                                              [child.id, block.id],
-                                            ),
-                                          );
-                                      }}
-                                    >
-                                      <Trash2 />
-                                    </Button>
-                                  </div>
-                                </div>
-                              </Fragment>
-                            ))}
-                          {!snapshot.blocks.some(
-                            (item) => item.parentId === block.id && item.parentField === field.name,
-                          ) && (
-                            <div className="empty-block-list">
-                              Add a block to start composing this section.
-                            </div>
-                          )}
-                          <div className="block-list-add">
+                      <span>
+                        {selectedEditor?.name ?? 'Another editor'} is working on this block. Other
+                        blocks are available.
+                      </span>
+                    </div>
+                  )}
+                  {blockError && (
+                    <div className="panel-body" style={{ paddingBottom: 0 }}>
+                      <ErrorNotice message={blockError.message} retry={() => void editor.retry()} />
+                      {['stale_revision', 'forbidden'].includes(blockError.code) &&
+                        currentBuffer && (
+                          <>
+                            <p className="small muted">
+                              Copy your unsaved content before using the saved version. It will not
+                              be overwritten automatically.
+                            </p>
                             <div className="button-group">
+                              <Button onClick={() => void copyRecovery()}>
+                                <Copy /> Copy my changes
+                              </Button>
                               <Button
-                                variant="ghost"
-                                disabled={
-                                  disabled ||
-                                  (field.maxItems !== undefined &&
-                                    snapshot.blocks.filter(
-                                      (item) =>
-                                        item.parentId === block.id &&
-                                        item.parentField === field.name,
-                                    ).length >= field.maxItems)
-                                }
                                 onClick={() => {
-                                  setAddTo({ parentId: block.id, field });
-                                  setAddDefinition('');
-                                  setBlockSearch('');
+                                  if (
+                                    window.confirm(
+                                      'Discard your local unsaved changes and use the saved block?',
+                                    )
+                                  )
+                                    void editor.discard(block.id);
                                 }}
                               >
-                                <Plus /> Add block
+                                Use saved version
                               </Button>
-                              {canPaste(block.id, field) && (
+                            </div>
+                            <details style={{ marginTop: 12 }}>
+                              <summary className="small">View my unsaved content</summary>
+                              <pre>{JSON.stringify(currentBuffer.fields, null, 2)}</pre>
+                            </details>
+                          </>
+                        )}
+                    </div>
+                  )}
+                  <div className="editor-fields">
+                    {definition.fields.map((field) =>
+                      snapshot.access?.blocks[block.id]?.fields[field.name]?.read === false ? (
+                        <p className="field-hint" key={field.name}>
+                          Restricted field — your role cannot read this value.
+                        </p>
+                      ) : field.type === 'blocks' ? (
+                        <div className="field" key={field.name}>
+                          <div className="field-heading">
+                            <span className="field-label">
+                              {field.label}
+                              {field.required ? ' *' : ''}
+                            </span>
+                            {fieldSchemaAction(field)}
+                          </div>
+                          {field.description && <p className="field-hint">{field.description}</p>}
+                          <div
+                            className="block-list"
+                            style={{ padding: 0, margin: 0, minWidth: 0 }}
+                          >
+                            {snapshot.blocks
+                              .filter(
+                                (item) =>
+                                  item.parentId === block.id && item.parentField === field.name,
+                              )
+                              .sort((a, b) => a.position - b.position)
+                              .map((child, position, siblings) => (
+                                <Fragment key={child.id}>
+                                  <div className="block-list-insert">
+                                    {canPaste(block.id, field) && (
+                                      <Button
+                                        variant="ghost"
+                                        className="block-insert-paste"
+                                        disabled={
+                                          disabled ||
+                                          snapshot.access?.blocks[block.id]?.fields[field.name]
+                                            ?.edit === false
+                                        }
+                                        aria-label={`Paste block before ${blockTitle(snapshot, child)}`}
+                                        title="Paste block here"
+                                        onClick={() =>
+                                          void action(() => readAndPaste(block.id, field, position))
+                                        }
+                                      >
+                                        <ClipboardPaste aria-hidden="true" />
+                                      </Button>
+                                    )}
+                                    <Button
+                                      variant="ghost"
+                                      className="block-insert-add"
+                                      disabled={
+                                        disabled ||
+                                        snapshot.access?.blocks[block.id]?.fields[field.name]
+                                          ?.edit === false ||
+                                        (field.maxItems !== undefined &&
+                                          siblings.length >= field.maxItems)
+                                      }
+                                      aria-label={`Add block before ${blockTitle(snapshot, child)}`}
+                                      title="Add block here"
+                                      onClick={() => {
+                                        setAddTo({ parentId: block.id, field, position });
+                                        setAddDefinition('');
+                                        setBlockSearch('');
+                                      }}
+                                    >
+                                      <Plus aria-hidden="true" />
+                                    </Button>
+                                  </div>
+                                  <div
+                                    className="block-list-item"
+                                    data-preview-block={child.id}
+                                    {...sortableProps(child)}
+                                  >
+                                    {dragHandle(child)}
+                                    <button
+                                      className="entity-title"
+                                      onClick={() => void editor.select(child.id)}
+                                    >
+                                      {blockTitle(snapshot, child)}
+                                    </button>
+                                    <span className="small muted">{blockSummary(child)}</span>
+                                    <div className="button-group">
+                                      <BlockEditorAvatar
+                                        blockId={child.id}
+                                        snapshot={snapshot}
+                                        editors={currentEditors}
+                                        currentUserId={session.user.id}
+                                      />
+                                      <Button
+                                        variant="ghost"
+                                        className="icon-button"
+                                        aria-label={`Comments and review for ${blockTitle(snapshot, child)}`}
+                                        title="Block comments and review"
+                                        disabled={
+                                          busy ||
+                                          snapshot.access?.blocks[child.id]?.complete === false
+                                        }
+                                        onClick={() =>
+                                          setDiscussionScope({ blockId: child.id, request: false })
+                                        }
+                                      >
+                                        <MessageSquare aria-hidden="true" />
+                                      </Button>
+                                      <Button
+                                        variant="ghost"
+                                        className="icon-button"
+                                        disabled={busy}
+                                        aria-label={`Copy ${blockTitle(snapshot, child)}`}
+                                        title="Copy block and nested content"
+                                        onClick={() => void action(() => copyBlock(child.id))}
+                                      >
+                                        <Copy aria-hidden="true" />
+                                      </Button>
+                                      <Button
+                                        variant="ghost"
+                                        className="icon-button"
+                                        disabled={
+                                          disabled ||
+                                          snapshot.access?.blocks[block.id]?.fields[field.name]
+                                            ?.edit === false
+                                        }
+                                        aria-label={`Remove ${blockTitle(snapshot, child)}`}
+                                        onClick={() => {
+                                          if (
+                                            window.confirm(
+                                              `Remove ${blockTitle(snapshot, child)} and its nested blocks? You can restore the page from history.`,
+                                            )
+                                          )
+                                            void action(() =>
+                                              editor.runCommand(
+                                                {
+                                                  type: 'deleteBlock',
+                                                  payload: { blockId: child.id },
+                                                },
+                                                [child.id, block.id],
+                                              ),
+                                            );
+                                        }}
+                                      >
+                                        <Trash2 />
+                                      </Button>
+                                    </div>
+                                  </div>
+                                </Fragment>
+                              ))}
+                            {!snapshot.blocks.some(
+                              (item) =>
+                                item.parentId === block.id && item.parentField === field.name,
+                            ) && (
+                              <div className="empty-block-list">
+                                Add a block to start composing this section.
+                              </div>
+                            )}
+                            <div className="block-list-add">
+                              <div className="button-group">
                                 <Button
                                   variant="ghost"
-                                  disabled={disabled}
-                                  onClick={() => void action(() => readAndPaste(block.id, field))}
+                                  disabled={
+                                    disabled ||
+                                    snapshot.access?.blocks[block.id]?.fields[field.name]?.edit ===
+                                      false ||
+                                    (field.maxItems !== undefined &&
+                                      snapshot.blocks.filter(
+                                        (item) =>
+                                          item.parentId === block.id &&
+                                          item.parentField === field.name,
+                                      ).length >= field.maxItems)
+                                  }
+                                  onClick={() => {
+                                    setAddTo({ parentId: block.id, field });
+                                    setAddDefinition('');
+                                    setBlockSearch('');
+                                  }}
                                 >
-                                  <ClipboardPaste aria-hidden="true" />
-                                  Paste block
+                                  <Plus /> Add block
                                 </Button>
-                              )}
-                              {defaultLocale && snapshot.locale.id !== defaultLocale.id && (
-                                <Button
-                                  variant="ghost"
-                                  disabled={disabled}
-                                  onClick={() => void startImport(block.id, field)}
-                                >
-                                  <Copy /> Import from {defaultLocale.name}
-                                </Button>
-                              )}
+                                {canPaste(block.id, field) && (
+                                  <Button
+                                    variant="ghost"
+                                    disabled={
+                                      disabled ||
+                                      snapshot.access?.blocks[block.id]?.fields[field.name]
+                                        ?.edit === false
+                                    }
+                                    onClick={() => void action(() => readAndPaste(block.id, field))}
+                                  >
+                                    <ClipboardPaste aria-hidden="true" />
+                                    Paste block
+                                  </Button>
+                                )}
+                                {defaultLocale && snapshot.locale.id !== defaultLocale.id && (
+                                  <Button
+                                    variant="ghost"
+                                    disabled={
+                                      disabled ||
+                                      snapshot.access?.blocks[block.id]?.fields[field.name]
+                                        ?.edit === false
+                                    }
+                                    onClick={() => void startImport(block.id, field)}
+                                  >
+                                    <Copy /> Import from {defaultLocale.name}
+                                  </Button>
+                                )}
+                              </div>
                             </div>
                           </div>
-                        </fieldset>
-                      </div>
-                    ) : (
-                      <FieldInput
-                        key={`${block.id}:${field.name}`}
-                        optionContext={{
-                          storyId: snapshot.story.id,
-                          localeId: snapshot.locale.id,
-                          blockId: block.id,
-                          fieldName: field.name,
-                        }}
-                        referenceRefreshKey={snapshot.locale.publishedVersionId ?? ''}
-                        field={field}
-                        labelAction={fieldSchemaAction(field)}
-                        value={fields[field.name]}
-                        disabled={
-                          disabled ||
-                          snapshot.access?.blocks[block.id]?.fields[field.name]?.edit === false ||
-                          blockError?.code === 'stale_revision'
-                        }
-                        onChange={(value) => editor.edit(block, field.name, value)}
-                        error={
-                          blockError?.details?.find(
-                            (issue) =>
-                              issue.path === field.name ||
-                              issue.path === `${block.id}.${field.name}`,
-                          )?.message
-                        }
-                      />
-                    ),
-                  )}
-                  {!definition.fields.length && (
-                    <EmptyState title="This block has no fields yet">
-                      Add fields in the block library to create a new schema version.
-                    </EmptyState>
-                  )}
+                        </div>
+                      ) : (
+                        <FieldInput
+                          key={`${block.id}:${field.name}`}
+                          optionContext={{
+                            storyId: snapshot.story.id,
+                            localeId: snapshot.locale.id,
+                            blockId: block.id,
+                            fieldName: field.name,
+                          }}
+                          referenceRefreshKey={snapshot.locale.publishedVersionId ?? ''}
+                          field={field}
+                          labelAction={fieldSchemaAction(field)}
+                          value={fields[field.name]}
+                          disabled={
+                            disabled ||
+                            snapshot.access?.blocks[block.id]?.fields[field.name]?.edit === false ||
+                            blockError?.code === 'stale_revision'
+                          }
+                          onChange={(value) => editor.edit(block, field.name, value)}
+                          error={
+                            blockError?.details?.find(
+                              (issue) =>
+                                issue.path === field.name ||
+                                issue.path === `${block.id}.${field.name}`,
+                            )?.message
+                          }
+                        />
+                      ),
+                    )}
+                    {!definition.fields.length && (
+                      <EmptyState title="This block has no fields yet">
+                        Add fields in the block library to create a new schema version.
+                      </EmptyState>
+                    )}
+                  </div>
+                  <div className="editor-footer">
+                    <span>Block revision {block.revision}</span>
+                    <span>Changes save automatically</span>
+                  </div>
+                </>
+              ) : currentBuffer ? (
+                <div className="panel-body">
+                  <ErrorNotice message="This block was removed while your edits were unsaved. Your content is preserved here." />
+                  <pre>{JSON.stringify(currentBuffer.fields, null, 2)}</pre>
+                  <div className="button-group">
+                    <Button onClick={() => void copyRecovery()}>
+                      <Copy /> Copy my changes
+                    </Button>
+                    <Button
+                      onClick={() => {
+                        if (window.confirm('Discard this recovery copy?'))
+                          void editor.discard(editor.selectedId!);
+                      }}
+                    >
+                      Discard recovery copy
+                    </Button>
+                  </div>
                 </div>
-                <div className="editor-footer">
-                  <span>Block revision {block.revision}</span>
-                  <span>Changes save automatically</span>
-                </div>
-              </>
-            ) : currentBuffer ? (
-              <div className="panel-body">
-                <ErrorNotice message="This block was removed while your edits were unsaved. Your content is preserved here." />
-                <pre>{JSON.stringify(currentBuffer.fields, null, 2)}</pre>
-                <div className="button-group">
-                  <Button onClick={() => void copyRecovery()}>
-                    <Copy /> Copy my changes
-                  </Button>
-                  <Button
-                    onClick={() => {
-                      if (window.confirm('Discard this recovery copy?'))
-                        void editor.discard(editor.selectedId!);
-                    }}
-                  >
-                    Discard recovery copy
-                  </Button>
-                </div>
-              </div>
-            ) : (
-              <EmptyState title="Select a block">
-                Choose a block from the outline to edit its content.
-              </EmptyState>
-            )}
-          </section>
+              ) : (
+                <EmptyState title="Select a block">
+                  Choose a block from the outline to edit its content.
+                </EmptyState>
+              )}
+            </section>
+          </div>
         </div>
-      </div>
+      )}
       {schema && (
         <SchemaDrawer
           initialDefinition={schema.definition}
@@ -1852,9 +2075,11 @@ function LocaleEditor({
           </Button>
         </footer>
       </Modal>
-      {!snapshot.story.formOnly &&
+      {!viewRelease &&
+        !snapshot.story.formOnly &&
         snapshot.access?.preview !== false &&
-        (!previewSettings || previewSettings.previewUrls.length > 0) && (
+        previewSettings?.blockPreviews !== false &&
+        !!previewSettings?.previewUrls.length && (
           <BlockPreview
             key={snapshot.locale.id}
             definitions={definitions}
@@ -1959,6 +2184,12 @@ function LocaleEditor({
                   . Check links to the old URL.
                 </p>
               )}
+            {review.reviewBlocked && (
+              <p className="notice notice--warning" role="status">
+                Publishing is blocked by an outstanding review. Open Reviews & comments to complete
+                the required approvals for this content version.
+              </p>
+            )}
             <PublicationChangesView review={review} />
             <PublicationReferences
               review={review}

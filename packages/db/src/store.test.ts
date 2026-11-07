@@ -1416,6 +1416,7 @@ describe('Postgres collaboration and immutable history', () => {
       defaultPreviewId: null,
       previewParameter: 'storypane_preview',
       personalDefaultPreviewId: null,
+      blockPreviews: true,
     });
     const local = { id: randomUUID(), name: 'Local', url: 'http://localhost:3131/{locale}/{slug}' };
     const staging = {
@@ -1435,13 +1436,23 @@ describe('Postgres collaboration and immutable history', () => {
     expect(await store.getDeliverySettings(bob)).toEqual({
       ...settings,
       personalDefaultPreviewId: null,
+      blockPreviews: true,
     });
+    await store.updatePersonalPreview(bob, { previewId: local.id, blockPreviews: false });
+    expect((await store.getDeliverySettings(bob)).blockPreviews).toBe(false);
+    expect((await store.getDeliverySettings(alice)).blockPreviews).toBe(true);
+    await expect(
+      store.updatePersonalPreview(bob, { previewId: local.id, blockPreviews: 'false' }),
+    ).rejects.toMatchObject({ code: 'invalid' });
+    // Older clients changing only their default must preserve the hover preference.
     await store.updatePersonalPreview(bob, { previewId: local.id });
+    expect((await store.getDeliverySettings(bob)).blockPreviews).toBe(false);
     expect((await store.getDeliverySettings(bob)).personalDefaultPreviewId).toBe(local.id);
     expect((await store.getDeliverySettings(alice)).personalDefaultPreviewId).toBeNull();
     const otherSpace = await store.createSpace(bob, { name: 'Other preview space' });
     const otherActor = { ...bob, spaceId: otherSpace.id };
     expect((await store.getDeliverySettings(otherActor)).personalDefaultPreviewId).toBeNull();
+    expect((await store.getDeliverySettings(otherActor)).blockPreviews).toBe(true);
     await expect(
       store.updatePersonalPreview(otherActor, { previewId: local.id }),
     ).rejects.toMatchObject({ code: 'invalid' });

@@ -6,6 +6,7 @@ import {
 } from './content-permissions.js';
 export * from './content-permissions.js';
 export * from './management.js';
+export * from './reviews.js';
 
 export type Json = null | boolean | number | string | Json[] | { [key: string]: Json };
 export type Actor = {
@@ -64,6 +65,7 @@ export const permissions = [
   'content:read',
   'content:edit',
   'content:publish',
+  'content:review',
   'assets:write',
   'schemas:write',
   'datasources:write',
@@ -109,7 +111,13 @@ export function can(
   if (permission === 'schemas:write' && space.schemaReadOnly) return false;
   if (
     space.contentScopes &&
-    ['content:edit', 'content:publish', 'schemas:write', 'settings:write'].includes(permission) &&
+    [
+      'content:edit',
+      'content:publish',
+      'content:review',
+      'schemas:write',
+      'settings:write',
+    ].includes(permission) &&
     !space.permissions.includes('content:read')
   )
     return false;
@@ -253,7 +261,10 @@ export const deliverySettingsSchema = z
       });
   });
 export type DeliverySettings = z.infer<typeof deliverySettingsSchema>;
-export type UserDeliverySettings = DeliverySettings & { personalDefaultPreviewId: string | null };
+export type UserDeliverySettings = DeliverySettings & {
+  personalDefaultPreviewId: string | null;
+  blockPreviews: boolean;
+};
 
 export function defaultPreview(
   settings: Pick<DeliverySettings, 'previewUrls' | 'defaultPreviewId'> & {
@@ -751,6 +762,7 @@ export type PublicationReference = {
   usages: { localeId: string; storyName: string; field: string; canOmit: boolean }[];
 };
 export type PublicationReview = CheckpointDetail & {
+  reviewBlocked?: boolean;
   references: PublicationReference[];
   publishedSnapshot: LocaleSnapshot | null;
 };

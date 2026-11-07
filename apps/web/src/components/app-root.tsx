@@ -188,13 +188,7 @@ export function AuthenticatedApp({
     new URLSearchParams(window.location.search).has('token')
   )
     return <main className="login-form-wrap">{signIn}</main>;
-  if (invitation)
-    return (
-      <main className="login-form-wrap">
-        <InvitationForm signedIn={Boolean(session)} local={local} signIn={signIn} />
-      </main>
-    );
-  if (session)
+  if (session && !invitation)
     return session.space ? (
       <UploadProvider canUpload={session.space.permissions.includes('assets:write')}>
         <CMSApp session={{ ...session, space: session.space }} />
@@ -203,7 +197,7 @@ export function AuthenticatedApp({
       <SpacesScreen installationAdmin={Boolean(session.installationAdmin)} />
     );
   return (
-    <main className="login-shell">
+    <main className={`login-shell${invitation ? ' invitation-shell' : ''}`}>
       <div className="login-appearance">
         <ThemePicker />
       </div>
@@ -217,15 +211,32 @@ export function AuthenticatedApp({
           </span>
         </div>
         <div className="login-story">
-          <span className="eyebrow">Your content, connected</span>
+          <span className="eyebrow">
+            {invitation ? 'A place for your team' : 'Your content, connected'}
+          </span>
           <h1>
-            A space for
-            <br /> every story.
+            {invitation ? (
+              <>
+                Good stories
+                <br /> start together.
+              </>
+            ) : (
+              <>
+                A space for
+                <br /> every story.
+              </>
+            )}
           </h1>
           <p>
-            Build with blocks. Create in any language.
-            <br />
-            Bring your next idea to life, together.
+            {invitation ? (
+              'Join your team’s workspace to shape ideas, review changes, and keep content moving.'
+            ) : (
+              <>
+                Build with blocks. Create in any language.
+                <br />
+                Bring your next idea to life, together.
+              </>
+            )}
           </p>
           <div className="login-features">
             <span>
@@ -244,7 +255,13 @@ export function AuthenticatedApp({
         </div>
         <span className="login-caption">The workspace behind what’s next.</span>
       </div>
-      <div className="login-form-wrap">{signIn}</div>
+      <div className="login-form-wrap">
+        {invitation ? (
+          <InvitationForm user={session?.user} local={local} signIn={signIn} />
+        ) : (
+          signIn
+        )}
+      </div>
     </main>
   );
 }

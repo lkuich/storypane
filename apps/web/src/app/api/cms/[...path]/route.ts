@@ -38,6 +38,43 @@ async function handle(request: Request, route: { params: Promise<{ path: string[
         );
       }
     }
+    if (resource === 'teams' && !child) {
+      if (method === 'GET' && !id) return jsonResponse(await store.listTeams(actor));
+      if (method === 'POST' && !id)
+        return jsonResponse(await store.saveTeam(actor, await readJson(request)), 201);
+      if (method === 'PUT' && id)
+        return jsonResponse(await store.saveTeam(actor, await readJson(request), id));
+      if (method === 'DELETE' && id) {
+        await store.deleteTeam(actor, id);
+        return jsonResponse({ ok: true });
+      }
+    }
+    if (resource === 'reviews' && id === 'directory' && !child && method === 'GET')
+      return jsonResponse(
+        await store.reviewDirectory(
+          actor,
+          Object.fromEntries(
+            [...new URL(request.url).searchParams].filter(([key]) => key !== 'space'),
+          ),
+        ),
+      );
+    if (resource === 'reviews' && !child) {
+      if (method === 'GET' && !id)
+        return jsonResponse(
+          await store.listDiscussions(
+            actor,
+            Object.fromEntries(
+              [...new URL(request.url).searchParams].filter(([key]) => key !== 'space'),
+            ),
+          ),
+        );
+      if (method === 'POST' && !id)
+        return jsonResponse(await store.createDiscussion(actor, await readJson(request)), 201);
+      if (method === 'PUT' && id) {
+        await store.actOnDiscussion(actor, id, await readJson(request));
+        return jsonResponse({ ok: true });
+      }
+    }
     if (resource === 'page-map' && method === 'GET' && path.length === 1)
       return jsonResponse(
         await store.pageMap(
@@ -444,6 +481,16 @@ async function handle(request: Request, route: { params: Promise<{ path: string[
           );
         if (localeId) {
           if (action === 'schedules') {
+            if (method === 'GET' && targetId)
+              return jsonResponse(
+                await store.getScheduledSnapshot(
+                  actor,
+                  id,
+                  localeId,
+                  targetId,
+                  Number(new URL(request.url).searchParams.get('revision')),
+                ),
+              );
             if (method === 'GET' && !targetId)
               return jsonResponse(await store.listSchedules(actor, id, localeId));
             if (method === 'POST' && !targetId) {

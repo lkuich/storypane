@@ -19,6 +19,8 @@ export function PublicationSchedules({
   canPublish,
   onReview,
   onUpdate,
+  onChange,
+  readOnly = false,
 }: {
   base: string;
   revision: number;
@@ -26,7 +28,11 @@ export function PublicationSchedules({
   canPublish: boolean;
   onReview: (id: string) => void;
   onUpdate: () => void;
+  onChange?: (schedule: PublicationSchedule | null) => void;
+  readOnly?: boolean;
 }) {
+  const change = useRef(onChange);
+  change.current = onChange;
   const [schedules, setSchedules] = useState<PublicationSchedule[]>([]);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
@@ -36,11 +42,16 @@ export function PublicationSchedules({
         .then((items) => {
           if (!stopped) {
             setSchedules(items);
+            change.current?.(items.find((item) => item.active) ?? null);
             setError(null);
           }
         })
         .catch((cause) => {
-          if (!stopped) setError(errorMessage(cause));
+          if (!stopped) {
+            setError(errorMessage(cause));
+            setSchedules([]);
+            change.current?.(null);
+          }
         });
     void load();
     const timer = setInterval(() => void load(), 30000);
@@ -72,6 +83,7 @@ export function PublicationSchedules({
             <p>
               {dateLabel(scheduled.dueAt, scheduled.timezone)} · {scheduled.timezone} ·{' '}
               <button
+                disabled={readOnly}
                 className="release-text-button"
                 onClick={() => onReview(scheduled.checkpointId)}
               >
@@ -86,7 +98,7 @@ export function PublicationSchedules({
             {scheduled.error && <p className="release-draft-note">{scheduled.error}</p>}
           </div>
           <div className="release-banner-actions">
-            {canPublish && (
+            {canPublish && !readOnly && (
               <Button className="button--small" onClick={onUpdate}>
                 Update release
               </Button>

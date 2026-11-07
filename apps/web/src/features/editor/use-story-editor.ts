@@ -68,6 +68,9 @@ export function useStoryEditor({
   const [saving, setSaving] = useState(false);
   const [leaseRevision, setLeaseRevision] = useState(0);
   const inFlight = useRef<Partial<Record<string, Promise<boolean>>>>({});
+  const selectionRequest = useRef(0);
+  const leaseGeneration = useRef(0);
+  const leaseReleases = useRef<Partial<Record<string, Promise<void>>>>({});
   const leaseRequests = useRef<Partial<Record<string, Promise<Lease>>>>({});
   const debounce = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const maxWait = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -124,7 +127,7 @@ export function useStoryEditor({
   }, []);
 
   const acceptSnapshot = useCallback(
-    (next: LocaleSnapshot) => {
+    (next: LocaleSnapshot, requestedLeaseGeneration = leaseGeneration.current) => {
       if (snapshotRef.current && next.revision < snapshotRef.current.revision) return;
       snapshotRef.current = next;
       setSnapshot(next);
@@ -133,14 +136,17 @@ export function useStoryEditor({
         if (
           lease.sessionId === sessionId &&
           lease.token &&
-          leases.current[lease.blockId]?.token === lease.token
+          leases.current[lease.blockId]?.token === lease.token &&
+          Date.parse(lease.expiresAt) >= Date.parse(leases.current[lease.blockId].expiresAt)
         )
           leases.current[lease.blockId] = lease;
+      // A snapshot requested before a lease was acquired cannot revoke that new lease.
       for (const [id, lease] of Object.entries(leases.current))
         if (
           Date.parse(lease.expiresAt) <= Date.now() ||
           next.access?.blocks[id]?.edit === false ||
-          !next.leases.some((current) => current.blockId === id && current.token === lease.token)
+          (requestedLeaseGeneration === leaseGeneration.current &&
+            !next.leases.some((current) => current.blockId === id && current.token === lease.token))
         )
           delete leases.current[id];
       setLeaseRevision((value) => value + 1);
@@ -184,9 +190,10 @@ export function useStoryEditor({
 
   const sync = useCallback(async () => {
     if (syncing.current) return syncing.current;
+    const requestedLeaseGeneration = leaseGeneration.current;
     const promise = api<LocaleSnapshot>(base)
       .then((next) => {
-        if (active.current) acceptSnapshot(next);
+        if (active.current) acceptSnapshot(next, requestedLeaseGeneration);
         return next;
       })
       .finally(() => {
@@ -198,6 +205,7 @@ export function useStoryEditor({
 
   const acquire = useCallback(
     async (blockId: string): Promise<Lease> => {
+      await leaseReleases.current[blockId];
       if (snapshotRef.current?.access?.blocks[blockId]?.edit === false)
         throw new ApiError('Your role cannot edit this block.', 'forbidden');
       const current = leases.current[blockId];
@@ -214,6 +222,7 @@ export function useStoryEditor({
             return lease;
           }
           leases.current[blockId] = lease;
+          leaseGeneration.current++;
           if (active.current) setLeaseRevision((value) => value + 1);
           return lease;
         })
@@ -228,13 +237,22 @@ export function useStoryEditor({
 
   const release = useCallback(
     async (blockId: string) => {
+      if (leaseReleases.current[blockId]) return leaseReleases.current[blockId];
       const lease = leases.current[blockId];
       if (!lease?.token) return;
       delete leases.current[blockId];
+      leaseGeneration.current++;
       setLeaseRevision((value) => value + 1);
-      await api(`${base}/leases`, jsonRequest('DELETE', { blockId, token: lease.token })).catch(
-        () => undefined,
-      );
+      const request = api(`${base}/leases`, jsonRequest('DELETE', { blockId, token: lease.token }))
+        .then(
+          () => undefined,
+          () => undefined,
+        )
+        .finally(() => {
+          delete leaseReleases.current[blockId];
+        });
+      leaseReleases.current[blockId] = request;
+      await request;
     },
     [base],
   );
@@ -374,28 +392,37 @@ export function useStoryEditor({
   const select = useCallback(
     async (blockId: string) => {
       if (blockId === selectedRef.current) return;
+      const request = ++selectionRequest.current;
       const previousId = selectedRef.current;
       for (let pass = 0; previousId && buffersRef.current[previousId] && pass < 3; pass++)
         if (!(await flushBlock(previousId))) break;
+      if (!active.current || request !== selectionRequest.current) return;
       if (previousId && buffersRef.current[previousId]) {
         setError('Resolve or save your pending edits before opening another block.');
         return;
       }
-      if (selectedRef.current) await release(selectedRef.current);
       selectedRef.current = blockId;
       setSelectedId(blockId);
       setError(null);
       setLinkError(null);
+      // Navigation uses the loaded snapshot; editing still waits for confirmed leases.
+      if (previousId) await release(previousId);
+      if (!active.current || request !== selectionRequest.current) return;
       if (
         connected.current &&
         editable &&
         snapshotRef.current?.access?.blocks[blockId]?.edit !== false
       )
-        await acquire(blockId).catch((error) => {
+        try {
+          await acquire(blockId);
+          if (selectedRef.current !== blockId && !buffersRef.current[blockId])
+            await release(blockId);
+        } catch (error) {
+          if (selectedRef.current !== blockId) return;
           if (!(error instanceof ApiError && error.code === 'locked'))
             setError(errorMessage(error));
           void sync().catch(() => undefined);
-        });
+        }
     },
     [flushBlock, release, acquire, sync, editable],
   );

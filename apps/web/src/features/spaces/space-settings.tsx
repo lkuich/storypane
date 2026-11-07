@@ -22,6 +22,8 @@ import { ManagementSettings } from './management-settings';
 import { DeliverySettings } from './delivery-settings';
 import { LocaleSettings } from './locale-settings';
 import { MemberSettings } from './member-settings';
+import { TeamSettings } from './team-settings';
+import '../reviews/reviews.css';
 import { RoleSettings } from './role-settings';
 import { WebhookSettings } from './webhook-settings';
 import { DatabaseSettings } from './database-settings';
@@ -422,6 +424,7 @@ export function SpaceSettings({
                   void loadRoles().catch((cause) => setError(errorMessage(cause)));
                 }}
               />
+              {activeSection === 'team' && <TeamSettings space={space} onBusy={setMemberBusy} />}
               <RoleSettings
                 roles={roles}
                 canManage={space.role === 'admin'}

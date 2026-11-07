@@ -1,40 +1,42 @@
-Storypane **0.1.0-rc.3** — release candidate for evaluation.
+Storypane **0.1.0-rc.4** — release candidate for evaluation.
 
-This candidate brings the CMS and SDK together after the editor and installation
-improvements since rc.2:
+- Story and block reviews, comments, inline @mentions, and the Reviews inbox.
+- Teams under Members & roles with minimum approval counts and a separate Review
+  content permission. Publication and scheduling enforce the requested approvals.
+- One comment/review composer, block-row comment buttons, and redesigned invitations.
+- Faster block navigation, stale-snapshot lease protection, on-demand rich-text
+  loading, and a personal toggle for block hover previews.
+- Larger page map, icon refresh controls, and nested-block filtering.
+- Read-only previews of saved release versions, with version-specific review decisions.
 
-- Automatic fresh Railway setup and scoped hosted installation verification.
-- Component hover previews and explicit block-picker sample previews, with the
-  matching SDK API and both example integrations.
-- Read-only page map with a transactional connection index and upgrade backfill.
-- Personal preview defaults, responsive live-preview sizes, and improved controls.
-- SEO/AI metadata preset and published Markdown examples.
-- Rich-text cursor/selection preservation, focused publication reviews, and
-  clearer asset publication status.
+Install the CMS from source tag `v0.1.0-rc.4`; Docker Compose builds that checkout.
+The Railway template builds moving `main`, not a pinned candidate. Install the
+SDK with `npm install @storypane/sdk@0.1.0-rc.4`, or follow `@storypane/sdk@rc`
+after npm publication completes. The tarball is attached to this prerelease.
+There is no new SDK API in this candidate. npm's `latest` tag is not a stability
+indicator; use the explicit version or `rc` channel.
 
-Install the CMS from source tag `v0.1.0-rc.3`. Docker Compose builds that checkout;
-no prebuilt CMS image is required. The Railway template still builds moving
-`main`, rather than pinning this candidate.
+Upgrades apply space migrations **030** (reviews and Teams), **031** (personal
+block previews), and **032** (release previews and versioned review decisions).
+Preserve all databases, original media, configuration and keys;
+use the transactional production migration runner, not local-only `db:setup`.
+Rollback requires a coordinated backup restore.
 
-Install the SDK with `npm install @storypane/sdk@0.1.0-rc.3`, or follow candidates
-with `npm install @storypane/sdk@rc`, after the separate npm publication completes.
-The SDK tarball is attached to this GitHub prerelease. The `-rc` suffix is the
-stability indicator; npm's `latest` tag does not imply a stable release.
+Local production-build checks measured median block-opening time of 42 ms versus
+112 ms before, with approximately 403 KB less initial JavaScript. These are
+isolated fixture measurements, not a production load benchmark. Review and editor
+browser scenarios cover keyboard/mobile behavior and real local authentication.
+See the verification record for the limits of hosted acceptance.
 
-Upgrades include space migrations 028 (page connections) and 029 (personal preview
-default). Back up all databases, original media, configuration and encryption keys,
-then use the transactional production migration runner. Do not use local-only
-`db:setup` for upgrades. Rollback requires restoring a coordinated backup.
+Run one app replica. This candidate is for evaluation; full hosted acceptance,
+independent security review and production load benchmarks remain outstanding.
 
-Run one app replica. Full hosted acceptance, backup/restore rehearsal, independent
-security review and production load benchmarks remain outstanding. Scoped Railway
-checks do not establish production readiness.
-
+- [Reviews and comments](https://storypane.dev/docs/reviews/)
 - [Get started](https://storypane.dev/docs/getting-started/)
 - [Release and upgrade guide](https://storypane.dev/docs/releases-and-versioning/)
-- [Verification record](https://storypane.dev/docs/deployment-verification/)
-- [Changelog](https://github.com/lkuich/storypane/blob/v0.1.0-rc.3/CHANGELOG.md)
+- [Verification record](https://storypane.dev/docs/verification/)
+- [Changelog](https://github.com/lkuich/storypane/blob/v0.1.0-rc.4/CHANGELOG.md)
 - [Report security issues privately](https://github.com/lkuich/storypane/security/advisories/new)
 
-MIT licensed, provided without warranty under the terms of LICENSE. Your chosen
-hosting, identity, mail, storage and agent providers have their own terms and costs.
+MIT licensed, provided without warranty under LICENSE. Hosting, identity, mail,
+storage and agent providers have their own terms and costs.

@@ -496,3 +496,30 @@ production recovery objectives, hosted failover, live SMTP/upstream provider
 revocation, the remaining schema/CLI/release matrix, security review and load
 benchmarks remain open. This is scoped operational evidence, not full production
 acceptance.
+
+## RC.4 local review and editor checks — 2026-11-07
+
+This record covers the local production build for 0.1.0-rc.4, not a new hosted
+installation. Real local authentication and disposable PostgreSQL schemas were
+used for seven review/invitation E2E scenarios and four editor-performance E2E
+scenarios. The personal preview settings browser test also passed. Coverage
+includes Team thresholds, scoped reviewers, publication gates, version changes,
+inline mentions, invitations, the unified composer, keyboard/mobile layouts,
+rapid block navigation, stale lease snapshots, and lazy rich-text loading with
+saved formatting. Focused review database tests cover authoritative scheduling
+and publishing, original content scopes, and unchanged pinned content.
+The release-version browser scenario also passed with the real SDK preview,
+keyboard switching, responsive layouts, saved drafts and read-only fields.
+
+The local full test run passed 570 tests; 23 optional isolation/Railway tests were
+skipped because their separate database URLs were not configured. Release CI runs
+those tests with dedicated services. The production dependency audit reported no
+known vulnerabilities. The release workflow remains the authority for lint,
+packed-SDK installation, complete CI and the Docker build.
+
+A three-sample local Chrome comparison measured median click-to-visible block
+navigation at 42 ms versus 112 ms before these changes. Initial JavaScript transfer
+fell by approximately 403 KB after deferring the rich-text bundle. These are
+isolated editor-fixture measurements, not production Web Vitals or an external
+preview-application/load benchmark. The main application preview remains separate
+from the new per-member block-hover-preview preference.

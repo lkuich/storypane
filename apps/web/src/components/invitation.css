@@ -1,0 +1,197 @@
+.login-shell.invitation-shell {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  background: var(--bg);
+}
+.invitation-shell .login-intro,
+.invitation-shell .login-form-wrap {
+  min-width: 0;
+}
+.invitation-shell .login-story > p {
+  max-width: 360px;
+}
+.invitation-card {
+  width: min(100%, 460px);
+  padding: 36px;
+  box-shadow: 0 16px 48px #0000000a;
+}
+.invitation-icon {
+  display: grid;
+  place-items: center;
+  width: 52px;
+  height: 52px;
+  margin-bottom: 24px;
+  border: 1px solid var(--accent-border);
+  border-radius: 16px;
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.invitation-icon svg {
+  width: 24px;
+  height: 24px;
+}
+.invitation-heading .eyebrow {
+  color: var(--accent);
+}
+.invitation-heading h2 {
+  font-size: 28px;
+  line-height: 1.25;
+  letter-spacing: -0.8px;
+  margin: 10px 0 14px;
+}
+.invitation-heading > p {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.8;
+  margin: 0 0 26px;
+}
+.invitation-fields {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
+}
+.invitation-card .field {
+  margin-bottom: 18px;
+}
+.invitation-card input {
+  min-height: 44px;
+}
+.invitation-fields > .field-hint {
+  margin: -8px 0 24px;
+}
+.invitation-card .button--primary {
+  width: 100%;
+  min-height: 46px;
+  justify-content: space-between;
+}
+.invitation-card .button--primary svg {
+  width: 16px;
+  height: 16px;
+}
+.invitation-account {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface-subtle);
+  margin-bottom: 24px;
+}
+.invitation-account > div {
+  min-width: 0;
+}
+.invitation-account strong,
+.invitation-account > div > span {
+  display: block;
+  overflow-wrap: anywhere;
+}
+.invitation-account strong {
+  font-size: 13px;
+  margin: 3px 0;
+}
+.invitation-account > div > span {
+  font-size: 11px;
+  color: var(--muted);
+}
+.invitation-account-note {
+  margin: 12px 0 20px;
+  color: var(--muted);
+  font-size: 11px;
+  text-align: center;
+}
+.invitation-back {
+  display: block;
+  text-align: center;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-decoration: none;
+}
+.invitation-back:hover {
+  text-decoration: underline;
+}
+.invitation-existing {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 16px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.invitation-existing .button {
+  padding: 8px;
+  font-size: 12px;
+}
+.invitation-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  border-top: 1px solid var(--line);
+  margin-top: 26px;
+  padding-top: 18px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.6;
+}
+.invitation-note svg {
+  width: 14px;
+  height: 14px;
+  margin-top: 2px;
+}
+.invitation-success {
+  color: var(--success);
+  background: var(--success-soft);
+  border-color: var(--success-border);
+}
+.invitation-sign-in > .panel {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+.invitation-sign-in > .panel > h2 {
+  margin: 0 0 18px;
+  font-size: 18px;
+}
+.invitation-sign-in > .panel > .button,
+.invitation-sign-in > .button {
+  width: 100%;
+  margin-top: 10px;
+}
+.invitation-sign-in .cl-rootBox,
+.invitation-sign-in .cl-cardBox {
+  width: 100%;
+  max-width: 100%;
+}
+.invitation-sign-in .cl-cardBox,
+.invitation-sign-in .cl-card {
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+.invitation-sign-in .cl-card {
+  padding: 0;
+}
+@media (max-width: 760px) {
+  .login-shell.invitation-shell {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .invitation-shell .login-form-wrap {
+    padding: 24px 18px;
+  }
+  .invitation-shell .brand-name {
+    font-size: 22px;
+  }
+  .invitation-card {
+    padding: 26px 22px;
+  }
+  .invitation-icon {
+    margin-bottom: 20px;
+  }
+  .invitation-heading h2 {
+    font-size: 25px;
+  }
+}

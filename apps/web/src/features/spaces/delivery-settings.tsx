@@ -25,6 +25,7 @@ export function DeliverySettings({
     [previewUrls, setPreviewUrls] = useState<Settings['previewUrls']>([]),
     [defaultPreviewId, setDefaultPreviewId] = useState<string | null>(null),
     [personalDefaultPreviewId, setPersonalDefaultPreviewId] = useState<string | null>(null),
+    [blockPreviews, setBlockPreviews] = useState(true),
     [parameter, setParameter] = useState('storypane_preview');
   const [tokens, setTokens] = useState<DeliveryToken[]>([]),
     [tokenName, setTokenName] = useState(''),
@@ -41,7 +42,10 @@ export function DeliverySettings({
       defaultPreviewId !== settings.defaultPreviewId ||
       parameter !== settings.previewParameter);
   const previewDirty =
-    sharedDirty || (!!settings && personalDefaultPreviewId !== settings.personalDefaultPreviewId);
+    sharedDirty ||
+    (!!settings &&
+      (personalDefaultPreviewId !== settings.personalDefaultPreviewId ||
+        blockPreviews !== settings.blockPreviews));
   const dirty = mediaDirty || previewDirty;
   function changeUrls(next: Settings['previewUrls']) {
     setPreviewUrls(next);
@@ -64,6 +68,7 @@ export function DeliverySettings({
       setPreviewUrls(value.previewUrls);
       setDefaultPreviewId(value.defaultPreviewId);
       setPersonalDefaultPreviewId(value.personalDefaultPreviewId);
+      setBlockPreviews(value.blockPreviews);
       setParameter(value.previewParameter);
       setTokens(keys);
     } catch (cause) {
@@ -122,6 +127,7 @@ export function DeliverySettings({
                     );
                     value = {
                       ...shared,
+                      blockPreviews: value.blockPreviews,
                       personalDefaultPreviewId: shared.previewUrls.some(
                         (item) => item.id === value.personalDefaultPreviewId,
                       )
@@ -133,12 +139,22 @@ export function DeliverySettings({
                     setDefaultPreviewId(value.defaultPreviewId);
                     setParameter(value.previewParameter);
                   }
-                  if (personalDefaultPreviewId !== value.personalDefaultPreviewId) {
-                    const personal = await api<{ previewId: string | null }>(
+                  if (
+                    personalDefaultPreviewId !== value.personalDefaultPreviewId ||
+                    blockPreviews !== value.blockPreviews
+                  ) {
+                    const personal = await api<{
+                      previewId: string | null;
+                      blockPreviews: boolean;
+                    }>(
                       '/delivery-settings/personal-default',
-                      jsonRequest('PUT', { previewId: personalDefaultPreviewId }),
+                      jsonRequest('PUT', { previewId: personalDefaultPreviewId, blockPreviews }),
                     );
-                    setSettings({ ...value, personalDefaultPreviewId: personal.previewId });
+                    setSettings({
+                      ...value,
+                      personalDefaultPreviewId: personal.previewId,
+                      blockPreviews: personal.blockPreviews,
+                    });
                   }
                   setSaved(true);
                 });
@@ -285,6 +301,27 @@ export function DeliverySettings({
                 </select>
                 <span className="field-hint" id="personal-preview-hint">
                   Only affects you in this space, on every browser you sign in with.
+                </span>
+              </label>
+              <label className="checkbox-field block-preview-setting">
+                <input
+                  type="checkbox"
+                  checked={blockPreviews}
+                  disabled={busy}
+                  onChange={(event) => {
+                    setBlockPreviews(event.target.checked);
+                    setSaved(false);
+                  }}
+                  aria-label="Show block hover previews"
+                  aria-describedby="block-previews-hint"
+                />
+                <span>
+                  Show block hover previews
+                  <small className="field-hint" id="block-previews-hint">
+                    Load app previews when hovering over blocks, breadcrumbs, and the block picker.
+                    Turn off for lighter editing. Only affects you in this space; the main preview
+                    stays available.
+                  </small>
                 </span>
               </label>
               <div className="space-settings-actions">

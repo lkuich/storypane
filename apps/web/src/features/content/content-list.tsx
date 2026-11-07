@@ -480,9 +480,6 @@ export function ContentList({
                               >
                                 {story.name}
                               </button>
-                              {story.pinned && (
-                                <span className="story-pinned-label">Pinned for you</span>
-                              )}
                             </div>
                             <div className="content-editors">
                               <EditorAvatars editors={editors[story.id] ?? []} />

@@ -32,6 +32,7 @@ test('members save a personal default, recover from save errors, and return to t
     ],
     defaultPreviewId: '22222222-2222-4222-8222-222222222222',
     personalDefaultPreviewId: null,
+    blockPreviews: true,
     previewParameter: 'storypane_preview',
   };
   let failSave = true;
@@ -51,15 +52,17 @@ test('members save a personal default, recover from save errors, and return to t
     const path = new URL(route.request().url()).pathname.replace('/api/cms', '');
     if (path === '/delivery-settings/personal-default' && route.request().method() === 'PUT') {
       const body = route.request().postDataJSON();
-      expect(Object.keys(body)).toEqual(['previewId']);
+      expect(Object.keys(body)).toEqual(['previewId', 'blockPreviews']);
       if (failSave)
         return route.fulfill({ status: 503, json: { error: { message: 'Please retry saving' } } });
       settings.personalDefaultPreviewId = body.previewId;
+      settings.blockPreviews = body.blockPreviews;
       return route.fulfill({ json: body });
     }
     const responses: Record<string, unknown> = {
       '/space': { ...space, members: [] },
       '/roles': [],
+      '/reviews': [],
       '/locales': [],
       '/invitations': [],
       '/assets/uploads': { items: [] },
@@ -89,6 +92,8 @@ test('members save a personal default, recover from save errors, and return to t
   await expect(personal).toBeFocused();
   await personal.selectOption({ label: 'Local' });
   await expect(personal).toHaveValue(settings.previewUrls[1].id);
+  await page.keyboard.press('Tab');
+  await expect(page.getByRole('checkbox', { name: 'Show block hover previews' })).toBeFocused();
   await page.keyboard.press('Tab');
   await expect(save).toBeFocused();
   await page.keyboard.press('Enter');

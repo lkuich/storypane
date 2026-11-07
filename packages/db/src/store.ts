@@ -1,3 +1,5 @@
+import * as reviews from './reviews.js';
+import { teamInputSchema, discussionInputSchema, discussionActionSchema } from '@storypane/core';
 import { readPageMap } from './page-map.js';
 import { pageMapQuerySchema, pageMapResponseSchema } from '@storypane/core';
 import { richTextAssetIds } from '@storypane/core';
@@ -492,6 +494,119 @@ export class StorypaneStore {
     return this.tx(
       actor,
       async (client) => pageMapResponseSchema.parse(await readPageMap(client, actor, query)),
+      'content:read',
+    );
+  }
+  async listTeams(actor: Actor) {
+    return this.tx(actor, (client) => reviews.listTeams(client, actor.spaceId), 'content:read');
+  }
+  async saveTeam(actor: Actor, raw: unknown, id?: string) {
+    const input = parseInput(teamInputSchema, raw);
+    if (id) parseInput(z.uuid(), id);
+    return this.tx(
+      actor,
+      async (client) => {
+        await this.lockMembers(client, actor);
+        return reviews.saveTeam(client, actor.spaceId, input, id);
+      },
+      'admin',
+    );
+  }
+  async deleteTeam(actor: Actor, id: string) {
+    parseInput(z.uuid(), id);
+    return this.tx(
+      actor,
+      async (client) => {
+        await this.lockMembers(client, actor);
+        if (
+          !(
+            await client.query('DELETE FROM teams WHERE space_id=$1 AND id=$2', [actor.spaceId, id])
+          ).rowCount
+        )
+          throw new StorypaneError('not_found', 'Team not found');
+      },
+      'admin',
+    );
+  }
+  async reviewDirectory(actor: Actor, raw: unknown) {
+    const input = parseInput(
+      z
+        .object({
+          storyId: z.uuid(),
+          localeId: z.uuid(),
+          blockId: z.uuid().nullable().default(null),
+        })
+        .strict(),
+      raw,
+    );
+    return this.tx(
+      actor,
+      async (client) => {
+        await this.lockLocale(client, actor, input.storyId, input.localeId);
+        return reviews.reviewDirectory(
+          client,
+          actor,
+          await this.snapshot(client, actor, input.storyId, input.localeId),
+          input.blockId,
+        );
+      },
+      'content:read',
+    );
+  }
+  async listDiscussions(actor: Actor, raw: unknown = {}) {
+    const query = parseInput(
+      z.object({ storyId: z.uuid().optional(), localeId: z.uuid().optional() }).strict(),
+      raw,
+    );
+    return this.tx(
+      actor,
+      (client) =>
+        reviews.listDiscussions(
+          client,
+          actor,
+          (storyId, localeId) => this.snapshot(client, actor, storyId, localeId),
+          query,
+        ),
+      'content:read',
+    );
+  }
+  async createDiscussion(actor: Actor, raw: unknown) {
+    if (actor.managementTokenId)
+      throw new StorypaneError('forbidden', 'Reviews require a signed-in member');
+    const input = parseInput(discussionInputSchema, raw);
+    return this.tx(
+      actor,
+      async (client) => {
+        await this.lockLocale(client, actor, input.storyId, input.localeId);
+        return reviews.createDiscussion(
+          client,
+          actor,
+          await this.snapshot(client, actor, input.storyId, input.localeId),
+          input,
+        );
+      },
+      'content:read',
+    );
+  }
+  async actOnDiscussion(actor: Actor, id: string, raw: unknown) {
+    if (actor.managementTokenId)
+      throw new StorypaneError('forbidden', 'Reviews require a signed-in member');
+    const input = parseInput(discussionActionSchema, raw);
+    return this.tx(
+      actor,
+      async (client) => {
+        const thread = await reviews.discussionTarget(client, actor, id);
+        await this.lockLocale(client, actor, thread.story_id, thread.locale_id);
+        // Refetch after the locale lock: withdrawal and approval share publication's lock.
+        const current = await reviews.discussionTarget(client, actor, id);
+        await reviews.actOnDiscussion(
+          client,
+          actor,
+          current,
+          await this.snapshot(client, actor, thread.story_id, thread.locale_id),
+          input,
+        );
+      },
       'content:read',
     );
   }
@@ -1218,16 +1333,22 @@ export class StorypaneStore {
       async (client) =>
         (
           await client.query(
-            'SELECT s.preview_urls AS "previewUrls",s.default_preview_id AS "defaultPreviewId",s.preview_parameter AS "previewParameter",m.personal_default_preview_id AS "personalDefaultPreviewId" FROM spaces s JOIN memberships m ON m.space_id=s.id WHERE s.id=$1 AND m.user_id=$2',
+            'SELECT s.preview_urls AS "previewUrls",s.default_preview_id AS "defaultPreviewId",s.preview_parameter AS "previewParameter",m.personal_default_preview_id AS "personalDefaultPreviewId",m.block_previews AS "blockPreviews" FROM spaces s JOIN memberships m ON m.space_id=s.id WHERE s.id=$1 AND m.user_id=$2',
             [actor.spaceId, actor.userId],
           )
         ).rows[0],
     );
   }
-  async updatePersonalPreview(actor: Actor, raw: unknown): Promise<{ previewId: string | null }> {
+  async updatePersonalPreview(
+    actor: Actor,
+    raw: unknown,
+  ): Promise<{ previewId: string | null; blockPreviews: boolean }> {
     if (actor.managementTokenId)
       throw new StorypaneError('forbidden', 'Sign in to choose your personal preview');
-    const input = parseInput(z.object({ previewId: z.uuid().nullable() }).strict(), raw);
+    const input = parseInput(
+      z.object({ previewId: z.uuid().nullable(), blockPreviews: z.boolean().optional() }).strict(),
+      raw,
+    );
     return this.tx(actor, async (client) => {
       const { rows } = await client.query('SELECT preview_urls FROM spaces WHERE id=$1 FOR SHARE', [
         actor.spaceId,
@@ -1239,11 +1360,11 @@ export class StorypaneStore {
         )
       )
         throw new StorypaneError('invalid', 'Choose a configured preview URL');
-      await client.query(
-        'UPDATE memberships SET personal_default_preview_id=$3 WHERE space_id=$1 AND user_id=$2',
-        [actor.spaceId, actor.userId, input.previewId],
+      const updated = await client.query(
+        'UPDATE memberships SET personal_default_preview_id=$3,block_previews=coalesce($4,block_previews) WHERE space_id=$1 AND user_id=$2 RETURNING personal_default_preview_id AS "previewId",block_previews AS "blockPreviews"',
+        [actor.spaceId, actor.userId, input.previewId, input.blockPreviews ?? null],
       );
-      return input;
+      return updated.rows[0];
     });
   }
   async updateDeliverySettings(actor: Actor, raw: unknown): Promise<DeliverySettings> {
@@ -1499,20 +1620,90 @@ export class StorypaneStore {
       nextOffset: stories.length > input.limit ? input.offset + input.limit : null,
     };
   }
+  private async readReleaseSnapshot(
+    client: PoolClient,
+    actor: Actor,
+    storyId: string,
+    localeId: string,
+    scheduleId: string,
+    revision: number,
+  ) {
+    const { rows } = await client.query(
+      `SELECT p.*,st.folder_id FROM publication_schedules p
+       JOIN content_releases r ON r.id=p.release_id AND r.space_id=p.space_id
+       JOIN stories st ON st.id=p.story_id AND st.space_id=p.space_id
+       WHERE p.id=$1 AND p.space_id=$2 AND p.story_id=$3 AND p.locale_id=$4
+       AND p.status='pending' AND r.status IN ('scheduled','held') AND st.deleted_at IS NULL`,
+      [scheduleId, actor.spaceId, storyId, localeId],
+    );
+    const schedule = rows[0];
+    if (!schedule)
+      throw new StorypaneError('not_found', 'This page is no longer in an upcoming release.');
+    if (Number(schedule.revision) !== revision)
+      throw new StorypaneError(
+        'stale_revision',
+        'The approved release version changed. Refresh the release view.',
+      );
+    if (!schedule.approved_snapshot)
+      throw new StorypaneError(
+        'invalid',
+        'Update this release approval before previewing its saved version.',
+      );
+    const snapshot: LocaleSnapshot = schedule.approved_snapshot;
+    snapshot.story.folderId = schedule.folder_id;
+    snapshot.leases = [];
+    return { schedule, snapshot };
+  }
+  async getScheduledSnapshot(
+    actor: Actor,
+    storyId: string,
+    localeId: string,
+    id: string,
+    revision: number,
+  ) {
+    parseInput(z.object({ id: z.uuid(), revision: z.number().int().positive() }), { id, revision });
+    return this.tx(actor, async (client) => {
+      await this.lockLocale(client, actor, storyId, localeId);
+      return (await this.readReleaseSnapshot(client, actor, storyId, localeId, id, revision))
+        .snapshot;
+    });
+  }
   async createEditorPreview(
     actor: Actor,
     storyId: string,
     localeId: string,
     raw: unknown = {},
   ): Promise<PreviewSession> {
-    const input = parseInput(z.object({ previewId: z.uuid().optional() }).strict(), raw);
+    const input = parseInput(
+      z
+        .object({
+          previewId: z.uuid().optional(),
+          scheduleId: z.uuid().optional(),
+          scheduleRevision: z.number().int().positive().optional(),
+        })
+        .strict()
+        .refine(
+          (value) => !!value.scheduleId === (value.scheduleRevision !== undefined),
+          'Provide the release schedule and its revision together',
+        ),
+      raw,
+    );
     return this.tx(actor, async (client) => {
       await this.lockLocale(client, actor, storyId, localeId);
       const access = await this.contentAccess(client, actor);
-      if (
-        !projectSnapshot(access, await this.snapshot(client, actor, storyId, localeId)).access
-          .preview
-      )
+      const snapshot = input.scheduleId
+        ? (
+            await this.readReleaseSnapshot(
+              client,
+              actor,
+              storyId,
+              localeId,
+              input.scheduleId,
+              input.scheduleRevision!,
+            )
+          ).snapshot
+        : await this.snapshot(client, actor, storyId, localeId);
+      if (!projectSnapshot(access, snapshot).access.preview)
         throw new StorypaneError(
           'forbidden',
           'Preview requires read access to every field and reference',
@@ -1524,6 +1715,9 @@ export class StorypaneStore {
         localeId,
         { userId: actor.userId, sessionId: actor.sessionId },
         input.previewId,
+        input.scheduleId
+          ? { id: input.scheduleId, revision: input.scheduleRevision!, snapshot }
+          : undefined,
       );
     });
   }
@@ -1567,6 +1761,7 @@ export class StorypaneStore {
     localeId: string,
     owner: { userId?: string; sessionId?: string; tokenId?: string },
     previewId?: string,
+    release?: { id: string; revision: number; snapshot: LocaleSnapshot },
   ): Promise<PreviewSession> {
     const { rows } = await client.query(
       'SELECT s.preview_urls,s.default_preview_id,m.personal_default_preview_id,l.url_slug AS slug,l.slug AS locale FROM spaces s JOIN stories st ON st.space_id=s.id JOIN story_locales l ON l.story_id=st.id LEFT JOIN memberships m ON m.space_id=s.id AND m.user_id=$4 WHERE s.id=$1 AND st.id=$2 AND st.deleted_at IS NULL AND l.id=$3',
@@ -1591,7 +1786,7 @@ export class StorypaneStore {
       spaceId,
     ]);
     const session = await client.query(
-      "INSERT INTO preview_sessions(token_hash,space_id,story_id,locale_id,origin,user_id,session_id,delivery_token_id,expires_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,now()+interval '5 minutes') RETURNING expires_at",
+      "INSERT INTO preview_sessions(token_hash,space_id,story_id,locale_id,origin,user_id,session_id,delivery_token_id,publication_schedule_id,schedule_revision,expires_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,now()+interval '5 minutes') RETURNING expires_at",
       [
         tokenHash(token),
         spaceId,
@@ -1601,6 +1796,8 @@ export class StorypaneStore {
         owner.userId ?? null,
         owner.sessionId ?? null,
         owner.tokenId ?? null,
+        release?.id ?? null,
+        release?.revision ?? null,
       ],
     );
     await this.options.registerPreview?.(tokenHash(token), session.rows[0].expires_at);
@@ -1610,8 +1807,8 @@ export class StorypaneStore {
       spaceId,
       storyId,
       localeId,
-      slug: rows[0].slug,
-      locale: rows[0].locale,
+      slug: release?.snapshot.locale.urlSlug ?? rows[0].slug,
+      locale: release?.snapshot.locale.slug ?? rows[0].locale,
     };
   }
   async authenticatePreview(
@@ -1640,10 +1837,14 @@ export class StorypaneStore {
   }
   async previewStory(previewId: string): Promise<DeliveredStory> {
     const { rows } = await this.pool.query(
-      `SELECT p.space_id,p.user_id,p.session_id,sp.schema_version AS migration_version,st.id AS story_id,st.name,l.url_slug AS slug,l.slug AS locale,l.id AS locale_id,c.revision,c.content,c.snapshot
+      `SELECT p.space_id,p.user_id,p.session_id,p.publication_schedule_id,ps.release_id,ps.approved_snapshot AS release_snapshot,st.folder_id,sp.schema_version AS migration_version,st.id AS story_id,st.name,l.url_slug AS slug,l.slug AS locale,l.id AS locale_id,c.revision,c.content,c.snapshot
       FROM preview_sessions p JOIN spaces sp ON sp.id=p.space_id JOIN stories st ON st.id=p.story_id AND st.space_id=p.space_id
-      JOIN story_locales l ON l.id=p.locale_id AND l.story_id=st.id JOIN checkpoints c ON c.id=l.checkpoint_id
-      WHERE p.id=$1 AND st.deleted_at IS NULL AND p.expires_at>clock_timestamp() AND (
+      JOIN story_locales l ON l.id=p.locale_id AND l.story_id=st.id
+      LEFT JOIN publication_schedules ps ON ps.id=p.publication_schedule_id AND ps.locale_id=p.locale_id AND ps.space_id=p.space_id
+      LEFT JOIN content_releases cr ON cr.id=ps.release_id AND cr.space_id=p.space_id
+      JOIN checkpoints c ON c.id=coalesce(ps.checkpoint_id,l.checkpoint_id)
+      WHERE p.id=$1 AND st.deleted_at IS NULL AND p.expires_at>clock_timestamp()
+      AND (p.publication_schedule_id IS NULL OR (ps.status='pending' AND ps.revision=p.schedule_revision AND cr.status IN ('scheduled','held') AND ps.approved_snapshot IS NOT NULL)) AND (
         ${
           this.options.authorizeSession
             ? 'EXISTS(SELECT 1 FROM memberships m WHERE m.user_id=p.user_id AND m.space_id=p.space_id)'
@@ -1654,6 +1855,17 @@ export class StorypaneStore {
     );
     if (!rows[0])
       throw new StorypaneError('unauthenticated', 'Preview access expired or was revoked');
+    const releaseId: string | undefined = rows[0].release_id;
+    if (releaseId) {
+      const approved: LocaleSnapshot = rows[0].release_snapshot;
+      rows[0].snapshot = approved;
+      rows[0].content = assembleContent(approved);
+      rows[0].revision = approved.revision;
+      rows[0].migration_version = approved.migrationVersion;
+      rows[0].name = approved.story.name;
+      rows[0].slug = approved.locale.urlSlug;
+    }
+    rows[0].snapshot.story.folderId = rows[0].folder_id;
     if (rows[0].user_id) {
       const actor: Actor = {
         spaceId: rows[0].space_id,
@@ -1700,14 +1912,32 @@ export class StorypaneStore {
     const references = ids.size
       ? (
           await this.pool.query(
-            `SELECT DISTINCT ON (st.id) st.id AS story_id,st.name,l.url_slug AS slug,l.slug AS locale,l.id AS locale_id,c.revision,c.content,c.snapshot
-      FROM stories st JOIN story_locales l ON l.story_id=st.id JOIN checkpoints c ON c.id=l.checkpoint_id AND c.locale_id=l.id
+            `SELECT DISTINCT ON (st.id) st.id AS story_id,st.name,l.url_slug AS slug,l.slug AS locale,l.id AS locale_id,c.revision,c.content,
+      CASE WHEN $4::uuid IS NULL THEN c.snapshot ELSE coalesce(ps.approved_snapshot,pub.snapshot) END AS snapshot
+      FROM stories st JOIN story_locales l ON l.story_id=st.id
+      LEFT JOIN publication_schedules ps ON ps.locale_id=l.id AND ps.release_id=$4 AND ps.status='pending'
+      LEFT JOIN publications pub ON pub.id=l.published_version_id
+      JOIN checkpoints c ON c.id=CASE WHEN $4::uuid IS NULL THEN l.checkpoint_id ELSE coalesce(ps.checkpoint_id,pub.checkpoint_id) END AND c.locale_id=l.id
       WHERE st.space_id=$1 AND st.deleted_at IS NULL AND st.id=ANY($2::uuid[]) AND l.slug IN ($3,(SELECT slug FROM space_locales WHERE space_id=$1 AND is_default))
       ORDER BY st.id,(l.slug=$3) DESC`,
-            [rows[0].space_id, [...ids], story.locale],
+            [rows[0].space_id, [...ids], story.locale, releaseId ?? null],
           )
         ).rows
       : [];
+    if (releaseId) {
+      for (const row of references) {
+        if (!row.snapshot)
+          throw new StorypaneError(
+            'invalid',
+            'Update the linked release approval before previewing.',
+          );
+        const approved: LocaleSnapshot = row.snapshot;
+        row.content = assembleContent(approved);
+        row.revision = approved.revision;
+        row.name = approved.story.name;
+        row.slug = approved.locale.urlSlug;
+      }
+    }
     if (rows[0].user_id) {
       const actor: Actor = {
         spaceId: rows[0].space_id,
@@ -4918,7 +5148,19 @@ export class StorypaneStore {
         )
           return { ...checkpoint, references: [], publishedSnapshot };
         const { references } = await this.publicationPlan(client, actor, checkpoint);
-        return { ...checkpoint, references, publishedSnapshot };
+        let reviewBlocked = false;
+        try {
+          await reviews.assertReviewsApproved(
+            client,
+            actor,
+            await this.snapshot(client, actor, storyId, localeId),
+            checkpoint.snapshot,
+          );
+        } catch (cause) {
+          if (cause instanceof StorypaneError && cause.code === 'invalid') reviewBlocked = true;
+          else throw cause;
+        }
+        return { ...checkpoint, references, publishedSnapshot, reviewBlocked };
       },
       'content:read',
     );
@@ -5143,11 +5385,14 @@ export class StorypaneStore {
     client: PoolClient,
     actor: Actor,
     historical: CheckpointDetail,
+    pinned = false,
   ): Promise<string> {
     const storyId = historical.snapshot.story.id,
       localeId = historical.snapshot.locale.id,
       checkpointId = historical.id;
     await this.requirePublicationAccess(client, actor, historical.snapshot);
+    const current = await this.snapshot(client, actor, storyId, localeId);
+    await reviews.assertReviewsApproved(client, actor, current, historical.snapshot, pinned);
     const deployed = await this.deployedMigration(client, actor.spaceId);
     if ((historical.snapshot.migrationVersion ?? 0) !== deployed.version)
       throw new StorypaneError(
@@ -5186,6 +5431,7 @@ export class StorypaneStore {
       localeId,
       publicationId,
     ]);
+    await reviews.completePublishedReviews(client, actor, historical.snapshot);
     await recordWebhookEvent(client, {
       spaceId: actor.spaceId,
       actorId: actor.userId,
@@ -6035,6 +6281,12 @@ export class StorypaneStore {
             for (const approved of plan.checkpoints) {
               const target = approved.snapshot;
               await this.lockLocale(client, actor, target.story.id, target.locale.id);
+              await reviews.assertReviewsApproved(
+                client,
+                actor,
+                await this.snapshot(client, actor, target.story.id, target.locale.id),
+                target,
+              );
               const previous = (
                 await client.query(
                   "SELECT * FROM publication_schedules WHERE locale_id=$1 AND status='pending'",
@@ -6293,7 +6545,7 @@ export class StorypaneStore {
           }
           for (const { checkpoint, actor } of approved.values()) {
             const target = checkpoint.snapshot;
-            const publicationId = await this.publishSnapshotTx(client, actor, checkpoint);
+            const publicationId = await this.publishSnapshotTx(client, actor, checkpoint, true);
             await this.checkpoint(
               client,
               actor,

@@ -5,6 +5,8 @@ promote them, and publish a Home story in production using the editor.
 You will finish with a saved page containing text and an image, plus a published
 JSON snapshot you can inspect without connecting a website first.
 
+For Teams, approval requests and inline discussions, see [Reviews and comments](reviews.md).
+
 ## Before you start
 
 Sign in to your running Storypane CMS. If you still need an installation, follow
@@ -254,6 +256,11 @@ that space and follows them across browsers. Choose **Use space default** to
 follow the shared default again. Removing a URL clears personal defaults that
 used it. A manual choice in the editor's Preview dropdown lasts for that editing
 session; it doesn't change either saved default.
+
+To reduce preview activity while editing, turn off **Show block hover previews**
+in **Settings → API & preview**, then save. This personal preference applies to
+block rows, breadcrumbs, and the block picker across your browsers. It leaves the
+main application preview available; use **Hide preview** to close that too.
 
 Use the **Mobile**, **Tablet**, and **Desktop** toggle buttons to the right of the
 Preview dropdown to check responsive layouts. Desktop is the default and fills

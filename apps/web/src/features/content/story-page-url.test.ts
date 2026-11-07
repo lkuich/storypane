@@ -14,6 +14,7 @@ it('opens the content path on the configured app without preview routes or query
     ],
     defaultPreviewId: 'local',
     personalDefaultPreviewId: null,
+    blockPreviews: true,
     previewParameter: 'review',
   };
   expect(storyPageUrl(settings, '/blog/full-slug')).toBe('http://127.0.0.1:3140/blog/full-slug');

@@ -1,5 +1,9 @@
 # Content releases
 
+Requested [reviews](reviews.md) must satisfy their approval requirements before
+scheduling or publishing the selected content. The server checks again when a
+release runs; a blocked member prevents partial publication of the release.
+
 Group approved pages into a named release and publish them together at a scheduled
 time. Keep writing your next draft without changing what is going live.
 
@@ -74,6 +78,12 @@ changes are not included** means the current saved draft differs from the approv
 version. An empty release does not publish anything.
 
 ## Edit a page that is already scheduled
+
+Turn on **View release version (read-only)** in the editor to inspect the saved
+release version. The fields and application preview show that approved revision,
+including its saved linked-content choices. Pending draft edits are saved before
+switching; turn the option off to return to your current draft. The release view
+does not acquire editing locks or let you change or publish its fields.
 
 Autosave continues normally. When you review the next saved version, choose:
 

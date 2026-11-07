@@ -464,3 +464,16 @@
     transition: none;
   }
 }
+
+.release-view-toggle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 12px 0;
+  cursor: pointer;
+}
+.release-view-toggle input {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}

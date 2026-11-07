@@ -365,13 +365,15 @@ export function WebhookSettings({
         <ErrorNotice message={error} />
         <p>Events may arrive more than once or out of order. Logs are retained for 30 days.</p>
         <Button
+          className="icon-button"
+          aria-label="Refresh deliveries"
+          title="Refresh deliveries"
           disabled={logsLoading || busy}
           onClick={() => {
             if (logsFor) void logs(logsFor, offset);
           }}
         >
           <RefreshCw aria-hidden="true" />
-          Refresh deliveries
         </Button>
         {logsLoading ? (
           <Loading />

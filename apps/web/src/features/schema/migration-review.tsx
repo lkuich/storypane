@@ -328,9 +328,14 @@ export function MigrationReviewDialog({
                       : 'Deployment updates saved drafts and live content.'}
                 </p>
                 <div className="button-group">
-                  <Button disabled={busy} onClick={() => onInspect(review.destructive)}>
+                  <Button
+                    className="icon-button"
+                    aria-label="Refresh review"
+                    title="Refresh review"
+                    disabled={busy}
+                    onClick={() => onInspect(review.destructive)}
+                  >
                     <RefreshCw size={14} aria-hidden="true" />
-                    Refresh review
                   </Button>
                   {canDeploy && (
                     <Button

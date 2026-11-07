@@ -4,6 +4,7 @@ import { AccountControl } from './account-control';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   CalendarClock,
+  CheckCheck,
   Box,
   BookOpen,
   Boxes,
@@ -24,6 +25,8 @@ import { Button, ErrorNotice, Loading } from '@storypane/ui';
 import { api, errorMessage } from '../features/editor/api';
 import { setStoryLocation } from '../lib/space-url';
 import { can, type Space, type Story } from '@storypane/core';
+import { ReviewsScreen } from '../features/reviews/reviews-screen';
+import type { Discussion } from '@storypane/core';
 import { ReleasesScreen } from '../features/releases/releases-screen';
 import { ContentList } from '../features/content/content-list';
 import { SchemaLibrary } from '../features/schema/schema-library';
@@ -53,9 +56,10 @@ export type CMSSession = {
     | 'schemaReadOnly'
   >;
 };
-type Tab = 'content' | 'releases' | 'blocks' | 'datasources' | 'assets' | 'settings';
+type Tab = 'reviews' | 'content' | 'releases' | 'blocks' | 'datasources' | 'assets' | 'settings';
 const tabs = [
   { id: 'content', label: 'Content', icon: FileText },
+  { id: 'reviews', label: 'Reviews', icon: CheckCheck },
   { id: 'releases', label: 'Releases', icon: CalendarClock },
   { id: 'blocks', label: 'Blocks', icon: Box },
   { id: 'datasources', label: 'Datasources', icon: Database },
@@ -77,6 +81,41 @@ export function CMSApp({ session: initialSession }: { session: CMSSession }) {
   const [tab, setTab] = useState<Tab>(() =>
     typeof window !== 'undefined' ? tabFromUrl(new URL(window.location.href)) : 'content',
   );
+  const [discussions, setDiscussions] = useState<Discussion[] | null>(null);
+  const [reviewsError, setReviewsError] = useState('');
+  const refreshReviews = useCallback(async () => {
+    try {
+      setDiscussions(await api<Discussion[]>('/reviews'));
+      setReviewsError('');
+    } catch (cause) {
+      setReviewsError(errorMessage(cause));
+    }
+  }, []);
+  useEffect(() => {
+    let stopped = false;
+    const refresh = async () => {
+      try {
+        const items = await api<Discussion[]>('/reviews');
+        if (!stopped) {
+          setDiscussions(items);
+          setReviewsError('');
+        }
+      } catch (cause) {
+        if (!stopped) setReviewsError(errorMessage(cause));
+      }
+    };
+    void refresh();
+    const timer = setInterval(() => void refresh(), 30000);
+    window.addEventListener('focus', refresh);
+    window.addEventListener('reviews-changed', refresh);
+    return () => {
+      stopped = true;
+      clearInterval(timer);
+      window.removeEventListener('focus', refresh);
+      window.removeEventListener('reviews-changed', refresh);
+    };
+  }, [session.space.id, session.space.permissions]);
+  const reviewCount = (discussions ?? []).filter((item) => item.canDecide).length;
   const historyIndex = useRef(0);
   const [story, setStory] = useState<Story | null>(null);
   const [storyId, setStoryId] = useState(() =>
@@ -299,6 +338,14 @@ export function CMSApp({ session: initialSession }: { session: CMSSession }) {
             >
               <Icon aria-hidden="true" />
               <span>{label}</span>
+              {id === 'reviews' && reviewCount > 0 && (
+                <span
+                  className="review-nav-badge"
+                  aria-label={`${reviewCount} reviews awaiting your decision`}
+                >
+                  {reviewCount}
+                </span>
+              )}
               {tab === id && <span className="nav-active-dot" aria-hidden="true" />}
             </button>
           ))}
@@ -381,6 +428,15 @@ export function CMSApp({ session: initialSession }: { session: CMSSession }) {
                 onBlocks={() => void navigate('blocks')}
               />
             ))}
+          {tab === 'reviews' && (
+            <ReviewsScreen
+              discussions={discussions}
+              userId={session.user.id}
+              canReview={can(session.space, 'content:review')}
+              error={reviewsError}
+              onRefresh={refreshReviews}
+            />
+          )}
           {tab === 'releases' && (
             <ReleasesScreen
               canPublish={can(session.space, 'content:publish')}

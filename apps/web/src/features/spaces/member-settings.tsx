@@ -63,7 +63,7 @@ export function MemberSettings({
       if (updated.role === 'admin') await loadInvitations();
       setMessage(
         method === 'POST'
-          ? 'Invitation ready. Share the workspace link below.'
+          ? 'Invitation ready. Copy the invitation link to share it.'
           : 'Member access updated.',
       );
     } catch (cause) {
@@ -78,7 +78,7 @@ export function MemberSettings({
       await writeClipboardText(invitationLink || `${window.location.origin}/?space=${space.id}`);
       setMessage('Link copied.');
     } catch {
-      setError('Could not copy the link. Copy the workspace URL from your address bar.');
+      setError('Could not copy the link. Allow clipboard access and try again.');
     }
   }
   const lastAdmin = (member: Member) =>
@@ -106,30 +106,26 @@ export function MemberSettings({
           </Button>
         )}
       </header>
-      <div className="panel-body member-intro">
-        <p className="muted">
-          Assign a role to control each member’s access. Manage permissions in Roles.
-        </p>
-        {canManage && (
-          <Button variant="ghost" className="button--small" onClick={() => void copyLink()}>
-            <Copy aria-hidden="true" />
-            {invitationLink ? 'Copy invitation link' : 'Copy workspace link'}
-          </Button>
+      <div className="panel-body">
+        <div className="member-intro">
+          <p className="muted">
+            Assign a role to control each member’s access. Manage permissions in Roles.
+          </p>
+          {canManage && (
+            <Button variant="ghost" className="button--small" onClick={() => void copyLink()}>
+              <Copy aria-hidden="true" />
+              {invitationLink ? 'Copy invitation link' : 'Copy workspace link'}
+            </Button>
+          )}
+        </div>
+        {!adding && !removing && <ErrorNotice message={error} />}
+        {message && (
+          <p className="member-status" role="status">
+            <Check aria-hidden="true" />
+            {message}
+          </p>
         )}
       </div>
-      {!adding && !removing && <ErrorNotice message={error} />}
-      {message && (
-        <p className="member-status" role="status">
-          <Check aria-hidden="true" />
-          {message}
-        </p>
-      )}
-      {invitationLink && (
-        <label className="field">
-          Invitation link
-          <input readOnly value={invitationLink} onFocus={(event) => event.target.select()} />
-        </label>
-      )}
       <div className="table-wrap">
         <table className="data-table" aria-label="Space members">
           <thead>

@@ -1500,6 +1500,9 @@ hr {
 .block-restrictions > .search-input {
   width: 100%;
 }
+.block-restrictions > .checkbox-field {
+  margin-top: 12px;
+}
 .restriction-selection {
   display: flex;
   align-items: center;

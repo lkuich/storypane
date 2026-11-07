@@ -83,6 +83,7 @@ export function BlockPreview({
   }, []);
   const definition = definitions.find((item) => item.id === anchor?.dataset.previewDefinition);
   const block = preview.snapshot.blocks.find((item) => item.id === anchor?.dataset.previewBlock);
+  const blockId = block?.id;
   const component = useMemo<ComponentPreview | undefined>(() => {
     if (definition?.previewData)
       return {
@@ -98,8 +99,8 @@ export function BlockPreview({
           component: definition.name,
         },
       };
-    if (block) return { blockId: block.id };
-  }, [definition, block]);
+    if (blockId) return { blockId };
+  }, [definition, blockId]);
   const visible = !!(anchor?.isConnected && component);
   useLayoutEffect(() => {
     if (!visible || !anchor) return;
