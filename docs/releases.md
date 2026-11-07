@@ -66,6 +66,23 @@ Alternatively, select an existing release and choose **Add to release**. Its tim
 applies to this page too. When a clock change repeats a local time, choose the
 intended UTC offset; skipped times cannot be scheduled.
 
+## View the approved version
+
+When a page locale belongs to an upcoming release, check **View release version
+(read-only)** in its story editor. Storypane saves pending edits before switching.
+The fields, nested blocks and application preview show the approved release
+version. Editing and publishing controls are disabled while it is checked.
+Uncheck it to return to your current draft.
+
+The preview uses approved linked pages from the same release and live content for
+other published references. Omitted references stay omitted; newer drafts are not
+included. It uses your existing preview URLs and SDK integration. Changing,
+canceling or publishing the approval invalidates its preview session.
+
+Reviews remain tied to their content versions. Editing or reviewing the next draft
+does not discard approval of the version already scheduled. Reviewer permissions
+are checked again when the release runs.
+
 ## Plan a release first
 
 Open **Releases** in the left menu and choose **New release**. Name it and set its
@@ -78,12 +95,6 @@ changes are not included** means the current saved draft differs from the approv
 version. An empty release does not publish anything.
 
 ## Edit a page that is already scheduled
-
-Turn on **View release version (read-only)** in the editor to inspect the saved
-release version. The fields and application preview show that approved revision,
-including its saved linked-content choices. Pending draft edits are saved before
-switching; turn the option off to return to your current draft. The release view
-does not acquire editing locks or let you change or publish its fields.
 
 Autosave continues normally. When you review the next saved version, choose:
 
@@ -150,6 +161,9 @@ Temporary infrastructure failures retry the entire release after 1, 5, 15 and
 60 minutes, then hold it after five failed attempts. The application checks due
 releases at startup and every minute, so publication is not exact to the second.
 The CMS must be running; an overdue release is checked when it comes back online.
+
+Legacy schedules created before approved snapshots were stored require **Update
+release** before the read-only preview is available.
 
 Legacy schedules are retained as individual releases during upgrade. Old failed
 schedules appear under **Needs attention**; resume them only after review. A newer

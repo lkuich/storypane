@@ -169,7 +169,6 @@ export async function reviewInstallation() {
     ).rows[0];
     return {
       origin,
-      logPath: join(directory, 'server.log'),
       spaceId,
       people,
       password,

@@ -1040,9 +1040,9 @@ function LocaleEditor({
               <Button
                 aria-pressed={previewOpen}
                 onClick={onPreview}
-                disabled={snapshot.access?.preview === false}
+                disabled={visibleSnapshot.access?.preview === false}
                 title={
-                  snapshot.access?.preview === false
+                  visibleSnapshot.access?.preview === false
                     ? 'Preview requires read access to every field.'
                     : undefined
                 }
@@ -1146,7 +1146,7 @@ function LocaleEditor({
           }}
         />
       )}
-      {snapshot.access?.preview === false && (
+      {!viewRelease && snapshot.access?.preview === false && (
         <p className="notice">
           Preview is unavailable because your role cannot read every field or referenced story. You
           can edit the fields available below.
@@ -1294,7 +1294,7 @@ function LocaleEditor({
           device.
         </div>
       )}
-      {pendingReviews.length > 0 && (
+      {!viewRelease && pendingReviews.length > 0 && (
         <div className="notice story-review-notice" role="status">
           <span>
             <strong>

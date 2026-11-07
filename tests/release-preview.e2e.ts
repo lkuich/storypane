@@ -137,10 +137,6 @@ connectPreview({cmsUrl:${JSON.stringify(installation.origin)},spaceId:${JSON.str
     await expect(title).toBeEditable();
     await expect(checkbox).toHaveCount(0);
     expect(errors).toEqual([]);
-  } catch (cause) {
-    const log = await readFile(installation.logPath, 'utf8');
-    console.error(log.replace(/postgres(?:ql)?:\/\/[^\s]+/g, '[database]'));
-    throw cause;
   } finally {
     await context.close();
     await installation.close();

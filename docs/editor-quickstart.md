@@ -228,6 +228,9 @@ To publish later, choose **Add to release** in the publishing review. Create a
 named release or add this revision to an existing one. The **Releases** view lists
 approved pages and flags newer drafts that are not included. Scheduled pages offer
 **Update release** or **Publish now & remove from release** on their next review.
+Check **View release version (read-only)** to inspect the scheduled fields, nested
+blocks and website preview. Uncheck it to continue editing your current draft.
+The checkbox appears only while this page locale belongs to an upcoming release.
 See [Content releases](releases.md) for planning, linked pages and conflict handling.
 
 ## 9. Connect a website and live preview
