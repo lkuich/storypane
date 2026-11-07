@@ -1,6 +1,6 @@
 # Optional reviewer before publishing
 
-Status: implemented in 0.1.0-rc.4.
+Status: implemented in 0.1.0-rc.5.
 Recorded: 2026-11-06. Updated: 2026-11-07.
 
 The implemented workflow uses optional story/block review requests, Teams with

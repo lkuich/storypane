@@ -8,7 +8,7 @@ Recorded 2026-11-06. These are planning and implementation records; each documen
 - [Authentication integration boundaries](authentication-integration-boundaries.md):
   clear interfaces for operator-chosen identity providers and retained authorization.
 - [Optional reviewer before publishing](reviewer-before-publish.md): implemented
-  in rc.4, with requirements checked against the selected content version.
+  in rc.5, with requirements checked against the selected content version.
 - [Locale copying and source changes](locale-copying-and-source-changes.md): easier
   initial copying and visibility into default changes without coupling locales.
 - [Reliability gaps](reliability.md): outstanding hosted acceptance, recovery,

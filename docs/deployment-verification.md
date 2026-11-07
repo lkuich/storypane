@@ -497,9 +497,10 @@ revocation, the remaining schema/CLI/release matrix, security review and load
 benchmarks remain open. This is scoped operational evidence, not full production
 acceptance.
 
-## RC.4 local review and editor checks — 2026-11-07
+## RC.5 local review and editor checks — 2026-11-07
 
-This record covers the local production build for 0.1.0-rc.4, not a new hosted
+This record covers the review/editor changes prepared for rc.4 and shipped in
+0.1.0-rc.5, not a new hosted
 installation. Real local authentication and disposable PostgreSQL schemas were
 used for seven review/invitation E2E scenarios and four editor-performance E2E
 scenarios. The personal preview settings browser test also passed. Coverage
@@ -511,9 +512,10 @@ and publishing, original content scopes, and unchanged pinned content.
 The release-version browser scenario also passed with the real SDK preview,
 keyboard switching, responsive layouts, saved drafts and read-only fields.
 
-The local full test run passed 570 tests; 23 optional isolation/Railway tests were
-skipped because their separate database URLs were not configured. Release CI runs
-those tests with dedicated services. The production dependency audit reported no
+The final local full test run passed 591 tests with the dedicated isolation and
+Railway PostgreSQL services enabled. Two optional live S3/management integration
+tests were skipped because their external fixtures were not configured.
+The production dependency audit reported no
 known vulnerabilities. The release workflow remains the authority for lint,
 packed-SDK installation, complete CI and the Docker build.
 
@@ -523,3 +525,8 @@ fell by approximately 403 KB after deferring the rich-text bundle. These are
 isolated editor-fixture measurements, not production Web Vitals or an external
 preview-application/load benchmark. The main application preview remains separate
 from the new per-member block-hover-preview preference.
+
+The rc.4 release gate stopped on missing legacy-split filters for review messages
+and decisions. rc.5 adds those filters and verifies review history, Teams and
+cross-space isolation against a dedicated PostgreSQL cluster. The rc.4 tag is
+retained without a published GitHub release or npm package.

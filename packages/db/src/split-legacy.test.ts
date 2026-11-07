@@ -42,10 +42,15 @@ it.skipIf(!url).each([false, true])(
       await source.query(
         `INSERT INTO cms_sessions VALUES('legacy-session','legacy-admin',now()+interval '1 hour')`,
       );
+      await source.query(
+        `INSERT INTO "user"(id,name,email) VALUES('reviewer','Reviewer','reviewer@split.test');
+         INSERT INTO cms_sessions VALUES('reviewer-session','reviewer',now()+interval '1 hour')`,
+      );
       const store = new StorypaneStore(source);
       const ids = [randomUUID(), randomUUID()];
       const tokens: string[] = [];
       const transfers: string[] = [];
+      const discussions: string[] = [];
       for (const spaceId of ids) {
         const actor = {
           spaceId,
@@ -97,6 +102,35 @@ it.skipIf(!url).each([false, true])(
           expectedRevision: null,
           releaseName: 'Preserved launch',
         });
+        await source.query(
+          "INSERT INTO memberships(space_id,user_id,role) VALUES($1,'reviewer','editor')",
+          [spaceId],
+        );
+        const team = await store.saveTeam(actor, {
+          name: 'Editorial',
+          memberIds: ['reviewer'],
+          minimumApprovals: 1,
+        });
+        const version = (
+          await store.reviewDirectory(actor, { storyId: story.id, localeId: locale.id })
+        ).version;
+        const discussion = await store.createDiscussion(actor, {
+          storyId: story.id,
+          localeId: locale.id,
+          kind: 'review',
+          teamIds: [team.id],
+          message: `Review for ${spaceId}`,
+          expectedVersion: version,
+        });
+        discussions.push(discussion.id);
+        await store.actOnDiscussion(
+          { ...actor, userId: 'reviewer', sessionId: 'reviewer-session' },
+          discussion.id,
+          {
+            action: 'approve',
+            expectedVersion: version,
+          },
+        );
         const transferId = randomUUID();
         transfers.push(transferId);
         await source.query(
@@ -132,14 +166,37 @@ it.skipIf(!url).each([false, true])(
           { [ids[0]]: urls[2], [ids[1]]: urls[3] },
           'legacy-admin',
         ),
-      ).toEqual({ spaces: 2, identities: 1 });
+      ).toEqual({ spaces: 2, identities: 2 });
       expect(
-        (await installation.pool.query('SELECT clerk_user_id,installation_admin FROM "user"')).rows,
-      ).toEqual([{ clerk_user_id: 'user_clerk', installation_admin: true }]);
+        (
+          await installation.pool.query(
+            'SELECT clerk_user_id,installation_admin FROM "user" ORDER BY id',
+          )
+        ).rows,
+      ).toEqual([
+        { clerk_user_id: 'user_clerk', installation_admin: true },
+        { clerk_user_id: null, installation_admin: false },
+      ]);
       for (const [index, id] of ids.entries()) {
         const selected = await installation.acquire(id);
         try {
           expect((await selected.db.query('SELECT id FROM spaces')).rows).toEqual([{ id }]);
+          expect((await selected.db.query('SELECT id FROM discussions')).rows).toEqual([
+            { id: discussions[index] },
+          ]);
+          expect(
+            (await selected.db.query('SELECT DISTINCT discussion_id FROM discussion_messages'))
+              .rows,
+          ).toEqual([{ discussion_id: discussions[index] }]);
+          expect(
+            (await selected.db.query('SELECT discussion_id,user_id,decision FROM review_decisions'))
+              .rows,
+          ).toEqual([
+            { discussion_id: discussions[index], user_id: 'reviewer', decision: 'approve' },
+          ]);
+          expect(
+            (await selected.db.query('SELECT space_id,name,minimum_approvals FROM teams')).rows,
+          ).toEqual([{ space_id: id, name: 'Editorial', minimum_approvals: 1 }]);
           expect(
             (await selected.db.query('SELECT id FROM schema_transfers ORDER BY id')).rows,
           ).toEqual([id, transfers[index]].sort().map((id) => ({ id })));

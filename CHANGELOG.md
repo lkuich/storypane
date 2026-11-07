@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.1.0-rc.4 — 2026-11-07
+## 0.1.0-rc.5 — 2026-11-07
 
 - Add story and block reviews, comments, inline @mentions, and a Reviews inbox.
   Teams live under Members & roles with configurable approval thresholds.
@@ -15,6 +15,8 @@
 - Add the optional nested-block filter and simplify pinned-story rows.
 - Preview saved release versions read-only and retain review decisions by content
   version, keeping later draft changes separate from approved releases.
+- Preserve review messages, decisions and Teams when splitting a legacy multi-space
+  database into dedicated databases.
 - Advance CMS and SDK versions together; there is no new SDK API in this candidate.
   Apply space migrations 030 (reviews and Teams), 031 (personal block previews),
   and 032 (release previews and versioned review decisions) with the transactional
@@ -23,6 +25,12 @@
 See [Reviews and comments](docs/reviews.md) and the
 [verification record](docs/deployment-verification.md). This is an evaluation
 candidate, not a stable production release.
+
+## 0.1.0-rc.4 — 2026-11-07
+
+- The release gate caught missing legacy-split filters for the new review tables.
+  The tag remains in history; no GitHub release or npm package was published.
+  rc.5 includes the fix and the complete review/editor changes.
 
 ## 0.1.0-rc.3 — 2026-11-06
 

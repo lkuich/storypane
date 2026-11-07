@@ -1,4 +1,4 @@
-Storypane **0.1.0-rc.4** — release candidate for evaluation.
+Storypane **0.1.0-rc.5** — release candidate for evaluation.
 
 - Story and block reviews, comments, inline @mentions, and the Reviews inbox.
 - Teams under Members & roles with minimum approval counts and a separate Review
@@ -7,11 +7,12 @@ Storypane **0.1.0-rc.4** — release candidate for evaluation.
 - Faster block navigation, stale-snapshot lease protection, on-demand rich-text
   loading, and a personal toggle for block hover previews.
 - Larger page map, icon refresh controls, and nested-block filtering.
+- Legacy database splitting preserves review history and its space boundaries.
 - Read-only previews of saved release versions, with version-specific review decisions.
 
-Install the CMS from source tag `v0.1.0-rc.4`; Docker Compose builds that checkout.
+Install the CMS from source tag `v0.1.0-rc.5`; Docker Compose builds that checkout.
 The Railway template builds moving `main`, not a pinned candidate. Install the
-SDK with `npm install @storypane/sdk@0.1.0-rc.4`, or follow `@storypane/sdk@rc`
+SDK with `npm install @storypane/sdk@0.1.0-rc.5`, or follow `@storypane/sdk@rc`
 after npm publication completes. The tarball is attached to this prerelease.
 There is no new SDK API in this candidate. npm's `latest` tag is not a stability
 indicator; use the explicit version or `rc` channel.
@@ -35,7 +36,7 @@ independent security review and production load benchmarks remain outstanding.
 - [Get started](https://storypane.dev/docs/getting-started/)
 - [Release and upgrade guide](https://storypane.dev/docs/releases-and-versioning/)
 - [Verification record](https://storypane.dev/docs/verification/)
-- [Changelog](https://github.com/lkuich/storypane/blob/v0.1.0-rc.4/CHANGELOG.md)
+- [Changelog](https://github.com/lkuich/storypane/blob/v0.1.0-rc.5/CHANGELOG.md)
 - [Report security issues privately](https://github.com/lkuich/storypane/security/advisories/new)
 
 MIT licensed, provided without warranty under LICENSE. Hosting, identity, mail,

@@ -29,6 +29,8 @@ const scoped: Record<string, string> = {
   story_pins: 'story_id IN (SELECT id FROM stories WHERE space_id=$1)',
   asset_folder_placements: 'asset_id IN (SELECT id FROM assets WHERE space_id=$1)',
   webhook_attempts: 'delivery_id IN (SELECT id FROM webhook_deliveries WHERE space_id=$1)',
+  discussion_messages: 'discussion_id IN (SELECT id FROM discussions WHERE space_id=$1)',
+  review_decisions: 'discussion_id IN (SELECT id FROM discussions WHERE space_id=$1)',
   // Clone receipts use the destination space ID; other transfers record it in their result.
   schema_transfers: "coalesce(result->>'targetSpaceId',id::text)=$1",
 };
