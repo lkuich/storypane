@@ -530,3 +530,21 @@ The rc.4 release gate stopped on missing legacy-split filters for review message
 and decisions. rc.5 adds those filters and verifies review history, Teams and
 cross-space isolation against a dedicated PostgreSQL cluster. The rc.4 tag is
 retained without a published GitHub release or npm package.
+
+## RC.6 local locale-source checks — 2026-11-07
+
+The locale-source change in PR #2 passed 600 local tests; six optional external
+or Railway fixture cases were skipped. The focused source-update and legacy-split
+suite passed 15 tests. Two real authenticated browser scenarios cover initial
+copying, explicit linking of existing locale copies, preservation of translations,
+source comparisons, apply/keep decisions, child scope and removal, keyboard use,
+and responsive layouts at 320, 390, 768, and 1440 pixels.
+
+Lint, type checks including both example apps, production build, and PR CI passed.
+Database tests exercise permissions, competing leases, stale source/target tokens,
+idempotency, nested moves and removals, untouched local fields and ordering, and
+preservation of source metadata through legacy database splitting. Migration 033
+adds source tracking without automatically linking or rewriting existing locales.
+
+This is local and CI evidence, not new hosted acceptance or a production load
+benchmark. Existing backup/restore and hosted verification limits still apply.

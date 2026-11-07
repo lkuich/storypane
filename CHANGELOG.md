@@ -1,12 +1,19 @@
 # Changelog
 
-## Unreleased
+## 0.1.0-rc.6 — 2026-11-07
 
 - Create independent locale pages from Default, including page fields and selected
   sections. Review later source changes without overwriting translations by default.
 - Add explicit linking for existing locale copies, scoped block updates, translation
   review markers, and safe update selection. Space migration 033 retains source
   baselines and mappings; legacy database splitting preserves these relationships.
+
+- Improve Railway setup failure diagnostics.
+- Advance CMS and SDK versions together; no new public SDK API. Apply migration
+  033 with the transactional production migration runner before using source review.
+
+See [Locales and source updates](docs/locales.md). Existing locale copies require
+one-time explicit linking; translations and publishing remain independent.
 
 ## 0.1.0-rc.5 — 2026-11-07
 

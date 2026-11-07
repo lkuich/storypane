@@ -12,10 +12,10 @@ Start with the [Next.js integration guide](https://github.com/lkuich/storypane/b
 server-side fetching, typed block components, and a separate live preview route.
 An [Astro example](https://github.com/lkuich/storypane/blob/main/apps/example-astro/README.md) is also included.
 
-The current version is **0.1.0-rc.5**, published on npm as a release candidate:
+The current version is **0.1.0-rc.6**, published on npm as a release candidate:
 
 ```sh
-npm install @storypane/sdk@0.1.0-rc.5
+npm install @storypane/sdk@0.1.0-rc.6
 # Or follow the candidate channel:
 npm install @storypane/sdk@rc
 ```
@@ -29,7 +29,7 @@ You can also build from this monorepo with `pnpm --filter @storypane/sdk build`
 and pack/link `packages/sdk`, or install the verified GitHub archive:
 
 ```sh
-npm install https://github.com/lkuich/storypane/releases/download/v0.1.0-rc.5/storypane-sdk-0.1.0-rc.5.tgz
+npm install https://github.com/lkuich/storypane/releases/download/v0.1.0-rc.6/storypane-sdk-0.1.0-rc.6.tgz
 ```
 
 Entrypoints:
@@ -717,7 +717,7 @@ Launch the pinned package directly (Node 20+), with `STORYPANE_URL`,
 your MCP client's environment:
 
 ```sh
-npx --yes --package=@storypane/sdk@0.1.0-rc.5 storypane mcp
+npx --yes --package=@storypane/sdk@0.1.0-rc.6 storypane mcp
 ```
 
 If installed in your project, `pnpm exec storypane mcp` also works from its root.
