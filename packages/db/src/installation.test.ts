@@ -1,4 +1,5 @@
 import { randomBytes, randomUUID } from 'node:crypto';
+import { StorypaneError } from '@storypane/core';
 import { Pool } from 'pg';
 import { beforeAll, afterAll, describe, it, expect, vi } from 'vitest';
 import {
@@ -17,6 +18,8 @@ import {
 } from './local-auth.js';
 import { Room, type RoomSocket } from '../../../apps/realtime/src/room';
 import { acceptInvitation } from './accept-invitation.js';
+import { resolveExternalIdentity, linkExternalIdentity } from './external-identity.js';
+import type { AuthenticationFactory } from './authentication.js';
 
 const mail = vi.hoisted(() => vi.fn(async (_message: { text: string }) => undefined));
 vi.mock('nodemailer', () => ({ createTransport: () => ({ sendMail: mail }) }));
@@ -717,6 +720,221 @@ describe.skipIf(!url)('installation and actual PostgreSQL space isolation', () =
     } finally {
       await dev.close();
       await prod.close();
+    }
+  });
+  it('supports a custom provider through the same store, preview and realtime boundaries without granting access on sign-in', async () => {
+    const customDB = `custom_auth_${randomUUID().replaceAll('-', '')}`;
+    const customURL = new URL(url!);
+    customURL.pathname = `/${customDB}`;
+    await admin.query(`CREATE DATABASE "${customDB}"`);
+    await admin.query(`REVOKE ALL ON DATABASE "${customDB}" FROM PUBLIC`);
+    let sessionActive = true,
+      identityActive = true;
+    let scopes = 0;
+    const factory: AuthenticationFactory = () => {
+      scopes++;
+      return {
+        config: () => ({
+          provider: 'redirect',
+          name: 'Okta',
+          signInPath: '/api/auth/sign-in/okta',
+        }),
+        getSession: async () => null,
+        assertSession: async () => {
+          if (!sessionActive) throw new StorypaneError('unauthenticated', 'Session revoked');
+        },
+        assertIdentity: async () => {
+          if (!identityActive) throw new StorypaneError('unauthenticated', 'Identity disabled');
+        },
+        handle: async () => new Response('Not found', { status: 404 }),
+      };
+    };
+    const custom = new Installation({
+      connectionString: customURL.href,
+      provider: 'okta',
+      authentication: factory,
+      encryptionKey: randomBytes(32).toString('base64'),
+      provisioningURL: url,
+    });
+    const customSpace = randomUUID();
+    try {
+      await migrateInstallation(custom.pool, 'okta');
+      await migrateInstallation(custom.pool, 'okta');
+      expect(
+        (await custom.pool.query('SELECT count(*)::int AS count FROM installation_migrations'))
+          .rows[0].count,
+      ).toBe(3);
+      await expect(migrateInstallation(custom.pool, 'local')).rejects.toThrow(
+        'operator account migration',
+      );
+      const claims = {
+        provider: 'okta',
+        subject: 'subject-123',
+        name: 'Okta editor',
+        email: 'editor@okta.test',
+        emailVerified: true,
+      };
+      await expect(
+        resolveExternalIdentity(custom.pool, { ...claims, emailVerified: false }),
+      ).rejects.toMatchObject({ code: 'invalid' });
+      const identity = await resolveExternalIdentity(custom.pool, claims);
+      expect((await resolveExternalIdentity(custom.pool, claims)).id).toBe(identity.id);
+      expect(
+        (
+          await custom.pool.query('SELECT installation_admin FROM "user" WHERE id=$1', [
+            identity.id,
+          ])
+        ).rows[0].installation_admin,
+      ).toBe(false);
+      // Same email must never link a different external subject to this account.
+      await expect(
+        resolveExternalIdentity(custom.pool, { ...claims, subject: 'different' }),
+      ).rejects.toThrow();
+      await linkExternalIdentity(custom.pool, 'okta', claims.subject, identity.id);
+      const other = await resolveExternalIdentity(custom.pool, {
+        ...claims,
+        subject: 'second',
+        email: 'second@okta.test',
+      });
+      await expect(
+        linkExternalIdentity(custom.pool, 'okta', claims.subject, other.id),
+      ).rejects.toThrow('already linked');
+      await expect(
+        custom.provision(identity.id, { id: customSpace, name: 'Custom auth', mode: 'create' }),
+      ).rejects.toThrow();
+      await custom.pool.query('UPDATE "user" SET installation_admin=true WHERE id=$1', [
+        identity.id,
+      ]);
+      await custom.provision(identity.id, { id: customSpace, name: 'Custom auth', mode: 'create' });
+      const selected = await custom.acquire(customSpace);
+      const customActor = {
+        userId: identity.id,
+        sessionId: 'test-provider-session',
+        spaceId: customSpace,
+        role: 'admin',
+      };
+      try {
+        await expect(
+          selected.store.getSpace({ ...customActor, userId: other.id }),
+        ).rejects.toThrow();
+        await selected.store.seed(customActor);
+        const story = await selected.store.createStory(customActor, {
+          name: 'Provider page',
+          slug: 'provider-page',
+          definitionId: (await selected.store.listDefinitions(customActor)).find(
+            (definition) => definition.kind === 'content-type',
+          )!.id,
+        });
+        const configId = randomUUID();
+        await selected.store.updateDeliverySettings(customActor, {
+          previewUrls: [{ id: configId, name: 'Preview', url: 'https://preview.test/{slug}' }],
+          defaultPreviewId: configId,
+          previewParameter: 'storypane_preview',
+        });
+        const preview = await selected.store.createEditorPreview(
+          customActor,
+          story.story.id,
+          story.locale.id,
+        );
+        const connection = await selected.store.authenticatePreview(
+          preview.token,
+          'https://preview.test',
+        );
+        const token = await selected.store.createManagementToken(customActor, {
+          name: 'Custom auth',
+          scopes: ['read'],
+        });
+        const managementActor = await selected.store.authenticateManagement(
+          token.token,
+          customSpace,
+          'stories',
+        );
+        await selected.store.assertActor(managementActor);
+        sessionActive = false;
+        await expect(
+          selected.store.getSnapshot(customActor, story.story.id, story.locale.id),
+        ).rejects.toThrow('revoked');
+        await expect(selected.store.previewStory(connection.id)).rejects.toThrow('revoked');
+        const socket: RoomSocket = {
+          send: vi.fn(),
+          close: vi.fn(),
+          deserializeAttachment: () => ({
+            actor: customActor,
+            storyId: story.story.id,
+            localeId: story.locale.id,
+          }),
+        };
+        const room = new Room(
+          { getWebSockets: () => [socket] },
+          {
+            withStore: async (run) => {
+              const scope = await custom.acquire(customSpace);
+              try {
+                return await run(scope.store);
+              } finally {
+                await scope.close();
+              }
+            },
+          },
+        );
+        await room.webSocketMessage(socket, JSON.stringify({ type: 'sync' }));
+        expect(socket.close).toHaveBeenCalledWith(1008, 'Authentication expired');
+        sessionActive = true;
+        identityActive = false;
+        await expect(selected.store.assertActor(managementActor)).rejects.toThrow('disabled');
+        identityActive = true;
+        await custom.pool.query('UPDATE "user" SET disabled=true WHERE id=$1', [identity.id]);
+        await expect(selected.store.getSpace(customActor)).rejects.toMatchObject({
+          code: 'unauthenticated',
+        });
+        await expect(resolveExternalIdentity(custom.pool, claims)).rejects.toThrow('disabled');
+        await expect(custom.switchProvider('local')).rejects.toThrow(
+          'Migrate every active account',
+        );
+        expect(
+          (await custom.pool.query('SELECT auth_provider FROM installation_config')).rows[0]
+            .auth_provider,
+        ).toBe('okta');
+        const migrationClient = await custom.pool.connect();
+        try {
+          await migrationClient.query('BEGIN');
+          await migrateLocalCredential(migrationClient, other.id, 'provider-migration-password');
+          await migrationClient.query('COMMIT');
+        } finally {
+          migrationClient.release();
+        }
+        await custom.pool.query(
+          "INSERT INTO cms_sessions VALUES('old-provider-session',$1,now()+interval '1 hour')",
+          [other.id],
+        );
+        await custom.switchProvider('local');
+        expect(
+          (await custom.pool.query('SELECT auth_provider FROM installation_config')).rows[0]
+            .auth_provider,
+        ).toBe('local');
+        expect((await custom.pool.query('SELECT * FROM cms_sessions')).rows).toHaveLength(0);
+        expect(
+          (
+            await custom.pool.query(
+              'SELECT count(*)::int AS count FROM account WHERE "providerId"=$1',
+              ['storypane:okta'],
+            )
+          ).rows[0].count,
+        ).toBe(2);
+        await expect(custom.assertSession(customActor)).rejects.toMatchObject({
+          code: 'unavailable',
+        });
+        expect(scopes).toBeGreaterThan(1);
+      } finally {
+        await selected.close();
+      }
+    } finally {
+      await custom.pool.end();
+      await admin.query(
+        `DROP DATABASE IF EXISTS "sp_${customSpace.replaceAll('-', '')}" WITH (FORCE)`,
+      );
+      await admin.query(`DROP ROLE IF EXISTS "sp_${customSpace.replaceAll('-', '')}"`);
+      await admin.query(`DROP DATABASE "${customDB}" WITH (FORCE)`);
     }
   });
   it('denies public signup and bad origins; recovery revokes all sessions', async () => {

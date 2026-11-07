@@ -180,6 +180,11 @@ existing Better Auth integration, connect Okta directly, or adapt another compan
 identity provider in application code. Keep the change focused on that provider;
 there is no need for a generic authentication extension framework.
 
+Use the [bring your own provider guide](bring-your-own-auth-provider.md) for the
+shared server adapter, redirect sign-in screen, explicit identity mapping and
+operator commands. Local and Clerk use the same adapter boundary. Custom providers
+require source integration and verification; setting a new name alone is not enough.
+
 Better Auth offers [SSO support over OIDC and SAML](https://better-auth.com/docs/plugins/sso)
 and an [Okta SAML guide](https://better-auth.com/docs/guides/saml-sso-with-okta).
 These are upstream capabilities: Storypane's default Better Auth configuration
@@ -189,16 +194,16 @@ SSO extension requires implementation and verification in your copy.
 Give your coding agent this task alongside the setup instructions above:
 
 ```text
-Read AGENTS.md and docs/authentication.md. Connect our specified identity provider
-in this checkout, using the existing authentication services. Prefer the existing
-Clerk enterprise connection path if it meets our requirements. For a direct Okta
-or Better Auth SSO customization, inspect packages/db/src/local-auth.ts,
-apps/web/src/app/api/auth/[...all]/route.ts, apps/web/src/lib/context.ts,
-apps/web/src/lib/clerk-auth.ts, packages/db/src/installation.ts, scripts/admin.ts,
-and the sign-in UI and realtime session checks before changing them. The auth
-route has an explicit endpoint allowlist; adding an upstream plugin alone will
-not expose its callbacks. Review callback methods/origins individually rather
-than relaxing origin checks for all auth routes. Preserve stable identity IDs,
+Read AGENTS.md, docs/authentication.md and docs/bring-your-own-auth-provider.md.
+Connect our specified identity provider through AuthenticationFactory in
+packages/db/src/auth-providers.ts. Reuse redirect sign-in for a cookie-backed
+provider; implement exact callback routes and session/identity rechecks inside
+the adapter. Use resolveExternalIdentity for verified claims and the operator
+link-provider-account command to preserve existing identities. Inspect the built-in
+adapters, installation authority, auth route, UI and realtime callers before edits.
+Adding an upstream plugin alone will not implement Storypane's adapter contract.
+Review callback methods/origins individually rather than relaxing origin checks
+for all auth routes. Preserve stable identity IDs,
 explicit account linking, invitation-only space membership, role/content scopes,
 revocation and expired-session behavior for HTTP and WebSockets. Keep IdP secrets
 server-side and out of chat. Add focused tests and run the authentication and

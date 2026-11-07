@@ -9,7 +9,11 @@
     "./local-auth": "./src/local-auth.ts",
     "./accept-invitation": "./src/accept-invitation.ts",
     "./split-legacy": "./src/split-legacy.ts",
-    "./clerk-checks": "./src/clerk-checks.ts"
+    "./clerk-checks": "./src/clerk-checks.ts",
+    "./clerk-auth": "./src/clerk-auth.ts",
+    "./authentication": "./src/authentication.ts",
+    "./auth-providers": "./src/auth-providers.ts",
+    "./external-identity": "./src/external-identity.ts"
   },
   "dependencies": {
     "@clerk/backend": "^3.26.5",

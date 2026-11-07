@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { Pool } from 'pg';
 import { getInstallation, migrateInstallation, migrateSpace } from '@storypane/db/installation';
+import { linkExternalIdentity } from '@storypane/db/external-identity';
 import {
   createLocalAccount,
   recoverLocalAccount,
@@ -73,7 +74,9 @@ try {
     console.log('Installation and space migrations applied.');
   } else if (command === 'bootstrap' || command === 'recover') {
     if (installation.options.provider !== 'local')
-      throw new Error('Use the Clerk operator controls in Clerk mode');
+      throw new Error(
+        'Bootstrap and password recovery require local authentication; use your provider controls otherwise',
+      );
     const email = await prompt('Email: ');
     const name = command === 'bootstrap' ? await prompt('Name: ') : '';
     const secret = await password();
@@ -162,34 +165,18 @@ try {
     if (!result.rowCount)
       throw new Error('Identity not found or already mapped to another Clerk account');
     console.log('Explicit Clerk identity mapping saved.');
+  } else if (command === 'link-provider-account') {
+    const [provider, subject] = process.argv.slice(4);
+    if (!argument || !provider || !subject)
+      throw new Error('Provide an installation user ID, provider name and verified subject ID');
+    await linkExternalIdentity(installation.pool, provider, subject, argument);
+    console.log('Explicit provider identity mapping saved.');
   } else if (command === 'switch-provider') {
-    if (argument !== 'local' && argument !== 'clerk')
-      throw new Error('Use switch-provider local|clerk during maintenance');
-    const client = await installation.pool.connect();
-    try {
-      await client.query('BEGIN');
-      await client.query('LOCK TABLE "user",account,installation_config IN EXCLUSIVE MODE');
-      const missing = await client.query(
-        argument === 'local'
-          ? 'SELECT id FROM "user" u WHERE NOT disabled AND NOT EXISTS(SELECT 1 FROM account a WHERE a."userId"=u.id AND a."providerId"=\'credential\' AND a.password IS NOT NULL)'
-          : 'SELECT id FROM "user" WHERE NOT disabled AND clerk_user_id IS NULL',
-      );
-      if (missing.rowCount)
-        throw new Error('Migrate every active account by ID before switching providers');
-      await client.query('DELETE FROM "session"');
-      await client.query('DELETE FROM cms_sessions');
-      await client.query('DELETE FROM verification');
-      await client.query('UPDATE installation_config SET auth_provider=$1', [argument]);
-      await client.query('COMMIT');
-      console.log(
-        `Provider changed. Set AUTH_PROVIDER=${argument} before restarting the application.`,
-      );
-    } catch (error) {
-      await client.query('ROLLBACK');
-      throw error;
-    } finally {
-      client.release();
-    }
+    if (!argument) throw new Error('Provide the target provider name during maintenance');
+    await installation.switchProvider(argument);
+    console.log(
+      `Provider changed. Set AUTH_PROVIDER=${argument} before restarting the application.`,
+    );
   } else if (command === 'grant-admin') {
     if (!argument) throw new Error('Provide an existing installation user ID');
     const result = await installation.pool.query(
@@ -200,7 +187,7 @@ try {
     console.log('Installation administrator granted.');
   } else
     throw new Error(
-      'Use bootstrap, recover, migrate-local-account <userId>, link-clerk-account <userId> <clerkId>, switch-provider local|clerk, grant-admin <userId>, create-space [operationId], attach-space [operationId], migrate, or split-legacy <manifest>',
+      'Use bootstrap, recover, migrate-local-account <userId>, link-clerk-account <userId> <clerkId>, link-provider-account <userId> <provider> <subject>, switch-provider <provider>, grant-admin <userId>, create-space [operationId], attach-space [operationId], migrate, or split-legacy <manifest>',
     );
 } catch (error) {
   // Driver errors can include connection secrets; expose only application/operator errors.

@@ -12,9 +12,6 @@ async function handle(request: Request, route: { params: Promise<{ path: string[
     const { path } = await route.params;
     const authorization = request.headers.get('authorization');
     const managementToken = authorization?.match(/^Bearer (sm_[\w-]+)$/)?.[1];
-    if (authorization && !managementToken && services.installation.options.provider !== 'clerk') {
-      throw new StorypaneError('unauthenticated', 'A management bearer token is required');
-    }
     if (managementToken) await services.selectSpace(requestedSpace(request));
     const authenticated = managementToken ? null : await authenticate(request, services);
     const actor =
@@ -98,7 +95,7 @@ async function handle(request: Request, route: { params: Promise<{ path: string[
       }
       const production = await services.installation.acquire(
         space.productionSpaceId,
-        services.clerkChecks,
+        services.authentication,
       );
       try {
         const productionActor = managementToken

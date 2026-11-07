@@ -34,7 +34,7 @@ async function handle(request: Request) {
     const admin = await installation.isAdmin(session.user.id);
     const spaces: Space[] = [];
     const unavailable = await installation.forEachSpace(async (id) => {
-      const selected = await installation.acquire(id, services.clerkChecks);
+      const selected = await installation.acquire(id, services.authentication);
       try {
         const entries = await selected.store.listSpaces(actor);
         spaces.push(

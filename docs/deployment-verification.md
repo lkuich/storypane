@@ -251,3 +251,33 @@ after the successful upload.
 These checks do not establish a fresh installation or full hosted acceptance.
 The outstanding hosted workflows and backup/restore rehearsal listed above remain
 unverified for this candidate.
+
+## Authentication provider boundary — 2026-11-06
+
+Checked the working tree based on `e30a7e0` with the shared authentication adapter,
+explicit external identity mapping and provider-switching changes:
+
+- 543 Vitest tests passed; six opt-in checks were skipped. Separate disposable
+  PostgreSQL 18 clusters exercised ordinary database tests and installation
+  isolation/legacy migration. No existing application database was used.
+- After the final session-routing and provider-switch changes, 28 focused tests
+  passed. Custom-provider coverage checks HTTP delegation, local role authority,
+  duplicate-email rejection, explicit identity links, no automatic access grants,
+  revoked preview/realtime access, disabled local accounts, migration replay,
+  incomplete-mapping rejection and retained mappings after session invalidation.
+- SDK/app/both-example type checks, lint and the Node production build passed.
+- Five distinct Chrome browser checks passed against a separate disposable local
+  production installation: local sign-in/invitation/logout, workspace loading,
+  redirect sign-in preserving invitation context, rejection of external sign-in
+  paths, and redirect-provider sign-out failure/retry. Keyboard access and
+  390/768/1440px layouts passed. The redirect provider was a browser fixture.
+
+Installation migration `003_authentication_providers` permits validated provider
+names without changing existing migration history or identity records. It was
+applied only to disposable fixtures during these checks. Existing local and
+Clerk installations were not migrated or switched.
+
+This verifies the application boundary, not a real Okta or other custom provider's
+token exchange, callbacks, session service or upstream revocation. Clerk remote
+checks were mocked. Fresh hosted acceptance, backup/restore rehearsal and the
+other production reliability gaps remain outstanding.

@@ -152,8 +152,10 @@ from the remotely installed SDK CLI.
   an imported identity, keeping its Clerk mapping and revoking its sessions.
 - `link-clerk-account <userId> <clerkUserId>`: explicitly map identity IDs. Set the
   matching `externalId` in Clerk. Existing conflicting mappings are rejected.
-- `switch-provider local|clerk`: during maintenance, after migrating every active
-  identity, switch the installation provider and revoke all sessions. Then set
+- `link-provider-account <userId> <provider> <subject>`: explicitly map an existing
+  identity to a custom provider's verified subject without matching by email.
+- `switch-provider <provider>`: during maintenance, after migrating every active
+  identity, switch the installation provider and clear Storypane's session records. Then set
   `AUTH_PROVIDER` accordingly and restart. A configuration-only provider change
   is rejected. Email addresses never automatically link identities.
 

@@ -3,6 +3,7 @@ import type { createClerkClient } from '@clerk/backend';
 import { expect, it, vi } from 'vitest';
 import { createClerkChecks } from './clerk-checks.js';
 import { Installation } from './installation.js';
+import { clerkAuthentication } from './auth-providers.js';
 
 type Clerk = ReturnType<typeof createClerkClient>;
 function fixture() {
@@ -60,10 +61,14 @@ it('reuses HTTP auth checks in the store but rechecks local authority on every o
   );
   const actor = { userId: 'local-user', sessionId: 'session' };
   try {
-    const request = f.checks();
-    // These are the same lookups done by clerkSession before store authorization.
-    await request.getSession(actor.sessionId);
-    await request.getUser('clerk-user');
+    const scope = () =>
+      clerkAuthentication(
+        installation.pool,
+        f.clerk as unknown as Clerk,
+        'https://cms.test',
+        'test',
+      );
+    const request = scope();
     await installation.assertSession(actor, request);
     await installation.assertSession(actor, request);
     await installation.assertIdentity(actor.userId, request);
@@ -75,15 +80,15 @@ it('reuses HTTP auth checks in the store but rechecks local authority on every o
     });
     disabled = false;
     f.session.status = 'revoked';
-    await expect(installation.assertSession(actor, f.checks())).rejects.toMatchObject({
+    await expect(installation.assertSession(actor, scope())).rejects.toMatchObject({
       code: 'unauthenticated',
     });
     f.session.status = 'active';
     f.user.banned = true;
-    await expect(installation.assertSession(actor, f.checks())).rejects.toMatchObject({
+    await expect(installation.assertSession(actor, scope())).rejects.toMatchObject({
       code: 'unauthenticated',
     });
-    await expect(installation.assertIdentity(actor.userId, f.checks())).rejects.toMatchObject({
+    await expect(installation.assertIdentity(actor.userId, scope())).rejects.toMatchObject({
       code: 'unauthenticated',
     });
   } finally {

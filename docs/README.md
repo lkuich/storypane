@@ -17,6 +17,8 @@ Already have an instance? Start with content and schemas below.
   authentication, operator commands, upgrades, backups, and recovery.
 - [Authentication](authentication.md): local sign-in, invitations, recovery, optional
   Clerk, provider changes, and credentials for agents.
+- [Bring your own auth provider](bring-your-own-auth-provider.md): add a server
+  adapter, reuse redirect sign-in, map identities and verify a direct integration.
 - [Portable hosting and backups](self-hosting.md#backups-upgrades-and-health): move
   regions or cloud hosts, enable provider-managed backups, and preserve media and keys.
 

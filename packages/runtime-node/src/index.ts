@@ -1,4 +1,3 @@
-import { createClerkChecks } from '@storypane/db/clerk-checks';
 import { getInstallation, authProvider } from '@storypane/db/installation';
 import { S3Client } from '@aws-sdk/client-s3';
 import { Room, type RoomSocket } from '@storypane/realtime/room';
@@ -23,12 +22,7 @@ export function nodeRoom(name: string) {
         {
           withStore: async (run) => {
             const installation = getInstallation();
-            const selected = await installation.acquire(
-              name.split(':')[0],
-              installation.options.provider === 'clerk'
-                ? createClerkChecks(installation.auth)
-                : undefined,
-            );
+            const selected = await installation.acquire(name.split(':')[0]);
             try {
               return await run(selected.store);
             } finally {
@@ -115,12 +109,13 @@ export function validateEnvironment() {
   if (authProvider() === 'clerk') {
     required('CLERK_SECRET_KEY');
     required('VITE_CLERK_PUBLISHABLE_KEY');
-  } else if (required('BETTER_AUTH_SECRET').length < 32)
+  } else if (authProvider() === 'local' && required('BETTER_AUTH_SECRET').length < 32)
     throw new Error('BETTER_AUTH_SECRET must be at least 32 characters');
   if (Buffer.from(required('INSTALLATION_ENCRYPTION_KEY'), 'base64').length !== 32)
     throw new Error('INSTALLATION_ENCRYPTION_KEY must encode 32 bytes');
   if (Boolean(process.env.SMTP_URL) !== Boolean(process.env.MAIL_FROM))
     throw new Error('Configure SMTP_URL and MAIL_FROM together');
+  getInstallation().authentication();
   const origin = new URL(env.APP_URL);
   if (
     origin.origin !== env.APP_URL ||

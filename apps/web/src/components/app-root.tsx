@@ -2,6 +2,9 @@
 
 import { lazy, Suspense, useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { LocalSignIn, InvitationForm } from './local-sign-in';
+import type { AuthConfig } from '@storypane/db/authentication';
+import { AccountContext, authRequest } from './account-control';
+import { Button } from '@storypane/ui';
 const ClerkApp = lazy(() => import('./clerk-app'));
 const noToken = async () => null;
 import { Boxes, Layers3, Globe2, History } from 'lucide-react';
@@ -24,11 +27,7 @@ function WorkspaceLoading() {
 }
 
 export function AppRoot() {
-  const [config, setConfig] = useState<{
-    provider: 'local' | 'clerk';
-    publishableKey?: string;
-    passwordReset?: boolean;
-  } | null>(null);
+  const [config, setConfig] = useState<AuthConfig | null>(null);
   const [error, setError] = useState('');
   useEffect(() => {
     void fetch('/api/auth/config')
@@ -37,6 +36,8 @@ export function AppRoot() {
         const value = (await response.json()) as NonNullable<typeof config>;
         if (value.provider === 'clerk' && !value.publishableKey)
           throw new Error('Clerk is not configured for this server.');
+        if (value.provider === 'redirect' && !/^\/api\/auth\/[a-z0-9/-]+$/.test(value.signInPath))
+          throw new Error('The sign-in path must be a local authentication route.');
         setConfig(value);
       })
       .catch((cause) => setError(cause.message));
@@ -51,6 +52,29 @@ export function AppRoot() {
       />
     );
   if (!config) return <WorkspaceLoading />;
+  if (config.provider === 'redirect') {
+    return (
+      <AccountContext.Provider value={<ProviderAccount />}>
+        <AuthenticatedApp
+          isLoaded
+          isSignedIn
+          getToken={noToken}
+          local={false}
+          signIn={
+            <div className="login-form">
+              <h2>Sign in</h2>
+              <Button
+                variant="primary"
+                onClick={() => window.location.assign(config.signInPath + window.location.search)}
+              >
+                Continue with {config.name}
+              </Button>
+            </div>
+          }
+        />
+      </AccountContext.Provider>
+    );
+  }
   return config.provider === 'clerk' ? (
     <Suspense fallback={<WorkspaceLoading />}>
       <ClerkApp publishableKey={config.publishableKey!} />
@@ -63,6 +87,27 @@ export function AppRoot() {
       signIn={<LocalSignIn passwordReset={config.passwordReset} />}
       local
     />
+  );
+}
+
+function ProviderAccount() {
+  const [error, setError] = useState('');
+  return (
+    <div>
+      <Button
+        onClick={async () => {
+          try {
+            await authRequest('sign-out', {});
+            window.location.assign('/');
+          } catch {
+            setError('Unable to sign out. Please retry.');
+          }
+        }}
+      >
+        Sign out
+      </Button>
+      {error && <span role="alert">{error}</span>}
+    </div>
   );
 }
 

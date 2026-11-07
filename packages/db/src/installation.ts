@@ -9,8 +9,8 @@ import {
   type Actor,
   type SpaceConnection,
 } from '@storypane/core';
-import { createClerkClient } from '@clerk/backend';
-import { createClerkChecks, type ClerkChecks } from './clerk-checks.js';
+import { createAuthentication } from './auth-providers.js';
+import type { Authentication, AuthenticationFactory } from './authentication.js';
 import { StorypaneStore } from './store.js';
 import { migrate } from './migrate.js';
 import { captureSchema } from './schema-environments.js';
@@ -26,10 +26,10 @@ import {
 } from './schema-dependencies.js';
 import type { SchemaTransferReview } from '@storypane/core';
 
-export type Provider = 'local' | 'clerk';
+export type Provider = string;
 export function authProvider(value = process.env.AUTH_PROVIDER ?? 'local'): Provider {
-  if (value !== 'local' && value !== 'clerk')
-    throw new Error('AUTH_PROVIDER must be local or clerk');
+  if (!/^[a-z][a-z0-9-]{0,63}$/.test(value))
+    throw new Error('AUTH_PROVIDER must be a lowercase provider name (up to 64 characters)');
   return value;
 }
 export const hashToken = (token: string) => createHash('sha256').update(token).digest('hex');
@@ -102,6 +102,7 @@ export function openConnection(value: string, key: string, spaceId: string) {
   return Buffer.concat([cipher.update(data.subarray(12, -16)), cipher.final()]).toString();
 }
 export async function migrateInstallation(pool: Pool, provider: Provider) {
+  authProvider(provider);
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -113,10 +114,10 @@ export async function migrateInstallation(pool: Pool, provider: Provider) {
     await client.query(
       'CREATE TABLE IF NOT EXISTS installation_migrations(name text PRIMARY KEY, applied_at timestamptz NOT NULL DEFAULT now())',
     );
-    if (
-      !(await client.query("SELECT 1 FROM installation_migrations WHERE name='001_installation'"))
-        .rowCount
-    ) {
+    const freshInstallation = !(
+      await client.query("SELECT 1 FROM installation_migrations WHERE name='001_installation'")
+    ).rowCount;
+    if (freshInstallation) {
       await client.query(
         await readFile(
           new URL('../installation-migrations/001_installation.sql', import.meta.url),
@@ -124,7 +125,6 @@ export async function migrateInstallation(pool: Pool, provider: Provider) {
         ),
       );
       await client.query("INSERT INTO installation_migrations(name) VALUES('001_installation')");
-      await client.query('INSERT INTO installation_config(auth_provider) VALUES($1)', [provider]);
     }
     if (
       !(
@@ -143,8 +143,27 @@ export async function migrateInstallation(pool: Pool, provider: Provider) {
         "INSERT INTO installation_migrations(name) VALUES('002_space_environments')",
       );
     }
+    if (
+      !(
+        await client.query(
+          "SELECT 1 FROM installation_migrations WHERE name='003_authentication_providers'",
+        )
+      ).rowCount
+    ) {
+      await client.query(
+        await readFile(
+          new URL('../installation-migrations/003_authentication_providers.sql', import.meta.url),
+          'utf8',
+        ),
+      );
+      await client.query(
+        "INSERT INTO installation_migrations(name) VALUES('003_authentication_providers')",
+      );
+    }
+    if (freshInstallation)
+      await client.query('INSERT INTO installation_config(auth_provider) VALUES($1)', [provider]);
     const config = (await client.query('SELECT auth_provider FROM installation_config')).rows[0];
-    if (config.auth_provider !== provider)
+    if (config?.auth_provider !== provider)
       throw new Error(
         'Authentication provider differs from the installation. An operator account migration is required.',
       );
@@ -160,12 +179,12 @@ export async function migrateInstallation(pool: Pool, provider: Provider) {
 export class Installation {
   readonly pool: Pool;
   private active = 0;
-  private clerk?: ReturnType<typeof createClerkClient>;
   constructor(
     readonly options: {
       connectionString: string;
       encryptionKey: string;
       provider: Provider;
+      authentication?: AuthenticationFactory;
       provisioningURL?: string;
       clerkSecretKey?: string;
       clerkPublishableKey?: string;
@@ -188,47 +207,69 @@ export class Installation {
     if (config?.auth_provider !== this.options.provider)
       throw new StorypaneError('unavailable', 'Authentication provider migration is required');
   }
-  get auth() {
-    if (this.options.provider !== 'clerk') throw new Error('Clerk is disabled');
-    return (this.clerk ??= createClerkClient({
-      secretKey: this.options.clerkSecretKey,
-      publishableKey: this.options.clerkPublishableKey,
-    }));
-  }
-  async assertIdentity(userId: string, checks?: ClerkChecks) {
+  async switchProvider(provider: string) {
     await this.assertProvider();
-    const user = (
-      await this.pool.query('SELECT clerk_user_id FROM "user" WHERE id=$1 AND NOT disabled', [
-        userId,
-      ])
-    ).rows[0];
-    if (!user) throw new StorypaneError('unauthenticated', 'Account is disabled or unavailable');
-    if (this.options.provider === 'clerk') {
-      if (!user.clerk_user_id)
-        throw new StorypaneError('unauthenticated', 'Account has no Clerk mapping');
-      checks ??= createClerkChecks(this.auth);
-      const identity = await checks.getUser(user.clerk_user_id);
-      if (identity.banned || identity.locked)
-        throw new StorypaneError('unauthenticated', 'Account is disabled');
+    authProvider(provider);
+    this.authentication(provider);
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query('LOCK TABLE "user",account,installation_config IN EXCLUSIVE MODE');
+      const missing = await client.query(
+        provider === 'local'
+          ? 'SELECT id FROM "user" u WHERE NOT disabled AND NOT EXISTS(SELECT 1 FROM account a WHERE a."userId"=u.id AND a."providerId"=\'credential\' AND a.password IS NOT NULL)'
+          : provider === 'clerk'
+            ? 'SELECT id FROM "user" WHERE NOT disabled AND clerk_user_id IS NULL'
+            : 'SELECT id FROM "user" u WHERE NOT disabled AND NOT EXISTS(SELECT 1 FROM account a WHERE a."userId"=u.id AND a."providerId"=$1)',
+        !['local', 'clerk'].includes(provider) ? [`storypane:${provider}`] : [],
+      );
+      if (missing.rowCount)
+        throw new Error('Migrate every active account by ID before switching providers');
+      await client.query('DELETE FROM "session"');
+      await client.query('DELETE FROM cms_sessions');
+      await client.query('DELETE FROM verification');
+      await client.query('UPDATE installation_config SET auth_provider=$1', [provider]);
+      await client.query('COMMIT');
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
     }
   }
-  async assertSession(actor: Pick<Actor, 'userId' | 'sessionId'>, checks?: ClerkChecks) {
+  authentication(provider = this.options.provider): Authentication {
+    return (this.options.authentication ?? createAuthentication)({
+      pool: this.pool,
+      provider,
+      appURL: process.env.STORYPANE_APP_URL ?? '',
+      secret: process.env.BETTER_AUTH_SECRET,
+      smtpURL: process.env.SMTP_URL,
+      mailFrom: process.env.MAIL_FROM,
+      clerkSecretKey: this.options.clerkSecretKey,
+      clerkPublishableKey: this.options.clerkPublishableKey,
+    });
+  }
+  async assertIdentity(userId: string, authentication = this.authentication()) {
     await this.assertProvider();
-    const local = this.options.provider === 'local';
-    const result = await this.pool.query(
-      local
-        ? 'SELECT u.id FROM "session" s JOIN "user" u ON u.id=s."userId" WHERE s.id=$1 AND u.id=$2 AND NOT u.disabled AND s."expiresAt">clock_timestamp()'
-        : 'SELECT u.clerk_user_id FROM cms_sessions s JOIN "user" u ON u.id=s.user_id WHERE s.id=$1 AND u.id=$2 AND NOT u.disabled AND s.expires_at>clock_timestamp()',
-      [actor.sessionId, actor.userId],
-    );
-    if (!result.rowCount) throw new StorypaneError('unauthenticated', 'Your session has expired');
-    if (!local) {
-      checks ??= createClerkChecks(this.auth);
-      const session = await checks.getSession(actor.sessionId);
-      const user = await checks.getUser(result.rows[0].clerk_user_id);
-      if (session.status !== 'active' || session.userId !== user.id || user.banned || user.locked)
-        throw new StorypaneError('unauthenticated', 'Your session has expired');
-    }
+    const user = await this.pool.query('SELECT id FROM "user" WHERE id=$1 AND NOT disabled', [
+      userId,
+    ]);
+    if (!user.rowCount)
+      throw new StorypaneError('unauthenticated', 'Account is disabled or unavailable');
+    await authentication.assertIdentity(userId);
+  }
+  async assertSession(
+    actor: Pick<Actor, 'userId' | 'sessionId'>,
+    authentication = this.authentication(),
+  ) {
+    if (!actor.userId || !actor.sessionId)
+      throw new StorypaneError('unauthenticated', 'Sign in to continue');
+    await this.assertProvider();
+    const user = await this.pool.query('SELECT id FROM "user" WHERE id=$1 AND NOT disabled', [
+      actor.userId,
+    ]);
+    if (!user.rowCount) throw new StorypaneError('unauthenticated', 'Your session has expired');
+    await authentication.assertSession(actor);
   }
   async authAttempt(subject: string) {
     const key = `storypane:${hashToken(subject)}`;
@@ -301,7 +342,7 @@ export class Installation {
     if (!row) throw new StorypaneError('unauthenticated', 'Preview expired');
     return row.space_id as string;
   }
-  async acquire(spaceId: string, checks?: ClerkChecks) {
+  async acquire(spaceId: string, authentication = this.authentication()) {
     parseInput(z.uuid(), spaceId);
     if (this.active >= 16)
       throw new StorypaneError('unavailable', 'Database capacity is busy. Please retry.');
@@ -341,8 +382,8 @@ export class Installation {
         webhookHosts: this.options.webhookHosts,
         externalOptionHosts: this.options.externalOptionHosts,
         spaceId,
-        authorizeSession: (actor) => this.assertSession(actor, checks),
-        authorizeIdentity: (userId) => this.assertIdentity(userId, checks),
+        authorizeSession: (actor) => this.assertSession(actor, authentication),
+        authorizeIdentity: (userId) => this.assertIdentity(userId, authentication),
         registerPreview: async (tokenHash, expiresAt) => {
           await this.pool.query('DELETE FROM preview_routes WHERE expires_at<now()');
           await this.pool.query(
