@@ -146,17 +146,56 @@ existing build/deployment responsibility.
 ## Verification
 
 ```sh
-pnpm exec vitest run packages/db/src/webhook-transport.test.ts packages/db/src/webhooks.test.ts apps/web/src/lib/background.test.ts tests/webhook-rebuild.test.ts
+pnpm exec vitest run \
+  packages/db/src/webhook-transport.test.ts \
+  packages/db/src/webhooks.test.ts \
+  packages/db/src/webhook-integration-review.test.ts \
+  apps/web/src/lib/background.test.ts tests/webhook-rebuild.test.ts
 pnpm exec playwright test --config playwright.webhooks.config.ts
 ```
 
-Database tests use isolated schemas in disposable local test databases; all HTTP and
-DNS destinations are controlled test doubles. The sample receiver is exercised by
-a signed publication event and builds from token-authorized delivery content.
+The Vitest database tests use isolated schemas in disposable local test databases;
+their HTTP and DNS destinations are controlled test doubles. The sample receiver
+is exercised by a signed publication event and builds from token-authorized delivery content.
 The browser harness covers admin controls without requiring a Clerk sign-in;
 Postgres tests independently verify session, role, and space enforcement. The
 actual local scheduled endpoint was invoked twice against an isolated schema: a
 due checkpoint published once, produced one immutable event and delivery attempt,
 and the second invocation produced no duplicates. The empty runtime allowlist
-blocked that test destination before any external DNS/HTTP. Real signed-in
-end-to-end and deployed webhook delivery remain release checks.
+blocked that test destination before any external DNS/HTTP. These earlier checks do not establish
+deployed webhook delivery. The signed-in process-recovery regression below covers
+the local Node installation separately.
+
+### Real HTTPS and process-crash regression
+
+With Node 24.22+, Docker, Google Chrome and `cloudflared` installed, run:
+
+```sh
+pnpm build
+pnpm exec playwright test --config playwright.operational.config.ts
+```
+
+This separate Playwright suite creates and removes its own PostgreSQL container,
+local-auth installation and temporary public HTTPS tunnel to a local test receiver.
+It uses fresh credentials, random loopback ports and sample content; it does not
+attach to your configured installation. No object storage is used in this test.
+The receiver hostname is explicitly allowlisted; the production DNS, HTTPS,
+signature and private-address checks remain enabled. The test prefers IPv4 for
+tunnel connectivity and ignores saved tunnel configuration.
+
+The browser configures a webhook and reads its secret once. The receiver verifies
+HMAC independently. The test waits for the real 503 retry delay, force-kills the
+Node process and checks recovery of the same event and exact payload with a fresh
+signature. It also publishes an approved checkpoint with later drafts, kills the
+sender after receiver acceptance, and checks expired-claim recovery, delivery logs
+and receiver deduplication. It exercises responsive settings and keyboard access.
+Traces are disabled so the one-time secret is not captured.
+
+Allow several minutes and outbound access to the temporary tunnel service. This
+network-dependent suite is separate from the default browser suite and CI's Vitest
+checks. It tests a local production Node build through public HTTPS; it does not
+establish Railway webhook acceptance or production load limits.
+
+The [2026-11-06 verification record](deployment-verification.md#webhook-process-recovery-regressions--2026-11-06)
+records a passing run, the dispatcher queue fix, focused unit/database coverage
+and the remaining acceptance limits.

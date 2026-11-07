@@ -348,3 +348,45 @@ independent security review and representative production load benchmarks.
 Keep the single-replica constraint until shared room transport is implemented and
 verified. This record supersedes the matching outstanding items in earlier dated
 records; it does not declare the release production-ready.
+
+## Webhook process recovery regressions — 2026-11-06
+
+Checked the working tree based on `44953b6` with a fresh Node production build,
+a disposable local PostgreSQL 18 installation and a temporary public HTTPS tunnel.
+The new repeatable suite is `tests/webhooks.recovery.ts`, run through
+`playwright.operational.config.ts`; it creates fresh credentials and cleans up its
+own processes/container without using an existing installation.
+
+- The full Playwright regression passed in 2.3 minutes. It configured the webhook
+  through signed-in settings, independently verified HMAC at the receiver, returned
+  503 and waited for the real backoff/minute scheduler across a forced process
+  restart. The event ID and exact payload remained stable; the retry had a fresh
+  timestamp/signature and both HTTP results appeared in delivery history.
+- A publication with later draft edits was accepted by the receiver before the
+  sender was force-killed. After claim expiry, restart recovery redelivered the
+  same event and completed its interrupted attempt history. Receiver deduplication
+  produced one effect, and token-authorized delivery contained only the approved
+  publication. Later drafts remained unpublished; credentials did not appear in
+  the payload.
+- Settings passed 390/768/1440px overflow checks and keyboard opening/dismissal of
+  delivery logs. Both existing webhook component browser tests also passed.
+- Eight new Vitest cases cover dispatcher failures across spaces/ticks, invalid
+  Retry-After values, recovery with the original encryption key and an exhausted
+  claim at the front of a queue. All 68 focused tests across five files passed
+  against a separate disposable database; type checks, lint and production build
+  passed.
+- The queue regression first failed: an exhausted interrupted claim returned the
+  same signal as an empty queue, stopping the batch before other due work. The
+  dispatcher now continues within its existing batch limit after marking that
+  delivery failed. No public contracts, retry limits or stored keys changed.
+
+Initial browser runs exposed test setup/selector errors and intermittent tunnel
+connectivity. The corrected fixture waits for committed setup requests and tunnel
+registration, bounds network waits and prefers IPv4 on this test host. Production
+DNS/private-address validation, HTTPS and signature checks remain enabled. Traces
+are disabled to avoid capturing the one-time signing secret.
+
+See [the repeatable commands and prerequisites](webhooks.md#real-https-and-process-crash-regression).
+This verifies a local production Node build through public HTTPS. It does not
+complete Railway webhook acceptance, receiver database disaster recovery or
+production load testing. The broader acceptance checklist remains open.

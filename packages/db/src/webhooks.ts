@@ -320,7 +320,7 @@ type Claim = {
   claim_token: string;
   payload: string;
 };
-async function claimDelivery(pool: Pool): Promise<Claim | null> {
+async function claimDelivery(pool: Pool): Promise<Claim | 'exhausted' | null> {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -345,7 +345,7 @@ async function claimDelivery(pool: Pool): Promise<Claim | null> {
         [row.id],
       );
       await client.query('COMMIT');
-      return null;
+      return 'exhausted';
     }
     await client.query(
       "UPDATE webhook_attempts SET completed_at=clock_timestamp(),error='Delivery interrupted before its result was recorded' WHERE delivery_id=$1 AND completed_at IS NULL",
@@ -384,6 +384,7 @@ export async function dispatchWebhooks(
   for (let index = 0; index < Math.min(Math.max(limit, 0), 100); index++) {
     const claim = await claimDelivery(pool);
     if (!claim) break;
+    if (claim === 'exhausted') continue;
     const endpoint = (
       await pool.query<EndpointRow>(
         `SELECT w.* FROM webhook_endpoints w JOIN webhook_deliveries d ON d.endpoint_id=w.id

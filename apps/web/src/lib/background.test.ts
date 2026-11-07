@@ -91,6 +91,29 @@ describe('independent minute background jobs', () => {
     },
   );
 
+  it('isolates a webhook dispatcher failure and retries that space on the next tick', async () => {
+    const task = setup();
+    dispatch.mockRejectedValueOnce(new Error('Database unavailable'));
+    const stop = task.start();
+    try {
+      await vi.advanceTimersByTimeAsync(0);
+      expect(task.publish).toHaveBeenCalledTimes(4);
+      expect(dispatch).toHaveBeenCalledTimes(4);
+      expect(task.close).toHaveBeenCalledTimes(8);
+      expect(task.report).toHaveBeenCalledOnce();
+      expect(task.report.mock.calls[0][0]).toMatchObject({
+        message: 'Background webhooks failed for some spaces',
+      });
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(dispatch).toHaveBeenCalledTimes(8);
+      expect(task.publish).toHaveBeenCalledTimes(8);
+      expect(task.close).toHaveBeenCalledTimes(16);
+      expect(task.report).toHaveBeenCalledOnce();
+    } finally {
+      await stop();
+    }
+  });
+
   it('keeps publishing every space each minute while three webhook receivers stall, then drains on stop', async () => {
     const task = setup();
     let finish!: () => void;

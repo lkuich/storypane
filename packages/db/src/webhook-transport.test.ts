@@ -163,6 +163,20 @@ describe('bounded webhook transport', () => {
       expect(result.retryAfterMs).toBe(milliseconds);
     }
   });
+  it.each(['0', '-1', 'not-a-date', 'Infinity', new Date(now - 60_000).toUTCString()])(
+    'ignores invalid or expired Retry-After %s',
+    async (header) => {
+      const result = await sendWebhook(endpoint, event, {
+        allowedHosts,
+        resolve: publicDns,
+        now: () => now,
+        fetch: async () => new Response(null, { status: 503, headers: { 'Retry-After': header } }),
+      });
+      expect(result).toMatchObject({ httpStatus: 503, retryable: true });
+      expect(result.retryAfterMs).toBeUndefined();
+    },
+  );
+
   it('bounds response bytes with or without Content-Length', async () => {
     for (const headers of [{}, { 'Content-Length': '16385' }] as Record<string, string>[]) {
       const result = await sendWebhook(endpoint, event, {

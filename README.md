@@ -244,6 +244,10 @@ The fixture needs the deployed `page` definition with a `body` blocks field, a
 **Footer text**). Both authenticated users need editor access. These checks write
 sample content and media. Use a disposable installation.
 
+The [webhook crash-recovery suite](docs/webhooks.md#real-https-and-process-crash-regression)
+creates its own isolated installation and public HTTPS test receiver. It requires
+Docker and `cloudflared` and runs separately from the default browser suite.
+
 ## Documentation
 
 - [Getting started](docs/getting-started.md) — installation and first steps.

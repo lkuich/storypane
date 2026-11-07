@@ -382,6 +382,82 @@ describe('durable dispatcher and claim fencing', () => {
       code: 'not_found',
     });
   });
+  it('retains encrypted endpoints and event identity after a wrong key, then recovers with the original key', async () => {
+    const { endpoint, secret } = await store.saveWebhook(alice, input);
+    await emit();
+    const original = await firstDelivery(endpoint.id);
+    const send = vi.fn<typeof fetch>();
+    await dispatchWebhooks(pool, {
+      ...options,
+      encryptionKey: Buffer.alloc(32, 10).toString('base64'),
+      fetch: send,
+    });
+    expect(send).not.toHaveBeenCalled();
+    const failed = await firstDelivery(endpoint.id);
+    expect(failed).toMatchObject({
+      id: original.id,
+      eventId: original.eventId,
+      status: 'failed',
+      attemptCount: 1,
+    });
+    expect(failed.error).toContain('could not be decrypted');
+    expect(JSON.stringify(failed)).not.toContain(secret);
+    expect(JSON.stringify(failed)).not.toContain(encryptionKey);
+    await store.retryWebhook(alice, endpoint.id, failed.id);
+    await dispatchWebhooks(pool, {
+      ...options,
+      fetch: async (_url, init) => {
+        const headers = new Headers(init?.headers);
+        expect(headers.get('webhook-id')).toBe(original.eventId);
+        expect(
+          await verifyWebhookSignature(
+            secret!,
+            headers.get('webhook-timestamp')!,
+            String(init?.body),
+            headers.get('webhook-signature')!,
+          ),
+        ).toBe(true);
+        return new Response(null, { status: 204 });
+      },
+    });
+    expect(await firstDelivery(endpoint.id)).toMatchObject({
+      id: original.id,
+      eventId: original.eventId,
+      status: 'succeeded',
+      attemptCount: 2,
+    });
+  });
+
+  it('continues the batch after exhausting an interrupted delivery', async () => {
+    const { endpoint } = await store.saveWebhook(alice, input);
+    await emit();
+    const exhausted = await firstDelivery(endpoint.id);
+    const token = randomUUID();
+    await pool.query(
+      "UPDATE webhook_deliveries SET status='delivering',attempt_count=5,claim_token=$2,claim_expires_at=clock_timestamp()-interval '1 second' WHERE id=$1",
+      [exhausted.id, token],
+    );
+    await pool.query(
+      'INSERT INTO webhook_attempts(delivery_id,number,claim_token) VALUES($1,5,$2)',
+      [exhausted.id, token],
+    );
+    await emit();
+    const pending = await firstDelivery(endpoint.id);
+    expect(pending.id).not.toBe(exhausted.id);
+    const send = vi.fn<typeof fetch>(async () => new Response(null, { status: 204 }));
+    expect(await dispatchWebhooks(pool, { ...options, fetch: send })).toEqual({ attempted: 1 });
+    const deliveries = (await store.listWebhookDeliveries(alice, endpoint.id)).deliveries;
+    expect(deliveries.find((delivery) => delivery.id === exhausted.id)).toMatchObject({
+      status: 'failed',
+      attemptCount: 5,
+    });
+    expect(deliveries.find((delivery) => delivery.id === pending.id)).toMatchObject({
+      status: 'succeeded',
+      attemptCount: 1,
+    });
+    expect(send).toHaveBeenCalledOnce();
+  });
+
   it('marks a crashed fifth attempt terminal and keeps history bounded without dropping pending work', async () => {
     const { endpoint } = await store.saveWebhook(alice, input);
     await emit();
