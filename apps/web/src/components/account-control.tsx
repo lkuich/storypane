@@ -1,6 +1,7 @@
 'use client';
 import { createContext, useContext, useState, type ReactNode } from 'react';
 import { ActionDropdown } from './action-dropdown';
+import { KeyRound, LogOut } from 'lucide-react';
 export const AccountUserContext = createContext<{ name: string; email: string } | null>(null);
 import { Button, Modal, ErrorNotice } from '@storypane/ui';
 export const AccountContext = createContext<ReactNode>(null);
@@ -37,7 +38,7 @@ function LocalAccountControl() {
     [error, setError] = useState(''),
     [busy, setBusy] = useState(false);
   return (
-    <>
+    <div className="account-control">
       <ActionDropdown
         label={`Account: ${user?.name ?? 'Your account'}`}
         icon={
@@ -54,14 +55,17 @@ function LocalAccountControl() {
           </div>
         )}
         <Button
+          variant="ghost"
           onClick={() => {
             setError('');
             setOpen(true);
           }}
         >
+          <KeyRound aria-hidden="true" />
           Change password
         </Button>
         <Button
+          variant="ghost"
           disabled={busy}
           onClick={async () => {
             setBusy(true);
@@ -75,6 +79,7 @@ function LocalAccountControl() {
             }
           }}
         >
+          <LogOut aria-hidden="true" />
           Sign out
         </Button>
       </ActionDropdown>
@@ -128,6 +133,6 @@ function LocalAccountControl() {
           </div>
         </form>
       </Modal>
-    </>
+    </div>
   );
 }

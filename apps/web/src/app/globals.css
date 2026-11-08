@@ -5838,23 +5838,43 @@ main.login-form-wrap {
   }
 }
 
+.account-control > .action-dropdown > summary {
+  width: 36px;
+  height: 36px;
+  min-height: 36px;
+  padding: 2px;
+  border-radius: 50%;
+}
+.account-control > .action-dropdown[open] > summary {
+  background: var(--accent-soft);
+  border-color: var(--accent-border);
+}
 .account-initials {
   display: grid;
   place-items: center;
-  width: 32px;
-  height: 32px;
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
   border-radius: 50%;
-  background: var(--accent, #397b99);
-  color: white;
+  background: var(--accent-soft);
+  color: var(--accent);
   font-size: 12px;
   font-weight: 600;
 }
+.account-control .action-dropdown-menu {
+  width: 260px;
+  padding: 6px;
+}
 .account-menu-identity {
   display: grid;
-  gap: 4px;
-  padding: 10px;
+  gap: 2px;
+  margin-bottom: 6px;
+  padding: 10px 12px 14px;
+  border-bottom: 1px solid var(--line);
+  font-size: 13px;
   overflow-wrap: anywhere;
 }
 .account-menu-identity span {
+  color: var(--muted);
   font-size: 12px;
 }
