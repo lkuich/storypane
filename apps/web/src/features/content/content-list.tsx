@@ -256,7 +256,7 @@ export function ContentList({
   }
   return (
     <>
-      <div className="page-heading">
+      <div className="page-heading content-heading">
         <div>
           <h1>Content</h1>
           <p>Create, organize, and publish your stories.</p>
@@ -275,21 +275,23 @@ export function ContentList({
         <div className="content-folder-history" role="group" aria-label="Folder navigation">
           <Button
             className="button--small"
+            aria-label="Back"
             disabled={loading || folderHistory.index === 0}
             onClick={() =>
               openFolder(folderHistory.entries[folderHistory.index - 1], folderHistory.index - 1)
             }
           >
-            <ArrowLeft aria-hidden="true" /> Back
+            <ArrowLeft aria-hidden="true" /> <span>Back</span>
           </Button>
           <Button
             className="button--small"
+            aria-label="Forward"
             disabled={loading || folderHistory.index === folderHistory.entries.length - 1}
             onClick={() =>
               openFolder(folderHistory.entries[folderHistory.index + 1], folderHistory.index + 1)
             }
           >
-            Forward <ArrowRight aria-hidden="true" />
+            <span>Forward</span> <ArrowRight aria-hidden="true" />
           </Button>
         </div>
         <button onClick={() => openFolder(null)} aria-current={!currentFolder ? 'page' : undefined}>
@@ -400,7 +402,7 @@ export function ContentList({
           ))}
         </section>
       )}
-      <div className="panel">
+      <div className="panel content-results">
         {loading ? (
           <Loading label="Loading your stories…" />
         ) : filtered.length ? (

@@ -170,6 +170,37 @@ References: [Railway buckets](https://docs.railway.com/storage-buckets),
 [vinext](https://github.com/cloudflare/vinext),
 [Sharp](https://sharp.pixelplumbing.com/api-resize/).
 
+## Update an existing deployment
+
+Update the application service in the existing Railway project. The template
+tracks `main`; publishing an npm SDK version does not update the hosted CMS.
+
+1. Review the [changelog](../CHANGELOG.md) and back up the installation database,
+   every space database, bucket originals, variables, and encryption/auth keys.
+2. For a template deployment, open the existing project and apply its available
+   upstream update notification. If you use your own fork, merge the new release
+   into the branch connected under the application's service settings first.
+3. Deploy the updated source. Connected GitHub autodeploys can do this after the
+   source update; otherwise use **Command Palette → Deploy Latest Commit**
+   (`Cmd/Ctrl+K`). Check the deployment's commit against the intended release.
+   **Redeploy** on an older deployment rebuilds that deployment's source; it does
+   not select the newest release. Restart reuses its existing image.
+4. Keep the existing database/bucket references and keys. Template installations
+   retain `node --import tsx scripts/prepare-railway.ts` as their pre-deploy command;
+   manually prepared installations retain `node --import tsx scripts/migrate-production.ts`.
+   Both run pending transactional migrations. rc.7 adds no migrations beyond rc.6.
+5. Check the pre-deploy/build/runtime logs and `/api/ready`, then verify sign-in,
+   an existing story, media, and saving content. Confirm one replica and sleeping
+   disabled. Do not recreate services or rerun initial administrator setup.
+
+If an upgrade fails, inspect the failing step before retrying. Do not regenerate
+keys or delete storage. A previous application image does not undo database
+migrations; use a coordinated backup restore when database rollback is needed.
+
+See Railway's [template updates](https://docs.railway.com/templates/updates),
+[deployment actions](https://docs.railway.com/deployments/deployment-actions), and
+[GitHub autodeploys](https://docs.railway.com/deployments/github-autodeploys).
+
 ## Repeat the operational checks
 
 Use the [operational regression runner](deployment-verification.md#repeatable-operational-regressions)

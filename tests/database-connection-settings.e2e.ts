@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 
 test('database connection is available only in installation-admin space settings', async ({
   page,
-}) => {
+}, testInfo) => {
   const space = {
     id: '11111111-1111-4111-8111-111111111111',
     name: 'Example space',
@@ -55,6 +55,7 @@ test('database connection is available only in installation-admin space settings
   await page.route('**/api/cms/**', (r) => {
     const path = new URL(r.request().url()).pathname;
     if (path === '/api/cms/space') return r.fulfill({ json: space });
+    if (path === '/api/cms/assets/uploads') return r.fulfill({ json: { items: [] } });
     if (/\/(roles|members|invitations|locales|management-tokens)$/.test(path))
       return r.fulfill({ json: [] });
     return r.fulfill({ status: 503, json: { error: { message: 'Not used by this UI check' } } });
@@ -91,12 +92,27 @@ test('database connection is available only in installation-admin space settings
   await expect(databaseTab).toHaveAttribute('aria-current', 'page');
   await expect(button).toBeVisible();
   await expect(savedUrl).toHaveValue(maskedUrl);
-  for (const width of [390, 1440]) {
+  for (const width of [320, 390, 768, 1440]) {
     await page.setViewportSize({ width, height: 900 });
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
       true,
     );
-    await button.focus();
+    const panel = page.locator('.database-settings');
+    for (const theme of ['light', 'dark']) {
+      await page.getByLabel('Appearance').selectOption(theme);
+      for (const control of await panel.getByRole('button').all()) {
+        const box = (await control.boundingBox())!;
+        expect(box.x).toBeGreaterThanOrEqual(0);
+        expect(box.x + box.width).toBeLessThanOrEqual(width);
+        if (width <= 640) expect(box.height).toBeGreaterThanOrEqual(44);
+      }
+      await panel.screenshot({ path: testInfo.outputPath(`database-${width}-${theme}.png`) });
+    }
+    await panel.getByRole('button', { name: 'Reveal full URL' }).focus();
+    await page.keyboard.press('Tab');
+    await expect(panel.getByRole('button', { name: 'Copy full URL' })).toBeFocused();
+    await page.keyboard.press('Tab');
+    await expect(button).toBeFocused();
     await page.keyboard.press('Enter');
     await expect(page.getByRole('button', { name: 'Close dialog', exact: true })).toBeFocused();
     await page.keyboard.press('Tab');

@@ -13,7 +13,8 @@ export function LocalSignIn({ passwordReset = false }: { passwordReset?: boolean
     [busy, setBusy] = useState(false);
   return (
     <form
-      className="panel"
+      className="panel login-card"
+      aria-busy={busy}
       onSubmit={async (event) => {
         event.preventDefault();
         const data = new FormData(event.currentTarget);
@@ -47,11 +48,27 @@ export function LocalSignIn({ passwordReset = false }: { passwordReset?: boolean
         }
       }}
     >
-      <h2>{reset ? 'Reset your password' : 'Sign in'}</h2>
+      <header className="login-heading">
+        <span className="login-icon" aria-hidden="true">
+          <LockKeyhole />
+        </span>
+        <h2>{reset ? 'Reset your password' : 'Sign in'}</h2>
+        <p>
+          {reset
+            ? 'Let’s get you back to your workspace.'
+            : 'Welcome back. Your next story starts here.'}
+        </p>
+      </header>
       {!token && (
         <label className="field">
           Email
-          <input name="email" type="email" autoComplete="username" required />
+          <input
+            name="email"
+            type="email"
+            placeholder="you@company.com"
+            autoComplete="username"
+            required
+          />
         </label>
       )}
       {(!reset || token) && (
@@ -60,6 +77,7 @@ export function LocalSignIn({ passwordReset = false }: { passwordReset?: boolean
           <input
             name="password"
             type="password"
+            placeholder={reset ? 'At least 12 characters' : 'Enter your password'}
             autoComplete={reset ? 'new-password' : 'current-password'}
             minLength={reset ? 12 : undefined}
             maxLength={128}
@@ -68,17 +86,20 @@ export function LocalSignIn({ passwordReset = false }: { passwordReset?: boolean
         </label>
       )}
       <ErrorNotice message={error} />
-      <p role="status">{message}</p>
+      <p className="login-message" role="status">
+        {message}
+      </p>
       <Button variant="primary" type="submit" disabled={busy}>
-        {reset ? 'Reset password' : 'Sign in'}
+        {busy ? 'Please wait…' : reset ? 'Reset password' : 'Sign in'}
+        <ArrowRight aria-hidden="true" />
       </Button>
       {passwordReset && !token && (
-        <Button onClick={() => setReset(!reset)}>
+        <Button variant="ghost" onClick={() => setReset(!reset)}>
           {reset ? 'Back to sign in' : 'Forgot password?'}
         </Button>
       )}
       {!reset && (
-        <p className="muted">
+        <p className="muted login-note">
           Accounts are invitation only. Contact your administrator for access.
         </p>
       )}

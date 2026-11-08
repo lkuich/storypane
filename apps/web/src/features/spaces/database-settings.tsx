@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { SpaceConnection } from '@storypane/core';
 import { Button, ErrorNotice, Loading, Modal } from '@storypane/ui';
+import { Copy, Database, Eye, EyeOff } from 'lucide-react';
 import { writeClipboardText } from '../../lib/clipboard';
 import { errorMessage, jsonRequest, requestJson } from '../editor/api';
 
@@ -70,9 +71,12 @@ export function DatabaseSettings({
     }
   }
   return (
-    <section className="panel">
+    <section className="panel database-settings">
       <header className="panel-heading">
-        <h2>Database connection</h2>
+        <h2>
+          <Database aria-hidden="true" />
+          Database connection
+        </h2>
       </header>
       <div className="panel-body">
         <ErrorNotice message={error} retry={load} />
@@ -88,7 +92,7 @@ export function DatabaseSettings({
                   : 'Provisioning in progress.'}
             </p>
             {connection.url && (
-              <div className="space-settings-fields">
+              <div className="database-connection-details">
                 <label className="field">
                   Saved database URL
                   <input
@@ -99,7 +103,7 @@ export function DatabaseSettings({
                     value={revealedUrl || connection.url}
                   />
                 </label>
-                <div className="space-settings-actions">
+                <div className="button-group database-url-actions">
                   <Button
                     disabled={fetchingUrl}
                     onClick={() => {
@@ -107,24 +111,33 @@ export function DatabaseSettings({
                       else void accessFullUrl('reveal');
                     }}
                   >
+                    {revealedUrl ? <EyeOff aria-hidden="true" /> : <Eye aria-hidden="true" />}
                     {revealedUrl ? 'Hide password' : 'Reveal full URL'}
                   </Button>
                   <Button disabled={fetchingUrl} onClick={() => void accessFullUrl('copy')}>
+                    <Copy aria-hidden="true" />
                     Copy full URL
                   </Button>
-                  {connection.status === 'ready' && (
-                    <Button
-                      onClick={() => {
-                        setConnectionString('');
-                        setFormError('');
-                        setEditing(true);
-                      }}
-                    >
-                      Update database connection
-                    </Button>
-                  )}
                   <span role="status">{copyStatus}</span>
                 </div>
+              </div>
+            )}
+            {connection.url && connection.status === 'ready' && (
+              <div className="database-connection-update">
+                <div>
+                  <h3>Update connection</h3>
+                  <p>Replace the saved credentials for this space’s database.</p>
+                </div>
+                <Button
+                  variant="primary"
+                  onClick={() => {
+                    setConnectionString('');
+                    setFormError('');
+                    setEditing(true);
+                  }}
+                >
+                  Update database connection
+                </Button>
               </div>
             )}
           </>

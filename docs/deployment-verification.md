@@ -548,3 +548,22 @@ adds source tracking without automatically linking or rewriting existing locales
 
 This is local and CI evidence, not new hosted acceptance or a production load
 benchmark. Existing backup/restore and hosted verification limits still apply.
+
+## RC.7 local interface checks — 2026-11-07
+
+The sign-in, mobile workspace, and installation-admin database settings changes
+passed three Chrome scenarios against the completed local production build.
+Coverage includes light/dark themes, 320–1440 pixel layouts, keyboard sign-in and
+error/reset states, horizontal navigation focus, content filters, database URL
+mask/reveal/copy, the update dialog, and hiding database controls from users who
+are not installation administrators. HTTP/session data is mocked in these UI
+scenarios; they do not verify hosted authentication or database connectivity.
+
+The full local suite passed 587 tests with 24 optional external/isolation/Railway
+fixture tests skipped. Local database preparation, lint/format, type checks for
+the CMS and both examples, production build, production dependency audit, and
+packed-SDK clean installation passed. Release CI repeats the tests with dedicated
+isolation/Railway databases and builds the Docker image before publication.
+
+rc.7 adds no database migrations beyond rc.6. This is local/CI evidence, not a
+fresh Railway installation, hosted upgrade, or new full acceptance run.

@@ -61,8 +61,11 @@ export function AppRoot() {
           getToken={noToken}
           local={false}
           signIn={
-            <div className="login-form">
-              <h2>Sign in</h2>
+            <div className="panel login-card">
+              <header className="login-heading">
+                <h2>Sign in</h2>
+                <p>Welcome back. Continue to your workspace.</p>
+              </header>
               <Button
                 variant="primary"
                 onClick={() => window.location.assign(config.signInPath + window.location.search)}
@@ -223,7 +226,7 @@ export function AuthenticatedApp({
             ) : (
               <>
                 A space for
-                <br /> every story.
+                <br /> <span>every story.</span>
               </>
             )}
           </h1>
