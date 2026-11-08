@@ -3,7 +3,7 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { LocalSignIn, InvitationForm } from './local-sign-in';
 import type { AuthConfig } from '@storypane/db/authentication';
-import { AccountContext, authRequest } from './account-control';
+import { AccountContext, AccountUserContext, authRequest } from './account-control';
 import { Button } from '@storypane/ui';
 const ClerkApp = lazy(() => import('./clerk-app'));
 const noToken = async () => null;
@@ -192,12 +192,16 @@ export function AuthenticatedApp({
   )
     return <main className="login-form-wrap">{signIn}</main>;
   if (session && !invitation)
-    return session.space ? (
-      <UploadProvider canUpload={session.space.permissions.includes('assets:write')}>
-        <CMSApp session={{ ...session, space: session.space }} />
-      </UploadProvider>
-    ) : (
-      <SpacesScreen installationAdmin={Boolean(session.installationAdmin)} />
+    return (
+      <AccountUserContext.Provider value={session.user}>
+        {session.space ? (
+          <UploadProvider canUpload={session.space.permissions.includes('assets:write')}>
+            <CMSApp session={{ ...session, space: session.space }} />
+          </UploadProvider>
+        ) : (
+          <SpacesScreen installationAdmin={Boolean(session.installationAdmin)} />
+        )}
+      </AccountUserContext.Provider>
     );
   return (
     <main className={`login-shell${invitation ? ' invitation-shell' : ''}`}>

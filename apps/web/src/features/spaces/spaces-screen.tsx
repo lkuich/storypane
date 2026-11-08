@@ -21,13 +21,16 @@ import { ThemePicker } from '../../components/theme-picker';
 import { EnvironmentBadge } from '../../components/environment-badge';
 
 export function SpacesScreen({ installationAdmin = false }: { installationAdmin?: boolean }) {
+  const [deleting, setDeleting] = useState<(Space & { canDeleteDatabase?: boolean }) | null>(null);
+  const [confirmation, setConfirmation] = useState('');
+  const [deleteDatabase, setDeleteDatabase] = useState(false);
   const [mode, setMode] = useState('create');
   const [environment, setEnvironment] = useState<'prod' | 'dev'>('prod');
   const [baseSpaceId, setBaseSpaceId] = useState('');
   const [cloneReview, setCloneReview] = useState<SchemaTransferReview | null>(null);
   const [connectionString, setConnectionString] = useState('');
   const [operationId, setOperationId] = useState('');
-  const [spaces, setSpaces] = useState<Space[]>([]);
+  const [spaces, setSpaces] = useState<(Space & { canDeleteDatabase?: boolean })[]>([]);
   const [loading, setLoading] = useState(true),
     [error, setError] = useState('');
   const [search, setSearch] = useState(''),
@@ -133,6 +136,20 @@ export function SpacesScreen({ installationAdmin = false }: { installationAdmin?
                   aria-label={space.name}
                   data-environment={space.environment === 'dev' ? 'dev' : 'prod'}
                 >
+                  {installationAdmin && (
+                    <Button
+                      variant="ghost"
+                      aria-label={`Delete ${space.name}`}
+                      onClick={() => {
+                        setDeleting(space);
+                        setConfirmation('');
+                        setDeleteDatabase(false);
+                        setFormError('');
+                      }}
+                    >
+                      Delete space
+                    </Button>
+                  )}
                   <div className="space-card-top">
                     <span className="space-emblem">
                       <Building2 aria-hidden="true" />
@@ -271,6 +288,73 @@ export function SpacesScreen({ installationAdmin = false }: { installationAdmin?
           ))
         )}
       </main>
+      <Modal
+        open={Boolean(deleting)}
+        onClose={() => {
+          if (!submitting) setDeleting(null);
+        }}
+        title="Delete space"
+        description="Remove this space from Storypane for everyone. Stored media is retained."
+      >
+        <form
+          onSubmit={async (event) => {
+            event.preventDefault();
+            if (!deleting) return;
+            setSubmitting(true);
+            setFormError('');
+            try {
+              await requestJson(
+                '/api/spaces',
+                jsonRequest('DELETE', { id: deleting.id, name: confirmation, deleteDatabase }),
+              );
+              setDeleting(null);
+              await load();
+            } catch (cause) {
+              setFormError(errorMessage(cause));
+            } finally {
+              setSubmitting(false);
+            }
+          }}
+        >
+          <p>
+            Keep the database to retain its content for operator recovery. Database deletion is
+            available only for databases created by Storypane on the configured server. Delete
+            linked development spaces first.
+          </p>
+          <label className="field">
+            Type {deleting?.name} to confirm
+            <input
+              value={confirmation}
+              onChange={(event) => setConfirmation(event.target.value)}
+              required
+              autoFocus
+              disabled={submitting}
+            />
+          </label>
+          <label className="checkbox-field">
+            <input
+              type="checkbox"
+              checked={deleteDatabase}
+              onChange={(event) => setDeleteDatabase(event.target.checked)}
+              disabled={submitting || !deleting?.canDeleteDatabase}
+            />
+            Also permanently delete the database and all its content
+          </label>
+          <ErrorNotice message={formError} />
+          <div className="dialog-actions">
+            <Button disabled={submitting} onClick={() => setDeleting(null)}>
+              Cancel
+            </Button>
+            <Button
+              type="submit"
+              variant="danger"
+              disabled={submitting || confirmation !== deleting?.name}
+            >
+              Delete space
+            </Button>
+          </div>
+        </form>
+      </Modal>
       <Modal
         className="environment-dialog clone-space-dialog"
         open={creating}

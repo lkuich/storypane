@@ -1,5 +1,7 @@
 'use client';
 import { createContext, useContext, useState, type ReactNode } from 'react';
+import { ActionDropdown } from './action-dropdown';
+export const AccountUserContext = createContext<{ name: string; email: string } | null>(null);
 import { Button, Modal, ErrorNotice } from '@storypane/ui';
 export const AccountContext = createContext<ReactNode>(null);
 export function AccountControl() {
@@ -22,12 +24,61 @@ export async function authRequest(path: string, body: unknown) {
   return result;
 }
 function LocalAccountControl() {
+  const user = useContext(AccountUserContext);
+  const initials =
+    user?.name
+      .trim()
+      .split(/\s+/)
+      .map((part) => part[0])
+      .slice(0, 2)
+      .join('')
+      .toUpperCase() || '?';
   const [open, setOpen] = useState(false),
     [error, setError] = useState(''),
     [busy, setBusy] = useState(false);
   return (
     <>
-      <Button onClick={() => setOpen(true)}>Account</Button>
+      <ActionDropdown
+        label={`Account: ${user?.name ?? 'Your account'}`}
+        icon={
+          <span className="account-initials" aria-hidden="true">
+            {initials}
+          </span>
+        }
+        disabled={busy}
+      >
+        {user && (
+          <div className="account-menu-identity">
+            <strong>{user.name}</strong>
+            <span>{user.email}</span>
+          </div>
+        )}
+        <Button
+          onClick={() => {
+            setError('');
+            setOpen(true);
+          }}
+        >
+          Change password
+        </Button>
+        <Button
+          disabled={busy}
+          onClick={async () => {
+            setBusy(true);
+            setError('');
+            try {
+              await authRequest('sign-out', {});
+              window.location.assign('/');
+            } catch (cause) {
+              setError((cause as Error).message);
+              setBusy(false);
+            }
+          }}
+        >
+          Sign out
+        </Button>
+      </ActionDropdown>
+      {!open && <ErrorNotice message={error} />}
       <Modal open={open} onClose={() => setOpen(false)} title="Your account">
         <form
           onSubmit={async (event) => {
@@ -73,21 +124,6 @@ function LocalAccountControl() {
           <div className="dialog-actions">
             <Button type="submit" disabled={busy}>
               Change password
-            </Button>
-            <Button
-              disabled={busy}
-              onClick={async () => {
-                setBusy(true);
-                try {
-                  await authRequest('sign-out', {});
-                  window.location.assign('/');
-                } catch (cause) {
-                  setError((cause as Error).message);
-                  setBusy(false);
-                }
-              }}
-            >
-              Sign out
             </Button>
           </div>
         </form>

@@ -137,6 +137,63 @@ describe.skipIf(!url)('installation and actual PostgreSQL space isolation', () =
     await admin.query(`DROP DATABASE IF EXISTS "${database}" WITH (FORCE)`);
     await admin.end();
   });
+  it('authorizes space deletion, confirms its name, retains databases by default, and drops only managed databases on request', async () => {
+    for (const deleteDatabase of [false, true]) {
+      const id = randomUUID();
+      const name = 'Deletion fixture';
+      const databaseName = `sp_${id.replaceAll('-', '')}`;
+      await installation.provision(user.id, { id, name, mode: 'create' });
+      const selected = await installation.acquire(id);
+      try {
+        await expect(installation.deleteSpace('outsider', { id, name })).rejects.toMatchObject({
+          code: 'forbidden',
+        });
+        await expect(
+          installation.deleteSpace(user.id, { id, name: 'wrong' }),
+        ).rejects.toMatchObject({ code: 'invalid' });
+        await installation.pool.query("UPDATE space_connections SET mode='attach' WHERE id=$1", [
+          id,
+        ]);
+        await expect(
+          installation.deleteSpace(user.id, { id, name, deleteDatabase: true }),
+        ).rejects.toMatchObject({ code: 'invalid' });
+        await installation.pool.query("UPDATE space_connections SET mode='create' WHERE id=$1", [
+          id,
+        ]);
+        await installation.pool.query(
+          'UPDATE space_connections SET production_space_id=$1 WHERE id=$2',
+          [id, spaces[0]],
+        );
+        await expect(
+          installation.deleteSpace(user.id, { id, name, deleteDatabase }),
+        ).rejects.toThrow('linked development');
+        await installation.pool.query(
+          'UPDATE space_connections SET production_space_id=NULL WHERE id=$1',
+          [spaces[0]],
+        );
+        await selected.db.query('UPDATE spaces SET name=$2 WHERE id=$1', [id, 'Renamed fixture']);
+        await installation.pool.query(
+          "INSERT INTO preview_routes(token_hash,space_id,expires_at) VALUES($1,$2,now()+interval '1 hour')",
+          [id, id],
+        );
+        if (deleteDatabase) await selected.close();
+        await installation.deleteSpace(user.id, { id, name: 'Renamed fixture', deleteDatabase });
+        if (!deleteDatabase)
+          await expect(
+            selected.store.getSpace({ ...actor, spaceId: id, role: 'admin' }),
+          ).rejects.toMatchObject({ code: 'unavailable' });
+        expect(
+          (await admin.query('SELECT 1 FROM pg_database WHERE datname=$1', [databaseName]))
+            .rowCount,
+        ).toBe(deleteDatabase ? 0 : 1);
+        await expect(installation.acquire(id)).rejects.toMatchObject({ code: 'unavailable' });
+      } finally {
+        await selected.close();
+        await admin.query(`DROP DATABASE IF EXISTS "${databaseName}" WITH (FORCE)`);
+        await admin.query(`DROP ROLE IF EXISTS "${databaseName}"`);
+      }
+    }
+  });
   it('provisions independent databases with roles that cannot connect to the other database', async () => {
     const entries = await installation.pool.query(
       'SELECT id,connection_secret FROM space_connections ORDER BY id',

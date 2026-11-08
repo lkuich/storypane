@@ -215,3 +215,13 @@ use production as the base when you want a clean starting point.
 | Required datasource values differ          | Reconcile that datasource explicitly before reviewing again.                                       |
 | CLI pull would overwrite local work        | Pull to a separate `--out` directory and reconcile; see the SDK reference.                         |
 | The live site warns about a schema version | Generate types from production's deployed schema and rebuild the frontend.                         |
+
+## Delete a space
+
+Installation administrators can choose **Delete space** on the Spaces screen and
+type its name to confirm. Delete linked development spaces before their production
+space. Removing a space ends access through Storypane; its database is retained
+by default for operator recovery. Choose **Also permanently delete the database**
+to drop a database created by Storypane on the configured provisioning server.
+This option is unavailable for attached databases or databases moved to another
+server. Stored media and database roles are retained.

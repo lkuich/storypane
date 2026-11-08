@@ -382,7 +382,18 @@ export class Installation {
         webhookHosts: this.options.webhookHosts,
         externalOptionHosts: this.options.externalOptionHosts,
         spaceId,
-        authorizeSession: (actor) => this.assertSession(actor, authentication),
+        authorizeSession: async (actor) => {
+          await this.assertSession(actor, authentication);
+          if (
+            !(
+              await this.pool.query(
+                "SELECT 1 FROM space_connections WHERE id=$1 AND status='ready'",
+                [spaceId],
+              )
+            ).rowCount
+          )
+            throw new StorypaneError('unavailable', 'Space is no longer available');
+        },
         authorizeIdentity: (userId) => this.assertIdentity(userId, authentication),
         registerPreview: async (tokenHash, expiresAt) => {
           await this.pool.query('DELETE FROM preview_routes WHERE expires_at<now()');
@@ -449,6 +460,98 @@ export class Installation {
     const masked = new URL(value);
     masked.password = '********';
     return { status: row.status, url: masked.href };
+  }
+
+  canDeleteDatabase(row: { id: string; mode: string; connection_secret: string }) {
+    if (row.mode !== 'create' || !this.options.provisioningURL) return false;
+    const url = connectionURL(
+      openConnection(row.connection_secret, this.options.encryptionKey, row.id),
+    );
+    const source = connectionURL(this.options.provisioningURL);
+    const name = `sp_${row.id.replaceAll('-', '')}`;
+    return (
+      source.host === url.host &&
+      url.pathname === `/${name}` &&
+      decodeURIComponent(url.username) === name
+    );
+  }
+
+  async deleteSpace(ownerId: string, raw: unknown) {
+    if (!(await this.isAdmin(ownerId)))
+      throw new StorypaneError('forbidden', 'Installation administrator access is required');
+    const input = parseInput(
+      z.object({ id: z.uuid(), name: z.string(), deleteDatabase: z.boolean().default(false) }),
+      raw,
+    );
+    const lock = await this.pool.connect();
+    let provisioner: Pool | undefined;
+    try {
+      await lock.query('SELECT pg_advisory_lock(hashtextextended($1,31))', [input.id]);
+      await lock.query('BEGIN');
+      const row = (
+        await lock.query('SELECT * FROM space_connections WHERE id=$1 FOR UPDATE', [input.id])
+      ).rows[0];
+      if (!row) throw new StorypaneError('not_found', 'Space not found');
+      let name = row.name;
+      if (row.status === 'ready') {
+        const selected = await this.acquire(input.id).catch(() => null);
+        if (selected) {
+          try {
+            name = (await selected.db.query('SELECT name FROM spaces WHERE id=$1', [input.id]))
+              .rows[0].name;
+          } finally {
+            await selected.close();
+          }
+        }
+      }
+      if (name !== input.name)
+        throw new StorypaneError('invalid', 'Enter the space name to confirm deletion');
+      if (
+        (
+          await lock.query(
+            'SELECT 1 FROM space_connections WHERE production_space_id=$1 AND id<>$1',
+            [input.id],
+          )
+        ).rowCount
+      )
+        throw new StorypaneError('invalid', 'Delete linked development spaces first');
+      if (input.deleteDatabase) {
+        if (!this.canDeleteDatabase(row))
+          throw new StorypaneError(
+            'invalid',
+            'Only databases created by Storypane on the configured provisioning server can be deleted',
+          );
+        const source = connectionURL(this.options.provisioningURL!);
+        const name = `sp_${input.id.replaceAll('-', '')}`;
+        provisioner = new Pool({
+          connectionString: source.href,
+          max: 1,
+          connectionTimeoutMillis: 5000,
+        });
+        const database = (
+          await provisioner.query(
+            'SELECT pg_get_userbyid(datdba) AS owner FROM pg_database WHERE datname=$1',
+            [name],
+          )
+        ).rows[0];
+        if (database && database.owner !== name)
+          throw new StorypaneError('invalid', 'Database ownership changed; deletion was stopped');
+        await provisioner.query(`DROP DATABASE IF EXISTS ${quote(name)} WITH (FORCE)`);
+      }
+      await lock.query(
+        'UPDATE space_connections SET clone_source_id=NULL WHERE clone_source_id=$1',
+        [input.id],
+      );
+      await lock.query('DELETE FROM preview_routes WHERE space_id=$1', [input.id]);
+      await lock.query('DELETE FROM space_connections WHERE id=$1', [input.id]);
+      await lock.query('COMMIT');
+    } catch (error) {
+      await lock.query('ROLLBACK');
+      throw error;
+    } finally {
+      lock.release(true);
+      await provisioner?.end();
+    }
   }
 
   async updateConnection(ownerId: string, spaceId: string, connectionString: string) {

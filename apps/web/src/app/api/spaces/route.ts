@@ -10,6 +10,11 @@ async function handle(request: Request) {
     const session = await authenticateSession(request, services);
     const installation = services.installation;
     const actor = { userId: session.user.id, sessionId: session.session.id };
+    if (request.method === 'DELETE') {
+      assertOrigin(request, env.APP_URL);
+      await installation.deleteSpace(session.user.id, await readJson(request));
+      return jsonResponse({ ok: true });
+    }
     if (request.method === 'PUT') {
       assertOrigin(request, env.APP_URL);
       const input = (await readJson(request)) as { id: string; connectionString: string };
@@ -63,6 +68,17 @@ async function handle(request: Request) {
             cloneSourceSpaceId: row.clone_source_id,
           });
       }
+    if (admin) {
+      const rows = (
+        await installation.pool.query('SELECT id,mode,connection_secret FROM space_connections')
+      ).rows;
+      for (const space of spaces) {
+        const row = rows.find((row) => row.id === space.id);
+        Object.assign(space, {
+          canDeleteDatabase: Boolean(row && installation.canDeleteDatabase(row)),
+        });
+      }
+    }
     return jsonResponse(spaces.sort((a, b) => a.createdAt.localeCompare(b.createdAt)));
   } catch (error) {
     return errorResponse(error);
@@ -70,4 +86,4 @@ async function handle(request: Request) {
     await services.close();
   }
 }
-export { handle as GET, handle as POST, handle as PUT };
+export { handle as GET, handle as POST, handle as PUT, handle as DELETE };

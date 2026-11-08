@@ -5837,3 +5837,24 @@ main.login-form-wrap {
     flex-basis: 100%;
   }
 }
+
+.account-initials {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--accent, #397b99);
+  color: white;
+  font-size: 12px;
+  font-weight: 600;
+}
+.account-menu-identity {
+  display: grid;
+  gap: 4px;
+  padding: 10px;
+  overflow-wrap: anywhere;
+}
+.account-menu-identity span {
+  font-size: 12px;
+}
