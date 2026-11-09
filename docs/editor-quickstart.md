@@ -317,7 +317,7 @@ shown in the SDK guide. Both framework examples already include that integration
 
 ## Explore page connections
 
-Expand **Page map** below the application preview. It starts collapsed and loads
+Expand **Page map** below the editor and Live Preview columns, spanning the full page width. It starts collapsed and loads
 only when opened, showing published page links two hops from the current page in
 the selected editor locale. Select a card to inspect its connections or open that
 page. Collapse and reopen to refresh. The map is read-only and respects content

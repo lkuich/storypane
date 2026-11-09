@@ -2,6 +2,8 @@
 
 ## 0.1.0-rc.6 — 2026-11-07
 
+- Move Page map beneath the editor and Live Preview columns so it spans the full workspace width.
+
 - Allow requesters and space admins to delete reviews and discussions from inbox rows or thread details with confirmation. Remove duplicate story context and requester metadata from review details.
 
 - Split personal block hover previews into Content editor, Add block pane, and Blocks table settings. The Block library now previews configured samples on hover or keyboard focus using the existing authenticated iframe. Upgrade migration preserves previous choices.

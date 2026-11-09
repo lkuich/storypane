@@ -1969,11 +1969,11 @@ hr {
   top: 18px;
   min-width: 0;
 }
-.story-preview-column:has(.page-map-panel[open]) {
-  position: static;
-}
 .story-preview-column > .preview-panel {
   position: static;
+}
+.page-map-panel {
+  margin-top: 22px;
 }
 .page-map-panel > summary {
   display: flex;

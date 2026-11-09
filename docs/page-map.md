@@ -11,7 +11,7 @@ The page you open is the starting point. The default view shows **Published
 content**, outgoing page links, and two hops. Select a locale, switch to saved
 drafts, choose one to four hops, or follow incoming links or both directions.
 The starting page and filters are stored in the URL; browser Back restores the
-previous exploration. Open a page in the editor and expand **Page map** below the application preview.
+previous exploration. Open a page in the editor and expand **Page map** below the editor and Live Preview columns, spanning the full page width.
 It starts collapsed for each page and locale. The map code and graph request load
 only after expansion; collapsing cancels pending requests. Collapse and reopen to
 refresh the graph. If the preview is hidden, choose **Preview** to show the panel.

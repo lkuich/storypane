@@ -1385,7 +1385,6 @@ function LocaleEditor({
                   onSelect={editor.select}
                 />
               )}
-              <PageMapPanel storyId={story.id} locale={snapshot.locale.slug} onOpen={onOpen} />
             </div>
           )}
           <div
@@ -1840,6 +1839,9 @@ function LocaleEditor({
             </section>
           </div>
         </div>
+      )}
+      {!viewRelease && previewOpen && !snapshot.story.formOnly && (
+        <PageMapPanel storyId={story.id} locale={snapshot.locale.slug} onOpen={onOpen} />
       )}
       {schema && (
         <SchemaDrawer
