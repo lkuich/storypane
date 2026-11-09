@@ -148,6 +148,70 @@ const schedule = async (options: Record<string, unknown> = {}) => {
 };
 
 describe('Teams, discussions and content approvals', () => {
+  it('lets requesters and space admins delete reviews while rejecting other members', async () => {
+    const directory = await store.reviewDirectory(bob, {
+      storyId: snapshot.story.id,
+      localeId: snapshot.locale.id,
+    });
+    const { id } = await store.createDiscussion(bob, {
+      storyId: snapshot.story.id,
+      localeId: snapshot.locale.id,
+      kind: 'review',
+      reviewerIds: [cara.userId],
+      expectedVersion: directory.version,
+      message: 'Please review',
+    });
+    await approve(id, cara);
+    await store.actOnDiscussion(bob, id, { action: 'reply', message: 'Thanks' });
+    expect((await thread(id, bob)).canDelete).toBe(true);
+    expect((await thread(id, cara)).canDelete).toBe(false);
+    expect((await thread(id, author)).canDelete).toBe(true);
+    await expect(store.deleteDiscussion({ ...cara, role: 'admin' }, id)).rejects.toMatchObject({
+      code: 'forbidden',
+    });
+    await expect(
+      store.deleteDiscussion({ ...author, managementTokenId: randomUUID() }, id),
+    ).rejects.toMatchObject({ code: 'forbidden' });
+    const other = await store.createSpace(author, { name: 'Other reviews' });
+    await expect(
+      store.deleteDiscussion({ ...author, spaceId: other.id }, id),
+    ).rejects.toMatchObject({ code: 'not_found' });
+    await store.deleteDiscussion(author, id);
+    expect(await thread(id)).toBeUndefined();
+    for (const table of ['review_decisions', 'discussion_messages'])
+      expect(
+        (await pool.query(`SELECT 1 FROM ${table} WHERE discussion_id=$1`, [id])).rowCount,
+      ).toBe(0);
+    await expect(store.deleteDiscussion(author, id)).rejects.toMatchObject({ code: 'not_found' });
+  });
+  it('allows the requester to delete their own review without admin permission', async () => {
+    const directory = await store.reviewDirectory(bob, {
+      storyId: snapshot.story.id,
+      localeId: snapshot.locale.id,
+    });
+    const { id } = await store.createDiscussion(bob, {
+      storyId: snapshot.story.id,
+      localeId: snapshot.locale.id,
+      kind: 'review',
+      reviewerIds: [cara.userId],
+      expectedVersion: directory.version,
+    });
+    await store.deleteDiscussion(bob, id);
+    expect(await thread(id)).toBeUndefined();
+  });
+  it('removes a deleted review from publishing requirements without deleting other discussions or content', async () => {
+    const { id } = await request();
+    const comment = await request({
+      kind: 'comment',
+      reviewerIds: [],
+      message: 'Keep this conversation',
+    });
+    await expect(publish()).rejects.toThrow('outstanding review');
+    await store.deleteDiscussion(author, id);
+    expect(await thread(comment.id)).toMatchObject({ status: 'open' });
+    expect((await current()).blocks).toEqual(snapshot.blocks);
+    await publish();
+  });
   it('requires all people and each team threshold, freezes team assignments, and records decisions without publishing', async () => {
     const team = await store.saveTeam(author, {
       name: 'Legal',

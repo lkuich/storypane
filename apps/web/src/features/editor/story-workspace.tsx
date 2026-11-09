@@ -1385,7 +1385,6 @@ function LocaleEditor({
                   onSelect={editor.select}
                 />
               )}
-              <PageMapPanel storyId={story.id} locale={snapshot.locale.slug} onOpen={onOpen} />
             </div>
           )}
           <div
@@ -1841,6 +1840,9 @@ function LocaleEditor({
           </div>
         </div>
       )}
+      {!viewRelease && previewOpen && !snapshot.story.formOnly && (
+        <PageMapPanel storyId={story.id} locale={snapshot.locale.slug} onOpen={onOpen} />
+      )}
       {schema && (
         <SchemaDrawer
           initialDefinition={schema.definition}
@@ -2102,10 +2104,13 @@ function LocaleEditor({
       {!viewRelease &&
         !snapshot.story.formOnly &&
         snapshot.access?.preview !== false &&
-        previewSettings?.blockPreviews !== false &&
+        (previewSettings?.blockPreviews !== false ||
+          previewSettings?.blockPickerPreviews !== false) &&
         !!previewSettings?.previewUrls.length && (
           <BlockPreview
             key={snapshot.locale.id}
+            editorEnabled={previewSettings?.blockPreviews !== false}
+            pickerEnabled={previewSettings?.blockPickerPreviews !== false}
             definitions={definitions}
             settings={previewSettings}
             onSettings={onPreviewSettings}

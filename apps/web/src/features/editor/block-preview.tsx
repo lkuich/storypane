@@ -16,9 +16,13 @@ import { PreviewPanel, type ComponentPreview } from './preview-panel';
 
 export function BlockPreview({
   definitions,
+  editorEnabled = true,
+  pickerEnabled = true,
   ...preview
 }: Omit<ComponentProps<typeof PreviewPanel>, 'component' | 'selectedId' | 'onSelect'> & {
   definitions: BlockDefinition[];
+  editorEnabled?: boolean;
+  pickerEnabled?: boolean;
 }) {
   const [anchor, setAnchor] = useState<HTMLElement | null>(null);
   const popup = useRef<HTMLDivElement>(null);
@@ -33,13 +37,19 @@ export function BlockPreview({
     }
     function enter(event: PointerEvent | FocusEvent) {
       if (event instanceof PointerEvent && event.pointerType === 'touch') return;
-      const element = event.target instanceof Element ? event.target : null;
+      show(event.target instanceof Element ? event.target : null);
+    }
+    function show(element: Element | null) {
       if (element && popup.current?.contains(element)) {
         clearTimeout(timer);
         return;
       }
       const next = element?.closest<HTMLElement>('[data-preview-block], [data-preview-definition]');
       if (!next || next === target || next.matches(':disabled')) return;
+      if (next.dataset.previewDefinition ? !pickerEnabled : !editorEnabled) {
+        close();
+        return;
+      }
       clearTimeout(timer);
       target = next;
       timer = setTimeout(() => setAnchor(next), 350);
@@ -50,6 +60,11 @@ export function BlockPreview({
       clearTimeout(timer);
       target = null;
       timer = setTimeout(close, 150);
+    }
+    function scroll() {
+      // Focusing an off-screen row scrolls it into view before the preview opens.
+      if (!popup.current && target?.contains(document.activeElement)) return;
+      close();
     }
     function key(event: KeyboardEvent) {
       if (event.key !== 'Escape') return;
@@ -66,8 +81,12 @@ export function BlockPreview({
     document.addEventListener('pointerdown', close);
     document.addEventListener('click', close);
     document.addEventListener('keydown', key, true);
-    document.addEventListener('scroll', close, true);
+    document.addEventListener('scroll', scroll, true);
     window.addEventListener('resize', close);
+    const hovered = document.querySelector(
+      '[data-preview-block]:hover, [data-preview-definition]:hover',
+    );
+    show(hovered ?? document.activeElement);
     return () => {
       clearTimeout(timer);
       document.removeEventListener('pointerover', enter);
@@ -77,10 +96,10 @@ export function BlockPreview({
       document.removeEventListener('pointerdown', close);
       document.removeEventListener('click', close);
       document.removeEventListener('keydown', key, true);
-      document.removeEventListener('scroll', close, true);
+      document.removeEventListener('scroll', scroll, true);
       window.removeEventListener('resize', close);
     };
-  }, []);
+  }, [editorEnabled, pickerEnabled]);
   const definition = definitions.find((item) => item.id === anchor?.dataset.previewDefinition);
   const block = preview.snapshot.blocks.find((item) => item.id === anchor?.dataset.previewBlock);
   const blockId = block?.id;

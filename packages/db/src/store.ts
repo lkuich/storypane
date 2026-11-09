@@ -611,6 +611,41 @@ export class StorypaneStore {
       'content:read',
     );
   }
+  async deleteDiscussion(actor: Actor, id: string) {
+    if (actor.managementTokenId)
+      throw new StorypaneError('forbidden', 'Reviews require a signed-in member');
+    return this.tx(
+      actor,
+      async (client) => {
+        const thread = await reviews.discussionTarget(client, actor, id);
+        await this.lockLocale(client, actor, thread.story_id, thread.locale_id);
+        const current = await reviews.discussionTarget(client, actor, id);
+        const access = await this.contentAccess(client, actor);
+        if (!access.admin && current.requester_id !== actor.userId)
+          throw new StorypaneError(
+            'forbidden',
+            'Only the requester or a space admin can delete this discussion',
+          );
+        await reviews.assertDiscussionAccess(
+          client,
+          actor,
+          await this.snapshot(client, actor, current.story_id, current.locale_id),
+          current.block_id,
+        );
+        await reviews.assertDiscussionAccess(
+          client,
+          actor,
+          current.scope_snapshot,
+          current.block_id,
+        );
+        await client.query('DELETE FROM discussions WHERE id=$1 AND space_id=$2', [
+          id,
+          actor.spaceId,
+        ]);
+      },
+      'content:read',
+    );
+  }
   private async contentAccess(client: PoolClient, actor: Actor) {
     return loadContentAccess(client, actor);
   }
@@ -1334,7 +1369,7 @@ export class StorypaneStore {
       async (client) =>
         (
           await client.query(
-            'SELECT s.preview_urls AS "previewUrls",s.default_preview_id AS "defaultPreviewId",s.preview_parameter AS "previewParameter",m.personal_default_preview_id AS "personalDefaultPreviewId",m.block_previews AS "blockPreviews" FROM spaces s JOIN memberships m ON m.space_id=s.id WHERE s.id=$1 AND m.user_id=$2',
+            'SELECT s.preview_urls AS "previewUrls",s.default_preview_id AS "defaultPreviewId",s.preview_parameter AS "previewParameter",m.personal_default_preview_id AS "personalDefaultPreviewId",m.block_previews AS "blockPreviews",m.block_picker_previews AS "blockPickerPreviews",m.block_library_previews AS "blockLibraryPreviews" FROM spaces s JOIN memberships m ON m.space_id=s.id WHERE s.id=$1 AND m.user_id=$2',
             [actor.spaceId, actor.userId],
           )
         ).rows[0],
@@ -1343,11 +1378,23 @@ export class StorypaneStore {
   async updatePersonalPreview(
     actor: Actor,
     raw: unknown,
-  ): Promise<{ previewId: string | null; blockPreviews: boolean }> {
+  ): Promise<
+    { previewId: string | null } & Pick<
+      UserDeliverySettings,
+      'blockPreviews' | 'blockPickerPreviews' | 'blockLibraryPreviews'
+    >
+  > {
     if (actor.managementTokenId)
       throw new StorypaneError('forbidden', 'Sign in to choose your personal preview');
     const input = parseInput(
-      z.object({ previewId: z.uuid().nullable(), blockPreviews: z.boolean().optional() }).strict(),
+      z
+        .object({
+          previewId: z.uuid().nullable(),
+          blockPreviews: z.boolean().optional(),
+          blockPickerPreviews: z.boolean().optional(),
+          blockLibraryPreviews: z.boolean().optional(),
+        })
+        .strict(),
       raw,
     );
     return this.tx(actor, async (client) => {
@@ -1362,8 +1409,15 @@ export class StorypaneStore {
       )
         throw new StorypaneError('invalid', 'Choose a configured preview URL');
       const updated = await client.query(
-        'UPDATE memberships SET personal_default_preview_id=$3,block_previews=coalesce($4,block_previews) WHERE space_id=$1 AND user_id=$2 RETURNING personal_default_preview_id AS "previewId",block_previews AS "blockPreviews"',
-        [actor.spaceId, actor.userId, input.previewId, input.blockPreviews ?? null],
+        'UPDATE memberships SET personal_default_preview_id=$3,block_previews=coalesce($4,block_previews),block_picker_previews=coalesce($5,block_picker_previews),block_library_previews=coalesce($6,block_library_previews) WHERE space_id=$1 AND user_id=$2 RETURNING personal_default_preview_id AS "previewId",block_previews AS "blockPreviews",block_picker_previews AS "blockPickerPreviews",block_library_previews AS "blockLibraryPreviews"',
+        [
+          actor.spaceId,
+          actor.userId,
+          input.previewId,
+          input.blockPreviews ?? null,
+          input.blockPickerPreviews ?? null,
+          input.blockLibraryPreviews ?? null,
+        ],
       );
       return updated.rows[0];
     });

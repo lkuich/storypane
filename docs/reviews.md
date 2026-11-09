@@ -88,3 +88,24 @@ request’s recorded requirements.
 
 For scheduled launches, see [Content releases](releases.md). For first-time
 editing and publication, see the [editor quickstart](editor-quickstart.md).
+
+## Delete a review or discussion
+
+The requester and space administrators can use the trash action on a Reviews
+inbox row or **Delete review** / **Delete discussion** in the thread details.
+The same permissions apply in **Reviews & comments** in the editor. Confirming
+permanently deletes the thread, its messages, and approvals.
+Deleting a review also removes its publishing requirement; it does not publish
+or delete story content. Cancel leaves the thread unchanged. Other members can
+continue using their existing reply, review, and withdrawal
+actions, but cannot delete someone else’s threads. Management tokens cannot delete reviews.
+
+The detail header shows the story, locale, scope, and status once. The discussion
+history retains the requester's name and request time instead of repeating them
+in a separate byline.
+
+The authenticated API accepts `DELETE /api/cms/reviews/{id}` for signed-in space
+admins or the thread’s requester. It checks current database membership and space
+boundaries and
+shares the locale lock used by approval and publishing. Messages and decisions
+are deleted by the existing foreign-key cascades; no schema migration is needed.

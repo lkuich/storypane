@@ -201,7 +201,7 @@ test('personal hover previews persist, stay lazy, and do not rerender on unrelat
   const storyUrl = `/?space=${installation.spaceId}&story=${installation.storyId}`;
   try {
     await page.goto(settingsUrl);
-    const toggle = page.getByRole('checkbox', { name: 'Show block hover previews', exact: true });
+    const toggle = page.getByRole('checkbox', { name: 'Content editor', exact: true });
     await expect(toggle).toBeChecked();
     await toggle.focus();
     await toggle.press('Space');
@@ -334,6 +334,93 @@ test('rich text loads on demand and remains editable with saved formatting', asy
     await page.locator('.block-list-item .entity-title').filter({ hasText: 'Footer' }).click();
     await expect(details.locator('strong')).toContainText('Rich text still works');
     expect(chunks).toHaveLength(loadedChunks);
+  } finally {
+    await context.close();
+  }
+});
+
+test('Blocks table previews are lazy, keyboard accessible, and independently configurable', async ({
+  browser,
+  installation,
+}) => {
+  const previewId = crypto.randomUUID();
+  await installation.db.query(
+    'UPDATE spaces SET preview_urls=$2,default_preview_id=$3 WHERE id=$1',
+    [
+      installation.spaceId,
+      JSON.stringify([{ id: previewId, name: 'Test app', url: 'http://127.0.0.1:3159/{slug}' }]),
+      previewId,
+    ],
+  );
+  await installation.db.query(
+    `UPDATE definition_versions SET schema=jsonb_set(schema,'{previewData}',$1::jsonb) WHERE schema->>'name'='hero'`,
+    [JSON.stringify({ title: 'Sample hero' })],
+  );
+  const { context, page } = await signIn(browser, installation);
+  let documents = 0;
+  await page.route('http://127.0.0.1:3159/**', (route) => {
+    documents++;
+    return route.fulfill({
+      contentType: 'text/html',
+      body: `<!doctype html><html><body>Waiting<script>
+        addEventListener('message',event=>{
+          if(event.data.type==='storypane:component'){
+            document.body.dataset.title=event.data.block.title;
+            parent.postMessage({type:'storypane:component-rendered',found:true},event.origin);
+          }
+        });
+        parent.postMessage({type:'storypane:ready',spaceId:${JSON.stringify(installation.spaceId)},slug:location.pathname.slice(1),componentPreview:true},${JSON.stringify(installation.origin)});
+      </script></body></html>`,
+    });
+  });
+  try {
+    await page.goto(`/?space=${installation.spaceId}&view=blocks`);
+    const hero = page.getByRole('button', { name: 'Hero', exact: true });
+    await expect(hero).toBeVisible();
+    await expect
+      .poll(async () =>
+        (
+          await page.request.get('/api/cms/delivery-settings', { headers: headers(installation) })
+        ).ok(),
+      )
+      .toBe(true);
+    expect(documents).toBe(0);
+    await hero.hover();
+    const tooltip = page.getByRole('tooltip', { name: 'Block preview' });
+    await expect(tooltip).toBeVisible();
+    await expect(tooltip).toContainText('Sample content');
+    const frame = page.frameLocator('iframe[title="Block preview"]');
+    await expect(frame.locator('body')).toHaveAttribute('data-title', 'Sample hero');
+    await page.keyboard.press('Escape');
+    await expect(tooltip).toHaveCount(0);
+    for (const width of [390, 1440]) {
+      await page.setViewportSize({ width, height: 1000 });
+      await page.evaluate(
+        () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))),
+      );
+      await hero.focus();
+      await expect(tooltip).toBeVisible();
+      await expect(hero).toHaveAttribute('aria-describedby', /.+/);
+      const bounds = (await tooltip.boundingBox())!;
+      expect(bounds.x).toBeGreaterThanOrEqual(0);
+      expect(bounds.x + bounds.width).toBeLessThanOrEqual(width);
+      await page.keyboard.press('Escape');
+      await expect(tooltip).toHaveCount(0);
+      await hero.blur();
+    }
+    await page.goto(`/?space=${installation.spaceId}&view=settings&section=delivery`);
+    await page.getByRole('checkbox', { name: 'Blocks table', exact: true }).uncheck();
+    await expect(page.getByRole('checkbox', { name: 'Content editor', exact: true })).toBeChecked();
+    await expect(page.getByRole('checkbox', { name: 'Add block pane', exact: true })).toBeChecked();
+    await page.getByRole('button', { name: 'Save preview settings', exact: true }).click();
+    await expect(page.getByText('Preview settings saved', { exact: true })).toBeVisible();
+    await page.goto(`/?space=${installation.spaceId}&view=blocks`);
+    await expect(hero).toBeVisible();
+    const before = documents;
+    await hero.hover();
+    await page.waitForTimeout(500);
+    await expect(tooltip).toHaveCount(0);
+    expect(documents).toBe(before);
   } finally {
     await context.close();
   }

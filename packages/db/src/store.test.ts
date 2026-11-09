@@ -1417,6 +1417,8 @@ describe('Postgres collaboration and immutable history', () => {
       previewParameter: 'storypane_preview',
       personalDefaultPreviewId: null,
       blockPreviews: true,
+      blockPickerPreviews: true,
+      blockLibraryPreviews: true,
     });
     const local = { id: randomUUID(), name: 'Local', url: 'http://localhost:3131/{locale}/{slug}' };
     const staging = {
@@ -1437,6 +1439,8 @@ describe('Postgres collaboration and immutable history', () => {
       ...settings,
       personalDefaultPreviewId: null,
       blockPreviews: true,
+      blockPickerPreviews: true,
+      blockLibraryPreviews: true,
     });
     await store.updatePersonalPreview(bob, { previewId: local.id, blockPreviews: false });
     expect((await store.getDeliverySettings(bob)).blockPreviews).toBe(false);
@@ -1444,9 +1448,35 @@ describe('Postgres collaboration and immutable history', () => {
     await expect(
       store.updatePersonalPreview(bob, { previewId: local.id, blockPreviews: 'false' }),
     ).rejects.toMatchObject({ code: 'invalid' });
+    await store.updatePersonalPreview(bob, {
+      previewId: local.id,
+      blockPickerPreviews: false,
+      blockLibraryPreviews: true,
+    });
+    expect(await store.getDeliverySettings(bob)).toMatchObject({
+      blockPreviews: false,
+      blockPickerPreviews: false,
+      blockLibraryPreviews: true,
+    });
+    expect(await store.getDeliverySettings(alice)).toMatchObject({
+      blockPreviews: true,
+      blockPickerPreviews: true,
+      blockLibraryPreviews: true,
+    });
+    await expect(
+      store.updatePersonalPreview(bob, {
+        previewId: local.id,
+        blockLibraryPreviews: 'false',
+      }),
+    ).rejects.toMatchObject({ code: 'invalid' });
     // Older clients changing only their default must preserve the hover preference.
     await store.updatePersonalPreview(bob, { previewId: local.id });
     expect((await store.getDeliverySettings(bob)).blockPreviews).toBe(false);
+    expect(await store.getDeliverySettings(bob)).toMatchObject({
+      blockPreviews: false,
+      blockPickerPreviews: false,
+      blockLibraryPreviews: true,
+    });
     expect((await store.getDeliverySettings(bob)).personalDefaultPreviewId).toBe(local.id);
     expect((await store.getDeliverySettings(alice)).personalDefaultPreviewId).toBeNull();
     const otherSpace = await store.createSpace(bob, { name: 'Other preview space' });

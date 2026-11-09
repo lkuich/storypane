@@ -169,7 +169,7 @@ async function mockEditor(page: Page) {
   return { graphRequests, saves };
 }
 
-test('map loads only when expanded below preview, follows the editor locale, and supports keyboard navigation', async ({
+test('map spans the workspace below preview and editor, loads only when expanded, follows the editor locale, and supports keyboard navigation', async ({
   page,
 }, info) => {
   const errors: string[] = [];
@@ -187,6 +187,11 @@ test('map loads only when expanded below preview, follows the editor locale, and
   const preview = await page.getByRole('region', { name: 'Application preview' }).boundingBox();
   const collapsed = await panel.boundingBox();
   expect(collapsed!.y).toBeGreaterThanOrEqual(preview!.y + preview!.height);
+  const editorBounds = (await page.getByRole('region', { name: 'Block editor' }).boundingBox())!;
+  const workspaceBounds = (await page.locator('.visual-workspace').boundingBox())!;
+  expect(collapsed!.y).toBeGreaterThanOrEqual(editorBounds.y + editorBounds.height);
+  expect(Math.abs(collapsed!.x - workspaceBounds.x)).toBeLessThan(1);
+  expect(Math.abs(collapsed!.width - workspaceBounds.width)).toBeLessThan(1);
 
   await toggle.focus();
   await page.keyboard.press('Enter');
@@ -240,6 +245,10 @@ test('map loads only when expanded below preview, follows the editor locale, and
       .boundingBox();
     const mapBounds = await panel.boundingBox();
     expect(mapBounds!.y).toBeGreaterThanOrEqual(previewBounds!.y + previewBounds!.height);
+    const editor = (await page.getByRole('region', { name: 'Block editor' }).boundingBox())!;
+    const workspace = (await page.locator('.visual-workspace').boundingBox())!;
+    expect(mapBounds!.y).toBeGreaterThanOrEqual(editor.y + editor.height);
+    expect(Math.abs(mapBounds!.width - workspace.width)).toBeLessThan(1);
     await card.focus();
     await page.keyboard.press('Enter');
     await expect(details).toBeVisible();

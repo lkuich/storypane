@@ -24,7 +24,17 @@
   grid-template-columns: minmax(0, 1.5fr) minmax(150px, 1fr) minmax(160px, 0.8fr);
   gap: 24px;
   align-items: center;
-  padding: 20px 24px;
+  padding: 20px 76px 20px 24px;
+}
+.review-inbox-entry {
+  position: relative;
+}
+.review-inbox-delete {
+  position: absolute;
+  right: 24px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--danger);
 }
 .review-inbox-heading {
   font-size: 11px;
@@ -314,10 +324,6 @@
   overflow-wrap: anywhere;
   margin: 16px 0 8px;
 }
-.review-byline {
-  font-size: 12px;
-  margin-bottom: 18px;
-}
 .review-requirements {
   margin-top: 24px;
   padding: 16px;
@@ -530,7 +536,14 @@
     gap: 16px;
     padding: 20px;
   }
+  .review-inbox-delete {
+    right: 20px;
+    top: auto;
+    bottom: 16px;
+    transform: none;
+  }
   .review-inbox-status {
+    padding-right: 48px;
     justify-content: space-between;
   }
   .review-dialog {

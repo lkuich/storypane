@@ -683,3 +683,152 @@ test('invited account creation and existing sign-in have a designed responsive s
     await Promise.all([admin.context.close(), invited.close()]);
   }
 });
+
+test('admins delete a review from its dialog with confirmation and a single context header', async ({
+  browser,
+  installation,
+}, info) => {
+  const admin = await signIn(browser, installation, 'admin');
+  const writer = await signIn(browser, installation, 'writer');
+  try {
+    const directory = await (
+      await writer.context.request.get(
+        `/api/cms/reviews/directory?storyId=${installation.storyId}&localeId=${installation.localeId}`,
+        { headers: apiHeaders(installation) },
+      )
+    ).json();
+    const created = await writer.context.request.post('/api/cms/reviews', {
+      headers: apiHeaders(installation),
+      data: {
+        storyId: installation.storyId,
+        localeId: installation.localeId,
+        kind: 'review',
+        reviewerIds: [installation.people.bob.id],
+        expectedVersion: directory.version,
+      },
+    });
+    expect(created.ok()).toBe(true);
+    const { id } = await created.json();
+
+    for (const user of [writer, admin]) {
+      await user.page.goto(`/?space=${installation.spaceId}&story=${installation.storyId}`);
+      await user.page.getByRole('button', { name: 'Reviews & comments', exact: true }).click();
+      const dialog = user.page.getByRole('dialog', { name: 'Reviews & comments', exact: true });
+      await dialog.locator('.review-thread').click();
+      await expect(dialog.locator('.review-story-name')).toHaveCount(1);
+      await expect(dialog.locator('.review-byline')).toHaveCount(0);
+      await expect(dialog.getByText('Whole story', { exact: true })).toHaveCount(1);
+      await expect(
+        dialog.getByRole('button', { name: 'Delete review', exact: true }),
+      ).toBeVisible();
+    }
+    const dialog = admin.page.getByRole('dialog', { name: 'Reviews & comments', exact: true });
+    const remove = dialog.getByRole('button', { name: 'Delete review', exact: true });
+    for (const width of [390, 1440]) {
+      await admin.page.setViewportSize({ width, height: 1000 });
+      await remove.scrollIntoViewIfNeeded();
+      await remove.focus();
+      await expect(remove).toBeFocused();
+      await noOverflow(admin.page);
+      await dialog.screenshot({ path: info.outputPath(`delete-review-${width}.png`) });
+    }
+    admin.page.once('dialog', (confirm) => confirm.dismiss());
+    await remove.press('Enter');
+    await expect(remove).toBeVisible();
+    admin.page.once('dialog', (confirm) => {
+      expect(confirm.message()).toContain('cannot be undone');
+      void confirm.accept();
+    });
+    await remove.press('Enter');
+    await expect(dialog.locator('.discussion-detail')).toHaveCount(0);
+    await expect(dialog.locator('.review-thread')).toHaveCount(0);
+    const remaining = await (
+      await admin.context.request.get('/api/cms/reviews', { headers: apiHeaders(installation) })
+    ).json();
+    expect(remaining.some((review: { id: string }) => review.id === id)).toBe(false);
+  } finally {
+    await admin.context.close();
+    await writer.context.close();
+  }
+});
+
+test('requesters and admins delete from inbox rows while other reviewers cannot', async ({
+  browser,
+  installation,
+}, info) => {
+  const writer = await signIn(browser, installation, 'writer');
+  const admin = await signIn(browser, installation, 'admin');
+  const reviewer = await signIn(browser, installation, 'bob');
+  try {
+    const directory = await (
+      await writer.context.request.get(
+        `/api/cms/reviews/directory?storyId=${installation.storyId}&localeId=${installation.localeId}`,
+        { headers: apiHeaders(installation) },
+      )
+    ).json();
+    const ids: string[] = [];
+    for (let index = 0; index < 2; index++) {
+      const response = await writer.context.request.post('/api/cms/reviews', {
+        headers: apiHeaders(installation),
+        data: {
+          storyId: installation.storyId,
+          localeId: installation.localeId,
+          kind: 'review',
+          reviewerIds: [installation.people.admin.id, installation.people.bob.id],
+          expectedVersion: directory.version,
+        },
+      });
+      expect(response.ok()).toBe(true);
+      ids.push((await response.json()).id);
+    }
+    await reviewer.page.goto(`/?space=${installation.spaceId}&view=reviews`);
+    await expect(reviewer.page.locator('.review-inbox-row')).toHaveCount(2);
+    await expect(reviewer.page.locator('.review-inbox-delete')).toHaveCount(0);
+    expect(
+      (
+        await reviewer.context.request.delete(`/api/cms/reviews/${ids[0]}`, {
+          headers: apiHeaders(installation),
+        })
+      ).status(),
+    ).toBe(403);
+    for (const user of [admin, writer]) {
+      await user.page.goto(`/?space=${installation.spaceId}&view=reviews`);
+      const remove = user.page
+        .getByRole('button', { name: 'Delete review for Home', exact: true })
+        .first();
+      await expect(remove).toBeVisible();
+      for (const width of [390, 1440]) {
+        await user.page.setViewportSize({ width, height: 1000 });
+        await remove.focus();
+        await expect(remove).toBeFocused();
+        await noOverflow(user.page);
+        await user.page.locator('.review-inbox').screenshot({
+          path: info.outputPath(
+            `inbox-delete-${user === admin ? 'admin' : 'requester'}-${width}.png`,
+          ),
+        });
+      }
+      const before = await user.page.locator('.review-inbox-row').count();
+      user.page.once('dialog', (confirmation) => confirmation.dismiss());
+      await remove.press('Enter');
+      await expect(user.page.locator('.review-inbox-row')).toHaveCount(before);
+      await expect(user.page.getByRole('dialog', { name: 'Review details' })).toHaveCount(0);
+      user.page.once('dialog', (confirmation) => confirmation.accept());
+      await remove.press('Enter');
+      await expect(user.page.locator('.review-inbox-row')).toHaveCount(before - 1);
+    }
+    expect(
+      (
+        await (
+          await writer.context.request.get('/api/cms/reviews', {
+            headers: apiHeaders(installation),
+          })
+        ).json()
+      ).length,
+    ).toBe(0);
+  } finally {
+    await writer.context.close();
+    await admin.context.close();
+    await reviewer.context.close();
+  }
+});

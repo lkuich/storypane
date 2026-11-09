@@ -87,6 +87,7 @@ export type Discussion = {
   changed: boolean;
   canDecide: boolean;
   canWithdraw: boolean;
+  canDelete: boolean;
   reviewerIds: string[];
   teams: (Team & { approvals: number })[];
   reviewers: { id: string; name: string; decision: 'approve' | 'request_changes' | null }[];
