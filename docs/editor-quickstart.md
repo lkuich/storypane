@@ -285,6 +285,15 @@ the available panel width without a fixed width limit. Mobile uses a 390px viewp
 and Tablet uses 768px; they scale down when needed to fit the panel. Switching
 sizes preserves the loaded page and live connection.
 
+When the preview app and CMS are on different sites, the browser may omit CMS
+session cookies on media requests. For an image already used by a current
+publication in a space with **Public media delivery** enabled, the CMS asset
+content URL falls back to the existing public-media checks. Images and videos
+then load without third-party cookies. This fallback does not authorize draft-only
+or other private media; those requests still need a CMS session. No delivery or
+management token should be added to browser URLs. No additional CORS setting is
+needed for ordinary image/video elements.
+
 Keep an HTTPS CMS and its preview application on HTTPS. The integration guides
 explain local development origins, iframe access, and draft media authentication.
 Published content tokens belong on your application's server or build system;

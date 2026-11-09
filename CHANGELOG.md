@@ -2,6 +2,8 @@
 
 ## 0.1.0-rc.7 — 2026-11-07
 
+- Let cross-site previews load already-public media through the existing publication and public-media eligibility checks when CMS cookies are absent.
+
 - Keep browser Back/Forward and content-folder navigation in the same history.
 
 - Move Page map beneath the editor and Live Preview columns so it spans the full workspace width.

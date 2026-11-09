@@ -1,7 +1,7 @@
 import { env, openCache } from '#platform';
 import { StorypaneError, definitionSaveSchema, parseInput } from '@storypane/core';
 import { emailInvitation } from '@storypane/db/local-auth';
-import { handleAssets, copySchemaAsset } from '@storypane/assets';
+import { handleAssets, handlePublicMedia, copySchemaAsset } from '@storypane/assets';
 import { schemaStatus, transferSchema } from '@storypane/db';
 import { authenticate, createServices, requestedSpace } from '../../../../lib/context';
 import { assertOrigin, errorResponse, jsonResponse, readJson } from '../../../../lib/http';
@@ -605,10 +605,53 @@ async function handle(request: Request, route: { params: Promise<{ path: string[
     }
     throw new StorypaneError('not_found', 'Endpoint not found');
   } catch (error) {
+    if (
+      error instanceof StorypaneError &&
+      error.code === 'unauthenticated' &&
+      ['GET', 'HEAD'].includes(request.method) &&
+      !request.headers.has('authorization')
+    ) {
+      const { path } = await route.params;
+      const url = new URL(request.url);
+      if (
+        path.length === 3 &&
+        path[0] === 'assets' &&
+        path[2] === 'content' &&
+        [...url.searchParams.keys()].every((key) => key === 'space')
+      ) {
+        try {
+          const spaceId = requestedSpace(request);
+          await services.selectSpace(spaceId);
+          // Preview iframes may lack cookies; only already-public media can bypass session auth.
+          const publicUrl = new URL(`/media/${spaceId}/${path[1]}/original`, url);
+          const response = await handlePublicMedia(
+            new Request(publicUrl, { method: request.method, headers: request.headers }),
+            { spaceId, assetId: path[1], kind: 'original' },
+            {
+              db: services.db,
+              bucket: env.MEDIA,
+              images: env.IMAGES,
+              cache: await openCache('storypane-public-media-v1'),
+            },
+          );
+          if (response.status !== 404) return response;
+        } catch (cause) {
+          if (!(cause instanceof StorypaneError && cause.code === 'not_found'))
+            return errorResponse(cause);
+        }
+      }
+    }
     return errorResponse(error);
   } finally {
     await services.close();
   }
 }
 
-export { handle as GET, handle as POST, handle as PUT, handle as PATCH, handle as DELETE };
+export {
+  handle as GET,
+  handle as HEAD,
+  handle as POST,
+  handle as PUT,
+  handle as PATCH,
+  handle as DELETE,
+};
