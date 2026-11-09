@@ -40,6 +40,74 @@ authentication adapter establishes identity; Storypane still enforces installati
 privileges and space permissions. See [authentication](authentication.md) and
 [database isolation and hosting](self-hosting.md#existing-postgresql-and-object-storage).
 
+## How content is stored
+
+Within a space database, PostgreSQL stores the content's structure in relational
+columns and its flexible field values in JSONB. A new content field is represented
+in a versioned block schema and the block's JSONB values. CMS database migrations
+manage the underlying SQL tables separately from these content-schema changes.
+
+| Table                 | What it stores                                                                                                                                  |
+| --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| `definitions`         | A block type's stable identity and name, such as `page` or `hero`.                                                                              |
+| `definition_versions` | Versioned block schemas in the `schema` JSONB column: fields, types, defaults, and restrictions.                                                |
+| `stories`             | Page identity and organization, including its name, space, and path.                                                                            |
+| `story_locales`       | One locale of a story, its URL, root block, revision, and pointers to the current saved checkpoint and publication.                             |
+| `block_drafts`        | One row per current draft block. Relational columns identify its locale, schema version, parent, field, order, and revision. `fields` is JSONB. |
+| `checkpoints`         | Saved history: an editor `snapshot` and assembled page `content`, both JSONB, plus the actor, revision, and time.                               |
+| `publications`        | Published versions, each tied to a checkpoint, with its own JSONB `snapshot` and assembled `content`.                                           |
+| `assets`              | File metadata and object-storage keys. Original file bytes live in private object storage.                                                      |
+
+### A page and its nested blocks
+
+For a Home page with one Hero in its `body`, the draft rows look like this.
+All rows belong to the same `locale_id`; the labels below stand in for UUIDs.
+
+| `id`     | `schema_version_id` | `parent_id` | `parent_field` | `position` | `fields` (JSONB)    |
+| -------- | ------------------- | ----------- | -------------- | ---------- | ------------------- |
+| `page-1` | `page-schema-1`     | `NULL`      | `NULL`         | `0`        | `{"title":"Home"}`  |
+| `hero-1` | `hero-schema-3`     | `page-1`    | `body`         | `0`        | `{"title":"Hello"}` |
+
+The Hero's `parent_id` points to the Page block, `parent_field` puts it in `body`,
+and `position` orders it among siblings. Deeper nesting uses the same structure.
+Each block points to the exact `definition_versions` row used to interpret and
+validate its fields. Reusable block definitions describe types; each block instance
+has its own ID and values.
+
+The application assembles these rows into the nested JSON your components expect:
+
+```json
+{
+  "_uid": "page-1",
+  "component": "page",
+  "title": "Home",
+  "body": [
+    {
+      "_uid": "hero-1",
+      "component": "hero",
+      "title": "Hello"
+    }
+  ]
+}
+```
+
+`_uid` comes from the block ID; `component` comes from its definition name. The
+`body` array is assembled from child rows. It is not the editing representation
+stored in the parent block's `fields` column.
+
+### Saved drafts and publications
+
+A saved edit updates the draft rows, increments revisions, and writes a checkpoint
+within a database transaction. `story_locales.checkpoint_id` identifies the current
+saved state. Checkpoints currently retain full snapshots per autosave batch, so
+history storage grows with page size and save frequency.
+
+Normal draft preview reads that checkpoint's assembled `content`. Publishing
+records the reviewed content in `publications` and advances
+`story_locales.published_version_id`. Published delivery reads that publication's
+`content`, while editors can continue changing draft rows and creating new
+checkpoints. The two pointers let the latest saved draft and the live page differ.
+
 ## From editing to a published page
 
 1. **Define the structure.** Developers create content types and reusable blocks.
@@ -62,14 +130,57 @@ privileges and space permissions. See [authentication](authentication.md) and
    Static sites rebuild or revalidate when content changes; request-rendered
    sites fetch it as needed. Keep delivery and management credentials on the server.
 
-Live preview uses a separate authenticated path to draft content. The editor embeds
-your frontend in an iframe, and the SDK connects it to a temporary preview session.
-Your frontend supplies the components and styles for both page and block previews.
-An unpublished draft does not appear in ordinary published-content reads.
-
 Start with the [editor quickstart](editor-quickstart.md), then follow the
 [SDK](../packages/sdk/README.md), [Astro](../apps/example-astro/README.md), or
 [Next.js](../apps/example-next/README.md) integration guide.
+
+## How live preview works
+
+The preview is your actual frontend running inside an iframe in the editor. You
+configure its URL in **Settings → API & preview**. Your preview route loads your
+components and styles, and connects using `connectPreview` or the SDK's React hook.
+
+![Preview flow: the editor opens your frontend in an iframe; its SDK requests a session from the parent; the editor obtains a scoped grant from the CMS and passes it to the iframe; the frontend receives saved draft JSON over an authenticated WebSocket.](images/preview-flow.svg)
+
+1. **Load your frontend.** The editor opens the configured preview URL for the
+   selected story and locale. A preview-mode signal activates the SDK integration.
+2. **Request access through the editor.** The iframe SDK asks its parent for a
+   session using `postMessage`. Both sides check the exact origin and source window.
+   The editor requests a grant through its authenticated CMS session.
+3. **Issue a scoped grant.** The CMS creates a five-minute, read-only preview
+   session bound to the space, story, locale, and configured frontend origin. The
+   editor passes the grant to the iframe, and the SDK renews it while authorized.
+4. **Read saved drafts over WebSocket.** The iframe connects to the CMS at
+   `/api/preview/live`. The server checks the grant and reads the latest saved
+   checkpoint's assembled JSON. After edits are saved, the collaboration room
+   sends updated authorized content to the preview.
+5. **Render and select blocks.** Your frontend renders the received JSON with its
+   own components. Elements marked with `data-storypane-id` can send block
+   selections back to the editor. Selecting a block in the editor can highlight
+   its matching element in the preview.
+
+This path renders saved changes after autosave commits; input still waiting in an
+editor buffer is outside the normal page-preview stream. Your preview route needs
+client rendering or DOM updates to display incoming changes. Static server-rendered
+HTML alone does not redraw when the SDK receives new JSON.
+
+Preview grant hashes and scope are stored in the space database's
+`preview_sessions` table. The installation database's `preview_routes` table maps
+the token hash to the space so a connection reaches the right database. Preview
+sockets accept sync and heartbeat requests, and do not acquire editing leases.
+Session expiry, revoked access, and membership changes are rechecked during delivery.
+
+Long-lived delivery, management, and server preview credentials stay on the server.
+The iframe receives only its short-lived grant, without putting it in the preview
+URL or relying on third-party CMS cookies. For a preview outside the CMS iframe,
+your authenticated app server can supply a grant through `getSession`; see
+[standalone preview and authorization](../packages/sdk/README.md#standalone-preview-and-authorization).
+
+Block hover previews reuse this connection and your component renderer. Existing
+blocks use saved content; the Add block picker can render schema defaults before
+insertion. Release previews use the approved release snapshot, so later draft
+changes stay outside that view. Ordinary published-content delivery continues
+reading `publications`, independently of preview.
 
 ## Schemas and team environments
 
