@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.1.0-rc.7 — 2026-11-07
+## 0.1.0-rc.8 — 2026-11-09
 
 - Replace the floating phone navigation rail with a header hamburger and focus-managed menu; compact editor actions into labeled icons and shorter primary controls.
 
@@ -16,6 +16,13 @@
 
 - Split personal block hover previews into Content editor, Add block pane, and Blocks table settings. The Block library now previews configured samples on hover or keyboard focus using the existing authenticated iframe. Upgrade migration preserves previous choices.
 
+- Add a local-account menu and installation-admin space deletion with confirmation.
+- Advance CMS and SDK versions together; no new public SDK API. Space migration
+  034 stores per-surface block preview preferences while preserving existing choices.
+  Apply pending migrations with the transactional production migration runner.
+
+## 0.1.0-rc.7 — 2026-11-07
+
 - Refresh sign-in and password-reset presentation with responsive light/dark layouts.
 - Keep mobile workspace navigation compact, horizontally scrollable, and keyboard
   accessible; improve content actions and filters on narrow screens.
@@ -23,10 +30,9 @@
   in installation-admin settings.
 - Document in-place Railway updates and the difference between deploying the latest
   source and redeploying an existing image.
-- Advance CMS and SDK versions together; no new SDK API. Migration 034 stores
-  per-surface block preview preferences while preserving existing choices. Older
-  installations apply pending migrations through the existing transactional
-  pre-deploy command.
+- Advance CMS and SDK versions together; no new SDK API or database migration
+  beyond rc.6. Older installations apply pending migrations through the existing
+  transactional pre-deploy command.
 
 ## 0.1.0-rc.6 — 2026-11-07
 

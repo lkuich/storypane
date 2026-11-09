@@ -28,7 +28,7 @@ is one server client and a fetch in any Server Component.
 Install the published SDK and `server-only` in your Next.js project:
 
 ```sh
-npm install @storypane/sdk@0.1.0-rc.7 server-only
+npm install @storypane/sdk@0.1.0-rc.8 server-only
 ```
 
 This monorepo uses a workspace link for its example. In your own app, pin the

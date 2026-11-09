@@ -2,7 +2,7 @@
 
 **A collaborative, open-source CMS for the websites you build.**
 
-**0.1.0-rc.7 — release candidate.** [Release status and known limits](docs/releases-and-versioning.md).
+**0.1.0-rc.8 — release candidate.** [Release status and known limits](docs/releases-and-versioning.md).
 
 Give editors a place to compose pages, preview changes, and publish together.
 Keep your frontend, your components, and your content on infrastructure you control.
@@ -156,7 +156,7 @@ Published reads return publication snapshots. Draft preview uses a separate,
 authenticated connection. Keep delivery and preview tokens on the server; rebuild
 or revalidate static pages when content is published.
 
-Install the matching SDK from npm with `npm install @storypane/sdk@0.1.0-rc.7`,
+Install the matching SDK from npm with `npm install @storypane/sdk@0.1.0-rc.8`,
 or use `@storypane/sdk@rc` to follow candidates. The [SDK guide](packages/sdk/README.md)
 also covers the GitHub release archive and local builds. This remains a release
 candidate; an npm tag is not a stable-release or production-readiness guarantee.

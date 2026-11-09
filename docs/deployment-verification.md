@@ -567,3 +567,21 @@ isolation/Railway databases and builds the Docker image before publication.
 
 rc.7 adds no database migrations beyond rc.6. This is local/CI evidence, not a
 fresh Railway installation, hosted upgrade, or new full acceptance run.
+
+## RC.8 interface and preview checks — 2026-11-09
+
+The candidate includes changes through `936d3aa`. Local authenticated browser
+checks cover folder Back/Forward, the full-width Page map, and the editor at
+320 and 390 pixels: the hamburger replaces the rail, toolbar actions fit, and
+keyboard focus, Escape, backdrop dismissal, navigation and desktop resizing work.
+The field-schema shortcut/Docs regression also passed after adding the Reviews
+endpoint to its mocked fixture. Build, application type checks, focused lint and
+changed-file formatting passed. The cross-site asset change passed 26 focused
+checks; the mobile story-table change passed three browser scenarios.
+
+The same application revision was deployed to the existing Railway installation;
+Railway reported SUCCESS, readiness returned true, and the new mobile stylesheet
+was served. This verifies deployment and delivery, not a new hosted-installation
+acceptance run or a physical-phone check. The release workflow must pass its full
+CI and packed-SDK gates before publishing rc.8. Space migration 034 adds the
+per-surface preview preferences; there is no new public SDK API.
