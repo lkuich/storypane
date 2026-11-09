@@ -4,6 +4,9 @@ This release uses one installation database and one PostgreSQL database per spac
 Built-in email/password authentication is the default. No Clerk keys or SMTP
 server are required. Run one Node application replica: it serves HTTP, in-memory
 collaboration rooms, and independent minute schedulers for publication and webhooks.
+Published delivery can run in separate replicated processes using the same image
+with `STORYPANE_SERVICE=delivery`; keep the editor process on `combined` and one
+replica. See [delivery configuration and connection budgets](deploy-railway.md#scale-published-delivery-separately).
 
 <aside class="agent-instructions" aria-labelledby="work-with-an-agent">
 

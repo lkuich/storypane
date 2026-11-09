@@ -4,6 +4,10 @@ A self-contained App Router example. Published content is fetched on the server;
 React components render the returned blocks. A separate `/preview` route subscribes
 to live drafts. Nothing in this app imports the Astro example.
 
+If published delivery runs separately, set `STORYPANE_DELIVERY_URL` to its origin.
+It defaults to `STORYPANE_URL`, which remains the editor/preview and schema-tooling
+origin. Published content and exported assets use the delivery URL.
+
 ## Start with these files
 
 | File                                                                   | What you change                                                                |

@@ -12,7 +12,7 @@ if (!spaceId || !token) {
 
 // This is the only authenticated client. Never import this file in a Client Component.
 export const storypane = createStorypaneClient<StorypaneContentType>({
-  url: cmsUrl,
+  url: process.env.STORYPANE_DELIVERY_URL || cmsUrl,
   spaceId,
   token,
   migrationVersion: storypaneMigrationVersion,

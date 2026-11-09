@@ -83,6 +83,13 @@ const allStories = await storypane.listAllStories();
 const locales = await storypane.listLocales(); // [{ id, name: 'Default', slug: '', isDefault: true }, ...]
 ```
 
+For a [separate delivery service](../../docs/deploy-railway.md#scale-published-delivery-separately),
+use its origin as this published client's `url`. Keep clients that call
+`getSchema()` or `createPreviewSession()`, and `connectPreview.cmsUrl`, on the editor
+origin. Use the delivery origin for `publicAssetUrl` when serving public media.
+Both example apps support `STORYPANE_DELIVERY_URL` for published reads and assets,
+falling back to `STORYPANE_URL`; previews and schema tooling retain `STORYPANE_URL`.
+
 Locale is optional. These calls use the space's configured default locale;
 `listStories()` and `listAllStories()` need no options object. A single-story read
 still needs its ID or slug. Pass `{ locale: 'fr' }` to either list method, or add

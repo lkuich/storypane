@@ -5,7 +5,8 @@ not available until their implementation and acceptance checks pass.
 
 ## Multiple application instances do not share room notifications
 
-**Status:** Open. Run one application replica.
+**Status:** Open. Run one combined/editor replica. Delivery-only replicas do not
+host rooms and can scale separately.
 
 **Tracking:** [GitHub issue #4](https://github.com/lkuich/storypane/issues/4).
 
@@ -25,9 +26,11 @@ and HTTP requests can reach different instances.
 
 ### Current workaround
 
-Keep one application replica running, as described in the
+Keep one combined/editor replica running, as described in the
 [deployment architecture](architecture.md#deployment-and-scaling). Do not enable
-horizontal scaling until cross-instance notifications and recovery are verified.
+horizontal scaling of editors until cross-instance notifications and recovery are
+verified. An optional [delivery-only service](deploy-railway.md#scale-published-delivery-separately)
+can scale published reads independently; it does not fix cross-instance rooms.
 
 ### Proposed fix
 

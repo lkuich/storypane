@@ -4,6 +4,10 @@ A complete, statically built website using `@storypane/sdk`: Astro routes, typed
 React block components, pulled schema JSON, and generated TypeScript block props.
 Published pages render at build time; only the dedicated preview route hydrates React.
 
+If published delivery runs separately, set `STORYPANE_DELIVERY_URL` to its origin.
+It defaults to `STORYPANE_URL`, which remains the editor/preview and schema-tooling
+origin. Published content and exported assets use the delivery URL.
+
 The [Next.js version](../example-next/README.md) implements the same content contract
 and can be selected as another Storypane preview application. Each example owns
 its renderer, styles, schema snapshot, generated types, and publication helpers.

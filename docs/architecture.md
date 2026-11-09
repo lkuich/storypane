@@ -4,8 +4,12 @@ Storypane has three main parts: a Node application, PostgreSQL databases, and
 private S3-compatible file storage. Your public website is a separate application
 that reads published content through the Storypane SDK or delivery API.
 
-The Node application serves the React editor and runs the APIs, live collaboration,
-and background jobs together. This describes the current Node/Docker release.
+By default the Node application serves the React editor and runs the APIs, live
+collaboration, and background jobs together. An optional `STORYPANE_SERVICE=delivery`
+process serves published content and authorized media independently, reusing the
+same database services and storage. It has no rooms or schedulers and can be
+replicated while the editor stays on one replica. See
+[separate delivery deployment](deploy-railway.md#scale-published-delivery-separately).
 
 ![The editor browser and your website connect to one Storypane Node application. The application uses an installation PostgreSQL database, separate PostgreSQL databases for spaces, and private S3-compatible media storage.](images/architecture.svg)
 
@@ -219,11 +223,18 @@ and [webhooks](webhooks.md).
 
 ## Deployment and scaling
 
-Run **one application replica** in the current release. Collaboration rooms live
-in that process, so adding app replicas requires a shared room transport first.
+Run **one combined/editor replica** in the current release. Collaboration rooms live
+in that process, so adding editor replicas requires a shared room transport first.
 See the [known defect and multi-instance acceptance criteria](known-defects.md#multiple-application-instances-do-not-share-room-notifications).
 Keep the app running for live collaboration and scheduled work. Your public
 website can use its own hosting and caching strategy independently.
+
+Published delivery can run as a separate `STORYPANE_SERVICE=delivery` service and
+scale independently against the same databases and private storage. It serves
+published stories, locales and authorized media, without editor, preview or
+WebSocket routes or background schedulers. Keep preview and schema tooling on the
+editor origin. Database capacity and connection budgets still apply; see the
+[delivery deployment guide](deploy-railway.md#scale-published-delivery-separately).
 
 Back up the installation database, every space database, original media,
 configuration, and encryption keys together. A database-only backup cannot restore
@@ -236,7 +247,8 @@ hosting and framework you choose.
 
 ## Where the code lives
 
-These are code packages within the repository; the CMS deploys as one application.
+These are code packages within one repository and Docker image. The default CMS
+deploys as one application; published delivery can use a separate service.
 
 | Directory                                 | Responsibility                                                                 |
 | ----------------------------------------- | ------------------------------------------------------------------------------ |

@@ -58,6 +58,11 @@ against production content merely to complete a checklist.
 - Railway: confirm one replica and sleeping disabled; verify simultaneous WebSocket
   editing while scheduled jobs and uploads run. Cloudflare is the static marketing
   website host only; the CMS Worker runtime is unsupported by this layout.
+- If separate delivery is enabled, verify two delivery replicas return the same
+  publications with the editor stopped, reject editor/preview/WebSocket routes,
+  and retain token and media authorization. Confirm examples use the delivery
+  origin for published reads and the editor origin for live preview. Exercise
+  editor join bursts alongside SDK reads and record the database connection budget.
 
 Record actual results, failures, and evidence. Update the website provider status
 and deployment skill together, distinguishing scoped checks from full acceptance.

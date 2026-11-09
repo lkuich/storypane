@@ -209,6 +209,69 @@ It tests crashes, scheduled work, scoped access, database outages and recovery
 from a coordinated backup, then removes its hosted resources. Never point these
 destructive checks at an existing installation.
 
+## Scale published delivery separately
+
+The default `STORYPANE_SERVICE=combined` keeps the existing one-service setup.
+For independent website capacity, add a second application service from the same
+repository revision and Docker image with `STORYPANE_SERVICE=delivery`. Keep the
+image's default start command and `/api/ready` healthcheck. This mode starts a
+small HTTP server using the existing delivery handlers; it does not start vinext's
+editor server, collaboration rooms, or publication/webhook schedulers.
+
+1. Keep the original application on `combined`, one replica, and sleeping disabled.
+   It continues to serve editors, management, schema tooling, live preview and
+   scheduled work. Existing delivery URLs continue to work.
+2. Give the delivery service the same runtime database, encryption, authentication
+   and private-storage variables. `STORYPANE_APP_URL` must remain the **editor's**
+   HTTPS origin. Omit `PROVISIONING_DATABASE_URL` and initial administrator inputs;
+   delivery does not provision databases. Do not run setup or migrations on this
+   service: keep pre-deploy migrations on the original application and complete
+   them before rolling out a compatible delivery revision.
+3. Assign the delivery service its own HTTPS domain and disable sleeping. Increase
+   its replica count in Railway as needed, initially in the same region as Postgres.
+   Its allowlist is `GET`/`HEAD` on `/api/delivery/stories`,
+   `/api/delivery/locales`, `/api/delivery/assets`, `/media/:space/:asset/original`,
+   `/media/:space/:asset/image`, and `/api/ready`, plus delivery CORS preflights.
+   Preview, schema, management, editor and WebSocket routes are unavailable.
+4. Set `STORYPANE_DELIVERY_URL` to that origin in either example website and rebuild
+   it. Leave `STORYPANE_URL` pointing at the editor for preview and schema tooling.
+   With your own SDK integration, point the published-content client's `url` at
+   delivery and keep preview/schema clients and `connectPreview.cmsUrl` on the
+   editor origin. For public-media URLs, use the delivery origin in `publicAssetUrl`.
+5. Verify token rejection, published content, private/unpublished asset rejection,
+   ranges/HEAD, public-media opt-in, and live preview on the editor origin. Then
+   exercise simultaneous editor joins and website reads across delivery replicas.
+   Stop the editor briefly in a disposable installation and confirm existing
+   publications still read from delivery. Check health and database connections
+   before increasing replicas further. This optional layout still needs hosted
+   acceptance; local tests do not establish a safe capacity target.
+
+Delivery reads the same authoritative databases and private storage directly, so
+it does not depend on the editor process being available. Both services still
+depend on Postgres and storage; editor load can still contend for database CPU,
+I/O, locks and connections. Delivery responses retain their existing authorization
+and `no-store` behavior.
+
+### Database connection budget
+
+Each application process has a five-connection installation pool and permits up to
+16 concurrent space acquisitions. Each acquisition creates a short-lived pool
+with at most two space connections, then closes it. These are request/operation
+limits, not a limit of 16 connected editor browsers: idle WebSockets hold no
+space database acquisition. Splitting services separates these admission limits.
+Budget up to 37 ordinary runtime connections per replica across the installation
+and space databases, with additional headroom for provisioning, migrations,
+operators and other applications. This is a conservative pool ceiling, not an
+expected idle connection count.
+
+A shared transaction pooler such as [PgBouncer](https://www.pgbouncer.org/features.html) can reduce backend connection churn
+and bound physical PostgreSQL connections across replicas. It does not remove the
+application's 16-acquisition guard, speed up overloaded SQL, or coordinate
+in-memory collaboration rooms. Session advisory locks used by operator/provisioning
+commands also require suitable pooling semantics; do not redirect those commands
+through transaction pooling without verifying their locking behavior. This change
+does not introduce or configure a database pooler.
+
 ## Optional Cloudflare image CDN
 
 Images work immediately using Storypane’s existing image service: private originals

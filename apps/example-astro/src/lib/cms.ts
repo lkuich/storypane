@@ -11,7 +11,7 @@ export function deliveryClient() {
     );
   }
   return createStorypaneClient({
-    url: cmsUrl,
+    url: import.meta.env.STORYPANE_DELIVERY_URL || cmsUrl,
     spaceId,
     migrationVersion: storypaneMigrationVersion,
     token: import.meta.env.STORYPANE_DELIVERY_TOKEN,
