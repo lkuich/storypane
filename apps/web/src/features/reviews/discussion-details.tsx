@@ -1,10 +1,11 @@
 'use client';
 import { useState } from 'react';
-import { Check, MessageSquare, RotateCcw, Users } from 'lucide-react';
+import { Check, MessageSquare, RotateCcw, Trash2, Users } from 'lucide-react';
 import type { Discussion, DiscussionAction, ReviewPerson } from '@storypane/core';
 import { Button, ErrorNotice } from '@storypane/ui';
 import { api, dateLabel, errorMessage, jsonRequest } from '../editor/api';
 import { MentionInput } from './mention-input';
+import { deleteDiscussion } from './delete-discussion';
 import type { Mention } from './mentions';
 import { storyUrl, selectedSpaceId } from '../../lib/space-url';
 
@@ -60,6 +61,17 @@ export function DiscussionDetails({
       setBusy(false);
     }
   }
+  async function remove() {
+    setBusy(true);
+    setError('');
+    try {
+      if (await deleteDiscussion(discussion)) await onChange();
+    } catch (cause) {
+      setError(errorMessage(cause));
+    } finally {
+      setBusy(false);
+    }
+  }
   return (
     <div className="discussion-detail">
       <div className="review-context">
@@ -70,9 +82,6 @@ export function DiscussionDetails({
         <span>{discussion.blockName ?? 'Whole story'}</span>
       </div>
       <h3 className="review-story-name">{discussion.storyName}</h3>
-      <p className="muted review-byline">
-        Requested by {discussion.requesterName} · {dateLabel(discussion.createdAt)}
-      </p>
       <a
         className="button button--secondary"
         href={storyUrl({
@@ -225,6 +234,12 @@ export function DiscussionDetails({
         </form>
       )}
       <div className="review-thread-actions">
+        {discussion.canDelete && (
+          <Button variant="danger" disabled={busy} onClick={() => void remove()}>
+            <Trash2 aria-hidden="true" />
+            Delete {discussion.kind === 'review' ? 'review' : 'discussion'}
+          </Button>
+        )}
         {discussion.canWithdraw && (
           <Button
             variant="ghost"

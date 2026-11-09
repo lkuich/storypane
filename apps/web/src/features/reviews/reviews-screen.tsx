@@ -1,10 +1,11 @@
 'use client';
 import { useState } from 'react';
-import { ArrowUpRight, CheckCheck, Inbox, RefreshCw } from 'lucide-react';
+import { ArrowUpRight, CheckCheck, Inbox, RefreshCw, Trash2 } from 'lucide-react';
 import type { Discussion, ReviewDirectory } from '@storypane/core';
 import { Button, ErrorNotice, Loading, Modal } from '@storypane/ui';
 import { api, dateLabel, errorMessage } from '../editor/api';
 import { DiscussionDetails, reviewStatus } from './discussion-details';
+import { deleteDiscussion } from './delete-discussion';
 import './reviews.css';
 
 export function ReviewsScreen({
@@ -26,6 +27,7 @@ export function ReviewsScreen({
   const [selected, setSelected] = useState<string | null>(null);
   const [directory, setDirectory] = useState<ReviewDirectory | null>(null);
   const [detailError, setDetailError] = useState('');
+  const [deleting, setDeleting] = useState<string | null>(null);
   const reviews = (discussions ?? []).filter((item) => item.kind === 'review');
   const requested = reviews.filter(
     (item) =>
@@ -55,6 +57,17 @@ export function ReviewsScreen({
       );
     } catch (cause) {
       setDetailError(errorMessage(cause));
+    }
+  }
+  async function remove(item: Discussion) {
+    setDeleting(item.id);
+    setDetailError('');
+    try {
+      if (await deleteDiscussion(item)) await onRefresh();
+    } catch (cause) {
+      setDetailError(errorMessage(cause));
+    } finally {
+      setDeleting(null);
     }
   }
   return (
@@ -131,53 +144,67 @@ export function ReviewsScreen({
             <span>Status</span>
           </div>
           {visible.map((item) => (
-            <button key={item.id} className="review-inbox-row" onClick={() => void select(item)}>
-              <span className="review-inbox-story">
-                <span className="review-inbox-icon">
-                  <CheckCheck aria-hidden="true" />
-                </span>
-                <span>
-                  <strong>{item.storyName}</strong>
-                  <small>
-                    {item.localeName} · {item.blockName ?? 'Whole story'}
-                  </small>
-                  <small>
-                    {item.requesterName} · {dateLabel(item.createdAt)}
-                  </small>
-                </span>
-              </span>
-              <span className="review-inbox-progress">
-                {item.teams.map((team) => (
-                  <span key={team.id}>
-                    {team.name}
-                    <strong>
-                      {team.approvals}/{team.minimumApprovals}
-                    </strong>
+            <div key={item.id} className="review-inbox-entry">
+              <button className="review-inbox-row" onClick={() => void select(item)}>
+                <span className="review-inbox-story">
+                  <span className="review-inbox-icon">
+                    <CheckCheck aria-hidden="true" />
                   </span>
-                ))}
-                {!!item.reviewerIds.length && (
                   <span>
-                    People
-                    <strong>
-                      {
-                        item.reviewers.filter(
-                          (member) =>
-                            item.reviewerIds.includes(member.id) && member.decision === 'approve',
-                        ).length
-                      }
-                      /{item.reviewerIds.length}
-                    </strong>
+                    <strong>{item.storyName}</strong>
+                    <small>
+                      {item.localeName} · {item.blockName ?? 'Whole story'}
+                    </small>
+                    <small>
+                      {item.requesterName} · {dateLabel(item.createdAt)}
+                    </small>
                   </span>
-                )}
-                {item.kind === 'comment' && <span>Discussion</span>}
-              </span>
-              <span className="review-inbox-status">
-                <span className={`review-status review-status--${item.status}`}>
-                  {reviewStatus[item.status]}
                 </span>
-                <ArrowUpRight aria-hidden="true" />
-              </span>
-            </button>
+                <span className="review-inbox-progress">
+                  {item.teams.map((team) => (
+                    <span key={team.id}>
+                      {team.name}
+                      <strong>
+                        {team.approvals}/{team.minimumApprovals}
+                      </strong>
+                    </span>
+                  ))}
+                  {!!item.reviewerIds.length && (
+                    <span>
+                      People
+                      <strong>
+                        {
+                          item.reviewers.filter(
+                            (member) =>
+                              item.reviewerIds.includes(member.id) && member.decision === 'approve',
+                          ).length
+                        }
+                        /{item.reviewerIds.length}
+                      </strong>
+                    </span>
+                  )}
+                  {item.kind === 'comment' && <span>Discussion</span>}
+                </span>
+                <span className="review-inbox-status">
+                  <span className={`review-status review-status--${item.status}`}>
+                    {reviewStatus[item.status]}
+                  </span>
+                  <ArrowUpRight aria-hidden="true" />
+                </span>
+              </button>
+              {item.canDelete && (
+                <Button
+                  variant="ghost"
+                  className="icon-button review-inbox-delete"
+                  aria-label={`Delete ${item.kind === 'review' ? 'review' : 'discussion'} for ${item.storyName}`}
+                  title={item.kind === 'review' ? 'Delete review' : 'Delete discussion'}
+                  disabled={deleting !== null}
+                  onClick={() => void remove(item)}
+                >
+                  <Trash2 aria-hidden="true" />
+                </Button>
+              )}
+            </div>
           ))}
         </section>
       )}

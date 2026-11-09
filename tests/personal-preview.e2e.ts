@@ -33,6 +33,8 @@ test('members save a personal default, recover from save errors, and return to t
     defaultPreviewId: '22222222-2222-4222-8222-222222222222',
     personalDefaultPreviewId: null,
     blockPreviews: true,
+    blockPickerPreviews: true,
+    blockLibraryPreviews: true,
     previewParameter: 'storypane_preview',
   };
   let failSave = true;
@@ -52,11 +54,18 @@ test('members save a personal default, recover from save errors, and return to t
     const path = new URL(route.request().url()).pathname.replace('/api/cms', '');
     if (path === '/delivery-settings/personal-default' && route.request().method() === 'PUT') {
       const body = route.request().postDataJSON();
-      expect(Object.keys(body)).toEqual(['previewId', 'blockPreviews']);
+      expect(Object.keys(body)).toEqual([
+        'previewId',
+        'blockPreviews',
+        'blockPickerPreviews',
+        'blockLibraryPreviews',
+      ]);
       if (failSave)
         return route.fulfill({ status: 503, json: { error: { message: 'Please retry saving' } } });
       settings.personalDefaultPreviewId = body.previewId;
       settings.blockPreviews = body.blockPreviews;
+      settings.blockPickerPreviews = body.blockPickerPreviews;
+      settings.blockLibraryPreviews = body.blockLibraryPreviews;
       return route.fulfill({ json: body });
     }
     const responses: Record<string, unknown> = {
@@ -93,7 +102,13 @@ test('members save a personal default, recover from save errors, and return to t
   await personal.selectOption({ label: 'Local' });
   await expect(personal).toHaveValue(settings.previewUrls[1].id);
   await page.keyboard.press('Tab');
-  await expect(page.getByRole('checkbox', { name: 'Show block hover previews' })).toBeFocused();
+  await expect(page.getByRole('checkbox', { name: 'Content editor', exact: true })).toBeFocused();
+  await page.keyboard.press('Space');
+  await page.keyboard.press('Tab');
+  await expect(page.getByRole('checkbox', { name: 'Add block pane', exact: true })).toBeFocused();
+  await page.keyboard.press('Tab');
+  await expect(page.getByRole('checkbox', { name: 'Blocks table', exact: true })).toBeFocused();
+  await page.keyboard.press('Space');
   await page.keyboard.press('Tab');
   await expect(save).toBeFocused();
   await page.keyboard.press('Enter');
@@ -105,6 +120,11 @@ test('members save a personal default, recover from save errors, and return to t
   await expect(save).toBeDisabled();
   await page.reload();
   await expect(personal).toHaveValue(settings.previewUrls[1].id);
+  await expect(
+    page.getByRole('checkbox', { name: 'Content editor', exact: true }),
+  ).not.toBeChecked();
+  await expect(page.getByRole('checkbox', { name: 'Add block pane', exact: true })).toBeChecked();
+  await expect(page.getByRole('checkbox', { name: 'Blocks table', exact: true })).not.toBeChecked();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page
     .locator('.delivery-settings')

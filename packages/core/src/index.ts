@@ -266,6 +266,8 @@ export type DeliverySettings = z.infer<typeof deliverySettingsSchema>;
 export type UserDeliverySettings = DeliverySettings & {
   personalDefaultPreviewId: string | null;
   blockPreviews: boolean;
+  blockPickerPreviews: boolean;
+  blockLibraryPreviews: boolean;
 };
 
 export function defaultPreview(

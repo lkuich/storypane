@@ -260,10 +260,24 @@ follow the shared default again. Removing a URL clears personal defaults that
 used it. A manual choice in the editor's Preview dropdown lasts for that editing
 session; it doesn't change either saved default.
 
-To reduce preview activity while editing, turn off **Show block hover previews**
-in **Settings → API & preview**, then save. This personal preference applies to
-block rows, breadcrumbs, and the block picker across your browsers. It leaves the
-main application preview available; use **Hide preview** to close that too.
+Choose where block hover previews appear in **Settings → API & preview → Block
+hover previews**, then save:
+
+- **Content editor**: saved block rows and breadcrumbs.
+- **Add block pane**: block picker entries with configured sample content.
+- **Blocks table**: rows in the Block library with configured sample content.
+
+These choices apply only to you in the selected space and follow you across
+browsers. Existing enabled/disabled preferences are preserved when upgrading.
+The main application preview remains available independently; use **Hide preview**
+to close it too. Previews open after a short hover or keyboard focus, and Escape
+closes them. Touch does not open hover previews.
+
+The Blocks table uses the existing app preview URL and an accessible, non-form
+story/locale as its authenticated context. It respects preview permissions and
+requires at least one such story and configured preview URL. Samples are taken
+from each block's picker preview data; blocks without samples do not open an
+iframe. Viewing a sample does not create, insert, or save content.
 
 Use the **Mobile**, **Tablet**, and **Desktop** toggle buttons to the right of the
 Preview dropdown to check responsive layouts. Desktop is the default and fills

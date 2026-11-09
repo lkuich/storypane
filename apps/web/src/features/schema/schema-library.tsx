@@ -27,6 +27,7 @@ import type { RegisterGuard } from '../editor/navigation';
 import { EnvironmentPanel } from './environment-panel';
 import { MigrationPanel } from './migration-panel';
 import { SchemaDrawer } from './schema-drawer';
+import { LibraryBlockPreview } from './library-block-preview';
 import { definitionDescendants, definitionTreeRows, type DefinitionSort } from './definition-tree';
 import type { CMSSession } from '../../components/cms-app';
 
@@ -346,6 +347,7 @@ export function SchemaLibrary({
                 <tr
                   key={item.id}
                   data-definition-id={item.id}
+                  data-preview-definition={item.previewData ? item.id : undefined}
                   data-depth={depth}
                   data-drop-target={dropTarget === item.id || undefined}
                   onDragOver={(event) => {
@@ -527,6 +529,9 @@ export function SchemaLibrary({
           </EmptyState>
         )}
       </div>
+      {can(space, 'content:read') && definitions.some((item) => item.previewData) && (
+        <LibraryBlockPreview key={space.id} definitions={definitions} spaceId={space.id} />
+      )}
       {editing && (
         <SchemaDrawer
           key={editing === 'new' ? `new-${initialParentId ?? 'root'}` : editing.id}

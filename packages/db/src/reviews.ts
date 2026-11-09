@@ -315,6 +315,7 @@ export async function listDiscussions(
       createdAt: thread.created_at.toISOString(),
       ...status,
       canWithdraw: !thread.closed && thread.requester_id === actor.userId,
+      canDelete: (access.admin || thread.requester_id === actor.userId) && !actor.managementTokenId,
       reviewerIds: thread.reviewer_ids,
       messages: messages.map((message) => ({
         ...message,

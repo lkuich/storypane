@@ -100,7 +100,7 @@ export function ReviewDialog({
     <Modal
       open
       title="Reviews & comments"
-      description={scopeName}
+      description={thread ? undefined : scopeName}
       wide
       className="review-dialog"
       onClose={() => {

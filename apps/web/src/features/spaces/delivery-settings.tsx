@@ -26,6 +26,8 @@ export function DeliverySettings({
     [defaultPreviewId, setDefaultPreviewId] = useState<string | null>(null),
     [personalDefaultPreviewId, setPersonalDefaultPreviewId] = useState<string | null>(null),
     [blockPreviews, setBlockPreviews] = useState(true),
+    [blockPickerPreviews, setBlockPickerPreviews] = useState(true),
+    [blockLibraryPreviews, setBlockLibraryPreviews] = useState(true),
     [parameter, setParameter] = useState('storypane_preview');
   const [tokens, setTokens] = useState<DeliveryToken[]>([]),
     [tokenName, setTokenName] = useState(''),
@@ -45,7 +47,9 @@ export function DeliverySettings({
     sharedDirty ||
     (!!settings &&
       (personalDefaultPreviewId !== settings.personalDefaultPreviewId ||
-        blockPreviews !== settings.blockPreviews));
+        blockPreviews !== settings.blockPreviews ||
+        blockPickerPreviews !== settings.blockPickerPreviews ||
+        blockLibraryPreviews !== settings.blockLibraryPreviews));
   const dirty = mediaDirty || previewDirty;
   function changeUrls(next: Settings['previewUrls']) {
     setPreviewUrls(next);
@@ -69,6 +73,8 @@ export function DeliverySettings({
       setDefaultPreviewId(value.defaultPreviewId);
       setPersonalDefaultPreviewId(value.personalDefaultPreviewId);
       setBlockPreviews(value.blockPreviews);
+      setBlockPickerPreviews(value.blockPickerPreviews);
+      setBlockLibraryPreviews(value.blockLibraryPreviews);
       setParameter(value.previewParameter);
       setTokens(keys);
     } catch (cause) {
@@ -128,6 +134,8 @@ export function DeliverySettings({
                     value = {
                       ...shared,
                       blockPreviews: value.blockPreviews,
+                      blockPickerPreviews: value.blockPickerPreviews,
+                      blockLibraryPreviews: value.blockLibraryPreviews,
                       personalDefaultPreviewId: shared.previewUrls.some(
                         (item) => item.id === value.personalDefaultPreviewId,
                       )
@@ -141,19 +149,30 @@ export function DeliverySettings({
                   }
                   if (
                     personalDefaultPreviewId !== value.personalDefaultPreviewId ||
-                    blockPreviews !== value.blockPreviews
+                    blockPreviews !== value.blockPreviews ||
+                    blockPickerPreviews !== value.blockPickerPreviews ||
+                    blockLibraryPreviews !== value.blockLibraryPreviews
                   ) {
                     const personal = await api<{
                       previewId: string | null;
                       blockPreviews: boolean;
+                      blockPickerPreviews: boolean;
+                      blockLibraryPreviews: boolean;
                     }>(
                       '/delivery-settings/personal-default',
-                      jsonRequest('PUT', { previewId: personalDefaultPreviewId, blockPreviews }),
+                      jsonRequest('PUT', {
+                        previewId: personalDefaultPreviewId,
+                        blockPreviews,
+                        blockPickerPreviews,
+                        blockLibraryPreviews,
+                      }),
                     );
                     setSettings({
                       ...value,
                       personalDefaultPreviewId: personal.previewId,
                       blockPreviews: personal.blockPreviews,
+                      blockPickerPreviews: personal.blockPickerPreviews,
+                      blockLibraryPreviews: personal.blockLibraryPreviews,
                     });
                   }
                   setSaved(true);
@@ -303,27 +322,33 @@ export function DeliverySettings({
                   Only affects you in this space, on every browser you sign in with.
                 </span>
               </label>
-              <label className="checkbox-field block-preview-setting">
-                <input
-                  type="checkbox"
-                  checked={blockPreviews}
-                  disabled={busy}
-                  onChange={(event) => {
-                    setBlockPreviews(event.target.checked);
-                    setSaved(false);
-                  }}
-                  aria-label="Show block hover previews"
-                  aria-describedby="block-previews-hint"
-                />
-                <span>
-                  Show block hover previews
-                  <small className="field-hint" id="block-previews-hint">
-                    Load app previews when hovering over blocks, breadcrumbs, and the block picker.
-                    Turn off for lighter editing. Only affects you in this space; the main preview
-                    stays available.
-                  </small>
-                </span>
-              </label>
+              <fieldset className="block-preview-setting" disabled={busy}>
+                <legend>Block hover previews</legend>
+                <p className="field-hint">
+                  Choose where hovering or keyboard focus loads app previews. Only affects you in
+                  this space; the main preview stays available. Samples must be configured for
+                  previews in the Add block pane and Blocks table.
+                </p>
+                {(
+                  [
+                    ['Content editor', blockPreviews, setBlockPreviews],
+                    ['Add block pane', blockPickerPreviews, setBlockPickerPreviews],
+                    ['Blocks table', blockLibraryPreviews, setBlockLibraryPreviews],
+                  ] as const
+                ).map(([label, checked, update]) => (
+                  <label className="checkbox-field" key={label}>
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={(event) => {
+                        update(event.target.checked);
+                        setSaved(false);
+                      }}
+                    />
+                    <span>{label}</span>
+                  </label>
+                ))}
+              </fieldset>
               <div className="space-settings-actions">
                 <span role="status">{saved ? 'Preview settings saved' : ''}</span>
                 <Button type="submit" disabled={!previewDirty || busy}>

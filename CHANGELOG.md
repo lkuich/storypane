@@ -2,6 +2,10 @@
 
 ## 0.1.0-rc.6 — 2026-11-07
 
+- Allow requesters and space admins to delete reviews and discussions from inbox rows or thread details with confirmation. Remove duplicate story context and requester metadata from review details.
+
+- Split personal block hover previews into Content editor, Add block pane, and Blocks table settings. The Block library now previews configured samples on hover or keyboard focus using the existing authenticated iframe. Upgrade migration preserves previous choices.
+
 - Create independent locale pages from Default, including page fields and selected
   sections. Review later source changes without overwriting translations by default.
 - Add explicit linking for existing locale copies, scoped block updates, translation

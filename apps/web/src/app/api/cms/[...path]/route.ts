@@ -59,6 +59,10 @@ async function handle(request: Request, route: { params: Promise<{ path: string[
         ),
       );
     if (resource === 'reviews' && !child) {
+      if (method === 'DELETE' && id) {
+        await store.deleteDiscussion(actor, id);
+        return jsonResponse({ ok: true });
+      }
       if (method === 'GET' && !id)
         return jsonResponse(
           await store.listDiscussions(
