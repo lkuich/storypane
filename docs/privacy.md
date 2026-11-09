@@ -1,6 +1,6 @@
 # Privacy and data handling
 
-Updated November 6, 2026. This describes the maintained default configuration.
+Updated November 9, 2026. This describes the maintained default configuration.
 Customizations, integrations, and an operator's hosting choices can change data
 handling. It is not a privacy notice for every self-hosted Storypane installation.
 
@@ -60,8 +60,11 @@ Do not promise regulatory compliance solely because the software is self-hosted.
 
 The marketing site and documentation are static assets served through Cloudflare.
 The site has no signup form and does not connect to your self-hosted CMS.
-The maintained site does not add advertising trackers or analytics cookies, and
-shader telemetry is disabled. Cloudflare processes requests to serve and secure
+Production pages use Sarge to record page views, page URLs, referrers, titles,
+and pseudonymous session/user identifiers. Sarge stores identifiers and optional
+campaign attribution in browser local storage and can observe existing Meta,
+Google, and dataLayer calls. See [Sarge's privacy policy](https://sargetrack.app/legal/privacy).
+Shader telemetry is disabled. Cloudflare processes requests to serve and secure
 the website; see [Cloudflare's privacy policy](https://www.cloudflare.com/privacypolicy/).
 Provider logs and retention are governed by the site's hosting configuration;
 this document does not claim zero logging.
