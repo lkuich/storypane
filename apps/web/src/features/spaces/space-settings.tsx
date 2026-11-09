@@ -14,8 +14,8 @@ import {
   Webhook,
 } from 'lucide-react';
 import { can, type SpaceRole, type Space, type SpaceDetails } from '@storypane/core';
-import { Button, ErrorNotice, Loading } from '@storypane/ui';
-import { api, errorMessage, jsonRequest } from '../editor/api';
+import { Button, ErrorNotice, Loading, Modal } from '@storypane/ui';
+import { api, errorMessage, jsonRequest, requestJson } from '../editor/api';
 import type { RegisterGuard } from '../editor/navigation';
 import './spaces.css';
 import { ManagementSettings } from './management-settings';
@@ -58,6 +58,12 @@ export function SpaceSettings({
   });
   const [space, setSpace] = useState<SpaceDetails | null>(null),
     [loading, setLoading] = useState(true);
+  const [deleting, setDeleting] = useState<(Space & { canDeleteDatabase?: boolean }) | null>(null);
+  const [confirmation, setConfirmation] = useState('');
+  const [deleteDatabase, setDeleteDatabase] = useState(false);
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const [deleteError, setDeleteError] = useState('');
+  const [deleted, setDeleted] = useState(false);
   const [schemaReadOnly, setSchemaReadOnly] = useState(false);
   const [name, setName] = useState(''),
     [description, setDescription] = useState('');
@@ -117,6 +123,10 @@ export function SpaceSettings({
     );
   }, [access.role, access.roleName, access.permissions, access.contentScopes]);
   useEffect(() => {
+    if (deleted) {
+      window.location.assign('/');
+      return;
+    }
     registerGuard(
       () =>
         !saving &&
@@ -127,6 +137,7 @@ export function SpaceSettings({
         !roleBusy &&
         !webhookBusy &&
         !databaseBusy &&
+        !deleteBusy &&
         (!(dirty || deliveryDirty || localeDirty || webhookDirty) ||
           window.confirm('Discard unsaved space settings?')),
     );
@@ -143,7 +154,8 @@ export function SpaceSettings({
         roleBusy ||
         webhookDirty ||
         webhookBusy ||
-        databaseBusy
+        databaseBusy ||
+        deleteBusy
       )
         event.preventDefault();
     };
@@ -165,6 +177,8 @@ export function SpaceSettings({
     webhookDirty,
     webhookBusy,
     databaseBusy,
+    deleteBusy,
+    deleted,
     registerGuard,
   ]);
   const activeSection =
@@ -339,6 +353,44 @@ export function SpaceSettings({
                       )}
                     </form>
                   </section>
+                  {installationAdmin && (
+                    <section className="panel">
+                      <header className="panel-heading">
+                        <h2>Delete space</h2>
+                      </header>
+                      <div className="panel-body">
+                        <p>
+                          Remove this space from Storypane for everyone. Stored media is retained.
+                        </p>
+                        <ErrorNotice message={deleteError} />
+                        <Button
+                          variant="danger"
+                          disabled={deleteBusy || saving}
+                          onClick={async () => {
+                            setDeleteError('');
+                            setDeleteBusy(true);
+                            try {
+                              const spaces =
+                                await requestJson<(Space & { canDeleteDatabase?: boolean })[]>(
+                                  '/api/spaces',
+                                );
+                              const current = spaces.find((item) => item.id === space.id);
+                              if (!current) throw new Error('Space is no longer available.');
+                              setDeleting(current);
+                              setConfirmation('');
+                              setDeleteDatabase(false);
+                            } catch (cause) {
+                              setDeleteError(errorMessage(cause));
+                            } finally {
+                              setDeleteBusy(false);
+                            }
+                          }}
+                        >
+                          Delete space
+                        </Button>
+                      </div>
+                    </section>
+                  )}
                 </div>
                 <aside className="space-settings-aside">
                   <section className="panel">
@@ -462,6 +514,74 @@ export function SpaceSettings({
           </div>
         )
       )}
+      <Modal
+        open={Boolean(deleting)}
+        onClose={() => {
+          if (!deleteBusy) setDeleting(null);
+        }}
+        title="Delete space"
+        description="Remove this space from Storypane for everyone. Stored media is retained."
+      >
+        <form
+          onSubmit={async (event) => {
+            event.preventDefault();
+            if (!deleting) return;
+            setDeleteBusy(true);
+            setDeleteError('');
+            try {
+              await requestJson(
+                '/api/spaces',
+                jsonRequest('DELETE', { id: deleting.id, name: confirmation, deleteDatabase }),
+              );
+              setDeleting(null);
+              setSpace(null);
+              setDeleted(true);
+            } catch (cause) {
+              setDeleteError(errorMessage(cause));
+            } finally {
+              setDeleteBusy(false);
+            }
+          }}
+        >
+          <p>
+            Keep the database to retain its content for operator recovery. Database deletion is
+            available only for databases created by Storypane on the configured server. Delete
+            linked development spaces first.
+          </p>
+          <label className="field">
+            Type {deleting?.name} to confirm
+            <input
+              value={confirmation}
+              onChange={(event) => setConfirmation(event.target.value)}
+              required
+              autoFocus
+              disabled={deleteBusy}
+            />
+          </label>
+          <label className="checkbox-field">
+            <input
+              type="checkbox"
+              checked={deleteDatabase}
+              onChange={(event) => setDeleteDatabase(event.target.checked)}
+              disabled={deleteBusy || !deleting?.canDeleteDatabase}
+            />
+            Also permanently delete the database and all its content
+          </label>
+          <ErrorNotice message={deleteError} />
+          <div className="dialog-actions">
+            <Button disabled={deleteBusy} onClick={() => setDeleting(null)}>
+              Cancel
+            </Button>
+            <Button
+              type="submit"
+              variant="danger"
+              disabled={deleteBusy || confirmation !== deleting?.name}
+            >
+              Delete space
+            </Button>
+          </div>
+        </form>
+      </Modal>
     </>
   );
 }
