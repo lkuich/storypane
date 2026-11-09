@@ -102,6 +102,13 @@ within a database transaction. `story_locales.checkpoint_id` identifies the curr
 saved state. Checkpoints currently retain full snapshots per autosave batch, so
 history storage grows with page size and save frequency.
 
+[Issue #3](https://github.com/lkuich/storypane/issues/3) tracks benchmarking storage
+growth and save latency with large pages and concurrent editors, then evaluating
+opt-in retention. The proposal keeps recent history and checkpoints required by
+current drafts, publications, and schedules/releases. Cleanup must preserve safe
+mutation retries before it can be enabled; no checkpoint retention setting or
+automatic cleanup is currently implemented.
+
 Normal draft preview reads that checkpoint's assembled `content`. Publishing
 records the reviewed content in `publications` and advances
 `story_locales.published_version_id`. Published delivery reads that publication's
@@ -214,6 +221,7 @@ and [webhooks](webhooks.md).
 
 Run **one application replica** in the current release. Collaboration rooms live
 in that process, so adding app replicas requires a shared room transport first.
+See the [known defect and multi-instance acceptance criteria](known-defects.md#multiple-application-instances-do-not-share-room-notifications).
 Keep the app running for live collaboration and scheduled work. Your public
 website can use its own hosting and caching strategy independently.
 

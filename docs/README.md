@@ -58,6 +58,8 @@ Explore the SDK, then choose the integration guide for your framework.
 
 ## Project and releases
 
+- [Known defects](known-defects.md): current limitations, workarounds, and
+  acceptance criteria for fixes, including the single-replica restriction.
 - [Releases and versioning](releases-and-versioning.md): RC status, CI, SDK packages,
   maintainer publishing, upgrade requirements, and the path to stable.
 - [Privacy and data handling](privacy.md): installation data, chosen providers,
