@@ -3145,6 +3145,12 @@ main.login-form-wrap {
   .data-table .entity-title {
     max-width: 160px;
   }
+  .content-results .data-table td:nth-child(2) {
+    min-width: min(300px, calc(100vw - 110px));
+  }
+  .content-results .data-table .entity-title {
+    max-width: none;
+  }
   .table-mobile-hide {
     display: none;
   }

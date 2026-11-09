@@ -379,3 +379,7 @@ Forward follow the same folder visits as the content list’s **Back** and
 **Forward** buttons, clearing story selection as you navigate. Choosing another
 folder after going back replaces the forward branch. The current folder and
 filters survive reloads, and story navigation keeps its unsaved-change guard.
+
+On phones, story titles keep a readable column width. Swipe the content table
+horizontally to reach Page ID, last-modified details, and row actions. Keyboard
+focus also scrolls those controls into view.

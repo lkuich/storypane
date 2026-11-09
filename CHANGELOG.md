@@ -2,6 +2,8 @@
 
 ## 0.1.0-rc.7 — 2026-11-07
 
+- Keep mobile story titles readable by reserving title-column width while secondary table columns scroll.
+
 - Let cross-site previews load already-public media through the existing publication and public-media eligibility checks when CMS cookies are absent.
 
 - Keep browser Back/Forward and content-folder navigation in the same history.

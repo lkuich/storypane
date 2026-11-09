@@ -237,3 +237,40 @@ test('search spans folders and paths can be copied or opened on the configured a
     .toBe(true);
   await page.screenshot({ path: testInfo.outputPath('search-mobile.png') });
 });
+
+test('long mobile story titles retain readable width while secondary columns scroll', async ({
+  page,
+  installation,
+}, info) => {
+  const names = [
+    'Five Reasons Why You Need to Know Sculptra',
+    'Step-by-Step Guide: How to Become a Certified Neuromodulator Injector in Canada',
+  ];
+  await page.route('**/api/cms/stories', (route) =>
+    route.fulfill({
+      json: stories.slice(0, 2).map((story, index) => ({ ...story, name: names[index] })),
+    }),
+  );
+  await page.route('**/api/cms/folders', (route) => route.fulfill({ json: [] }));
+  await signInPage(page, installation);
+  for (const width of [320, 390, 1440]) {
+    await page.setViewportSize({ width, height: 900 });
+    const title = page.getByRole('button', { name: names[1], exact: true });
+    await expect(title).toBeVisible();
+    const bounds = (await title.boundingBox())!;
+    if (width < 760) expect(bounds.width).toBeGreaterThanOrEqual(width === 320 ? 125 : 185);
+    expect(bounds.height).toBeLessThan(180);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
+      true,
+    );
+    await title.focus();
+    await expect(title).toBeFocused();
+    const copy = page.getByRole('button', { name: `Copy page id for ${names[1]}`, exact: true });
+    await copy.focus();
+    await expect(copy).toBeFocused();
+    await title.focus();
+    await page
+      .locator('.content-results')
+      .screenshot({ path: info.outputPath(`story-titles-${width}.png`) });
+  }
+});
