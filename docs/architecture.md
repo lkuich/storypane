@@ -8,7 +8,7 @@ By default the Node application serves the React editor and runs the APIs, live
 collaboration, and background jobs together. An optional `STORYPANE_SERVICE=delivery`
 process serves published content and authorized media independently, reusing the
 same database services and storage. It has no rooms or schedulers and can be
-replicated while the editor stays on one replica. See
+replicated independently of the editor. See
 [separate delivery deployment](deploy-railway.md#scale-published-delivery-separately).
 
 ![The editor browser and your website connect to one Storypane Node application. The application uses an installation PostgreSQL database, separate PostgreSQL databases for spaces, and private S3-compatible media storage.](images/architecture.svg)
@@ -223,9 +223,14 @@ and [webhooks](webhooks.md).
 
 ## Deployment and scaling
 
-Run **one combined/editor replica** in the current release. Collaboration rooms live
-in that process, so adding editor replicas requires a shared room transport first.
-See the [known defect and multi-instance acceptance criteria](known-defects.md#multiple-application-instances-do-not-share-room-notifications).
+Combined/editor replicas share room notifications through PostgreSQL `LISTEN`/`NOTIFY`.
+Sockets remain local; signals contain room identifiers, and each process rereads
+state and authorizes its own recipients. Reconnecting listeners refresh active
+rooms; heartbeat synchronization covers missed signals. PostgreSQL remains
+authoritative for content, leases, sessions, schedules, and webhook claims.
+
+Start with one replica. Before adding editors, follow the
+[shared configuration, readiness, and connection-budget requirements](deploy-railway.md#scale-editors).
 Keep the app running for live collaboration and scheduled work. Your public
 website can use its own hosting and caching strategy independently.
 

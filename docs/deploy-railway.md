@@ -45,8 +45,8 @@ Postgres, and a private Storage Bucket. Name the supporting services `Postgres`
 and `Bucket` when using these references. Keep **one application replica** and
 **sleeping disabled**. Configure the application service in Railway's dashboard;
 provider settings are not part of the application's default build configuration.
-Do not scale replicas without a shared room transport; in-memory recipients would
-otherwise miss notifications.
+The template retains its one-replica default. See [editor scaling](#scale-editors)
+before changing it.
 
 | Service setting                  | Value                                          |
 | -------------------------------- | ---------------------------------------------- |
@@ -218,7 +218,7 @@ image's default start command and `/api/ready` healthcheck. This mode starts a
 small HTTP server using the existing delivery handlers; it does not start vinext's
 editor server, collaboration rooms, or publication/webhook schedulers.
 
-1. Keep the original application on `combined`, one replica, and sleeping disabled.
+1. Keep the original application on `combined`, initially one replica, and sleeping disabled.
    It continues to serve editors, management, schema tooling, live preview and
    scheduled work. Existing delivery URLs continue to work.
 2. Give the delivery service the same runtime database, encryption, authentication
@@ -253,6 +253,32 @@ depend on Postgres and storage; editor load can still contend for database CPU,
 I/O, locks and connections. Delivery responses retain their existing authorization
 and `no-store` behavior.
 
+## Scale editors
+
+Combined/editor processes share room signals through PostgreSQL `LISTEN`/`NOTIFY`
+on the installation database. No Redis, extension, migration, or new environment
+variable is required. Each editor adds one dedicated listener connection; delivery
+processes do not. The installation connection must be direct or session pooled:
+transaction pooling cannot preserve a `LISTEN` subscription.
+
+Replicas must use the same installation/space databases, private bucket, canonical
+`STORYPANE_APP_URL`, authentication configuration, and encryption keys. Keep them
+running in the same region as Postgres, behind a WebSocket-capable load balancer.
+Run migrations through the existing transactional runner before deploying compatible
+replicas. Scheduled publications and webhook claims retain their database locking.
+
+Startup waits for the listener. `/api/ready` returns 503 during listener outages;
+the process retries and rereads active rooms after subscribing again. Signals
+contain room identifiers only; every local recipient is reauthorized on reread.
+Existing heartbeat synchronization covers missed signals, including a crash between
+committing space content and publishing its installation-database notification.
+
+[Local checks](deployment-verification.md#shared-editor-rooms-local-checks--2026-11-09)
+cover separate processes, concurrent writes, scheduled publication, recipient
+filtering, listener recovery, and process replacement. Keep one production editor
+until hosted reconnect/draining, cross-instance uploads, failure recovery, and
+representative load checks pass. Increase replicas only within the database budget.
+
 ### Database connection budget
 
 Each application process has a five-connection installation pool and permits up to
@@ -260,15 +286,17 @@ Each application process has a five-connection installation pool and permits up 
 with at most two space connections, then closes it. These are request/operation
 limits, not a limit of 16 connected editor browsers: idle WebSockets hold no
 space database acquisition. Splitting services separates these admission limits.
-Budget up to 37 ordinary runtime connections per replica across the installation
-and space databases, with additional headroom for provisioning, migrations,
-operators and other applications. This is a conservative pool ceiling, not an
-expected idle connection count.
+Budget up to **38 connections per combined/editor replica** (five installation,
+32 space, one listener), or **37 per delivery replica**, with additional headroom
+for provisioning, migrations, operators and other applications. This is a
+conservative pool ceiling, not an expected idle connection count. For example,
+two editors plus one delivery can reach 113 connections before that headroom;
+a PostgreSQL server capped at 100 cannot accommodate this ceiling.
 
 A shared transaction pooler such as [PgBouncer](https://www.pgbouncer.org/features.html) can reduce backend connection churn
 and bound physical PostgreSQL connections across replicas. It does not remove the
-application's 16-acquisition guard, speed up overloaded SQL, or coordinate
-in-memory collaboration rooms. Session advisory locks used by operator/provisioning
+application's 16-acquisition guard, speed up overloaded SQL, or replace
+the dedicated session connection used for room notifications. Session advisory locks used by operator/provisioning
 commands also require suitable pooling semantics; do not redirect those commands
 through transaction pooling without verifying their locking behavior. This change
 does not introduce or configure a database pooler.

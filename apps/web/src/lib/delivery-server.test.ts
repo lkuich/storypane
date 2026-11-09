@@ -5,6 +5,7 @@ import { StorypaneError } from '@storypane/core';
 import { createStorypaneClient } from '../../../../packages/sdk/src/index';
 
 const mocks = vi.hoisted(() => ({
+  rooms: { ready: true },
   selectSpace: vi.fn(),
   close: vi.fn(),
   publishedStories: vi.fn(),
@@ -15,7 +16,10 @@ const mocks = vi.hoisted(() => ({
   handleAssets: vi.fn(),
   handlePublicMedia: vi.fn(),
 }));
-vi.mock('#platform', () => ({ env: { MEDIA: {}, IMAGES: {} }, openCache: vi.fn() }));
+vi.mock('#platform', () => ({
+  env: { MEDIA: {}, IMAGES: {}, ROOMS: mocks.rooms },
+  openCache: vi.fn(),
+}));
 vi.mock('@storypane/assets', () => ({
   handleAssets: mocks.handleAssets,
   handlePublicMedia: mocks.handlePublicMedia,
@@ -48,6 +52,7 @@ afterAll(async () => {
 });
 beforeEach(() => {
   vi.resetAllMocks();
+  mocks.rooms.ready = true;
   mocks.publishedStories.mockResolvedValue({ stories: [], nextOffset: null });
   mocks.deliveryLocales.mockResolvedValue([{ slug: '', isDefault: true }]);
   mocks.forEachSpace.mockResolvedValue([]);
@@ -162,6 +167,12 @@ it('serves health checks and reports an installation outage', async () => {
   expect(await (await fetch(`${origin}/api/ready`)).json()).toEqual({ ready: true });
   mocks.assertProvider.mockRejectedValueOnce(new Error('Database unavailable'));
   expect((await fetch(`${origin}/api/ready`)).status).toBe(503);
+});
+
+it('reports an interrupted room listener as unready before accepting new editor traffic', async () => {
+  mocks.rooms.ready = false;
+  expect((await fetch(`${origin}/api/ready`)).status).toBe(503);
+  expect(mocks.assertProvider).not.toHaveBeenCalled();
 });
 
 it('rejects WebSocket upgrades rather than opening a local room', async () => {

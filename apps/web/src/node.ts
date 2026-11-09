@@ -19,7 +19,7 @@ if (service === 'delivery') {
   await once(server.listen(options.port, options.host), 'listening');
   console.log(`Storypane delivery listening on ${options.host}:${options.port}`);
 }
-const stop = service === 'delivery' ? async () => {} : attachNodeServices(server);
+const stop = service === 'delivery' ? async () => {} : await attachNodeServices(server);
 async function shutdown() {
   await Promise.all([new Promise<void>((resolve) => server.close(() => resolve())), stop()]);
   process.exit(0);

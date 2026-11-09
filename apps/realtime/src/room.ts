@@ -8,6 +8,7 @@ import type { StorypaneStore } from '@storypane/db';
 
 export interface Env {
   withStore: <T>(run: (store: StorypaneStore) => Promise<T>) => Promise<T>;
+  onPresence?: () => Promise<void>;
 }
 export type Connection = {
   actor: Actor;
@@ -128,6 +129,11 @@ export class Room {
   }
   private async presence(connection: Connection): Promise<void> {
     await this.broadcast(connection, { type: 'presence' });
+    await this.env.onPresence?.();
+  }
+  async refresh(): Promise<void> {
+    const connection = this.ctx.getWebSockets()[0]?.deserializeAttachment();
+    if (connection) await this.broadcast(connection, { type: 'snapshot' });
   }
   async connect(
     request: Request,

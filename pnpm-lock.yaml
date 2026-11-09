@@ -470,6 +470,9 @@ importers:
       '@storypane/realtime':
         specifier: workspace:*
         version: link:../../apps/realtime
+      pg:
+        specifier: ^8.16.3
+        version: 8.23.1
       sharp:
         specifier: ^0.35.5
         version: 0.35.5(@types/node@24.19.2)

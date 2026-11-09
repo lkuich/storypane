@@ -3,6 +3,7 @@ import { S3Client } from '@aws-sdk/client-s3';
 import { Room, type RoomSocket } from '@storypane/realtime/room';
 import { S3Bucket } from './s3';
 import { images } from './images';
+import { RoomNotifications, roomName } from './room-notifications';
 
 function required(name: string) {
   const value = process.env[name];
@@ -10,6 +11,23 @@ function required(name: string) {
   return value;
 }
 const rooms = new Map<string, { room: Room; sockets: Set<RoomSocket>; pending: number }>();
+let notifications: RoomNotifications | undefined;
+
+export async function startRoomNotifications() {
+  if (notifications) throw new Error('Room notifications already started');
+  const current = new RoomNotifications(getInstallation(), rooms);
+  notifications = current;
+  try {
+    await current.start();
+  } catch (error) {
+    notifications = undefined;
+    throw error;
+  }
+  return async () => {
+    if (notifications === current) notifications = undefined;
+    await current.stop();
+  };
+}
 export function nodeRoom(name: string) {
   let entry = rooms.get(name);
   if (!entry) {
@@ -20,6 +38,13 @@ export function nodeRoom(name: string) {
       room: new Room(
         { getWebSockets: () => [...sockets] },
         {
+          onPresence: async () => {
+            try {
+              await notifications?.publish(name);
+            } catch {
+              console.error('Room presence notification failed; clients will resync.');
+            }
+          },
           withStore: async (run) => {
             const installation = getInstallation();
             const selected = await installation.acquire(name.split(':')[0]);
@@ -78,12 +103,23 @@ export const env = {
   },
   IMAGES: images,
   ROOMS: {
+    get ready() {
+      return notifications?.ready ?? true;
+    },
     getByName(name: string) {
       return {
         async fetch(request: Request) {
-          const entry = rooms.get(name);
-          // No connected recipients means nothing to notify; committed data lives in Postgres.
-          return entry ? entry.room.fetch(request) : Response.json({ ok: true });
+          if (!roomName.test(name)) throw new Error('Invalid room name');
+          const entry = nodeRoom(name);
+          entry.pending++;
+          try {
+            const response = await entry.room.fetch(request);
+            if (response.ok) await notifications?.publish(name);
+            return response;
+          } finally {
+            entry.pending--;
+            releaseRoom(name);
+          }
         },
       };
     },

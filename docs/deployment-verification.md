@@ -55,7 +55,7 @@ against production content merely to complete a checklist.
   loss. Check `/api/ready` returns 503 with an unavailable installation database and 200
   after recovery; an unavailable space reports degraded health while healthy spaces
   and their background jobs continue.
-- Railway: confirm one replica and sleeping disabled; verify simultaneous WebSocket
+- Railway: start with one replica and sleeping disabled; verify simultaneous WebSocket
   editing while scheduled jobs and uploads run. Cloudflare is the static marketing
   website host only; the CMS Worker runtime is unsupported by this layout.
 - If separate delivery is enabled, verify two delivery replicas return the same
@@ -643,3 +643,33 @@ tested in this rollout. Earlier local checks served publications through two del
 processes with their configured editor origin offline. Database capacity remains
 shared; the combined/editor service still requires one replica. These results do
 not establish full fresh-install acceptance or a safe production capacity target.
+
+## Shared editor rooms local checks — 2026-11-09
+
+`tests/shared-rooms.e2e.ts` runs separate Node application processes against a
+shared disposable local installation and space database. Browser WebSocket peers
+do not send heartbeats, so immediate updates depend on cross-process signals.
+
+Passed checks:
+
+- Concurrent edits to separate blocks across processes, lease visibility and
+  conflicting-lease rejection, and authenticated preview updates.
+- Content-scope changes and revoked editor/preview access rechecked on remote
+  refresh; no lease secrets in WebSocket frames.
+- Terminated PostgreSQL listener causes readiness 503, reconnects, and rereads
+  content committed during the interruption.
+- Both minute schedulers run; an approved scheduled checkpoint publishes once,
+  reaches subscribers on both processes, and leaves a later draft unpublished.
+- Eight concurrent snapshot reads across both processes; process termination and
+  replacement recover committed content. A writer with no local subscribers
+  still notifies a subscriber on another process.
+
+Real-Postgres transport tests also check malformed signals, installation isolation,
+startup failure, echo suppression, and listener cleanup. Existing database tests
+cover concurrent scheduled publication and webhook claims/recovery.
+
+These are local correctness checks, not a production load benchmark. Hosted
+multi-editor routing, connection draining, unsent-edit reconnect, cross-instance
+multipart uploads, and representative capacity are not verified here. The Railway
+template and production replica count remain unchanged. Earlier single-replica
+results above describe their recorded revisions.

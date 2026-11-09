@@ -1,13 +1,14 @@
 import type { Server } from 'node:http';
 import { WebSocketServer } from 'ws';
-import { env, nodeRoom, releaseRoom } from '@storypane/runtime-node';
+import { env, nodeRoom, releaseRoom, startRoomNotifications } from '@storypane/runtime-node';
 import type { RoomSocket } from '@storypane/realtime/room';
 import { liveRequest } from './lib/live';
 import { errorResponse } from './lib/http';
 import { createServices } from './lib/context';
 import { startBackgroundTasks } from './lib/background';
 
-export function attachNodeServices(server: Server) {
+export async function attachNodeServices(server: Server) {
+  const stopNotifications = await startRoomNotifications();
   const sockets = new WebSocketServer({
     noServer: true,
     maxPayload: 4096,
@@ -103,7 +104,7 @@ export function attachNodeServices(server: Server) {
 
   return async () => {
     for (const socket of sockets.clients) socket.close(1012, 'Service restarting');
-    await stopBackground();
+    await Promise.all([stopBackground(), stopNotifications()]);
     sockets.close();
   };
 }

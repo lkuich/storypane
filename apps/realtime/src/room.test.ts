@@ -264,3 +264,61 @@ it('never forwards changed IDs or field values from another subscriber’s full 
   expect(JSON.stringify(message)).not.toContain('Private content');
   expect(JSON.stringify(message)).not.toContain('deleted-private');
 });
+
+it('refreshes remote recipients with their own authorization, including previews and revocation', async () => {
+  const connections = [
+    connection,
+    { ...connection, actor: { ...actor, userId: 'restricted' } },
+    { ...connection, actor: { ...actor, userId: 'revoked' } },
+    { ...connection, previewSessionId: 'preview' },
+  ];
+  const sockets = connections.map((value) => ({
+    send: vi.fn(),
+    close: vi.fn(),
+    deserializeAttachment: () => value,
+  }));
+  mocks.snapshot.mockImplementation(async (recipient: Actor) => {
+    if (recipient.userId === 'revoked') throw new StorypaneError('forbidden', 'Removed');
+    return {
+      ...snapshot,
+      blocks: [
+        {
+          id: 'hero',
+          fields: {
+            title: recipient.userId === 'alice' ? 'Private value' : 'Visible value',
+          },
+        },
+      ],
+    };
+  });
+  mocks.preview.mockResolvedValue({ id: 'story', content: { title: 'Preview content' } });
+  const room = new Room({ getWebSockets: () => sockets }, env);
+  await room.refresh();
+  expect(sockets[0].send.mock.calls[0][0]).toContain('Private value');
+  expect(sockets[1].send.mock.calls[0][0]).not.toContain('Private value');
+  expect(sockets[1].send.mock.calls[0][0]).toContain('Visible value');
+  expect(sockets[1].send.mock.calls[0][0]).not.toContain('secret-lease');
+  expect(sockets[2].close).toHaveBeenCalledWith(1008, 'Authentication expired');
+  expect(JSON.parse(sockets[3].send.mock.calls[0][0])).toEqual({
+    type: 'content',
+    story: { id: 'story', content: { title: 'Preview content' } },
+  });
+});
+
+it('signals other processes when editors connect or leave', async () => {
+  const onPresence = vi.fn(async () => {});
+  const { socket } = fixture();
+  const room = new Room({ getWebSockets: () => [socket] }, { ...env, onPresence });
+  await room.connect(
+    new Request('http://room/live', {
+      headers: {
+        'x-storypane-actor': JSON.stringify(actor),
+        'x-storypane-story-id': 'story',
+        'x-storypane-locale-id': 'locale',
+      },
+    }),
+    () => socket,
+  );
+  await room.webSocketClose(socket);
+  expect(onPresence).toHaveBeenCalledTimes(2);
+});

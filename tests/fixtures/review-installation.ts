@@ -41,13 +41,16 @@ export async function reviewInstallation() {
   const password = randomBytes(24).toString('hex');
   const directory = await mkdtemp(join(tmpdir(), 'storypane-reviews-'));
   let app: ChildProcess | undefined;
+  const replicas: ChildProcess[] = [];
   async function close() {
-    if (app && app.exitCode === null && !app.signalCode) {
-      const exited = once(app, 'exit');
-      app.kill('SIGTERM');
-      const timer = setTimeout(() => app?.kill('SIGKILL'), 5000);
-      await exited;
-      clearTimeout(timer);
+    for (const current of [app, ...replicas]) {
+      if (current && current.exitCode === null && !current.signalCode) {
+        const exited = once(current, 'exit');
+        current.kill('SIGTERM');
+        const timer = setTimeout(() => current.kill('SIGKILL'), 5000);
+        await exited;
+        clearTimeout(timer);
+      }
     }
     await Promise.all([db.end(), installation.end()]);
     await admin.query(`DROP SCHEMA IF EXISTS ${spaceSchema} CASCADE`);
@@ -121,29 +124,30 @@ export async function reviewInstallation() {
     const origin = `http://127.0.0.1:${address.port}`;
     await new Promise<void>((resolve) => probe.close(() => resolve()));
     const log = await open(join(directory, 'server.log'), 'a', 0o600);
+    const environment = {
+      ...process.env,
+      AUTH_PROVIDER: 'local',
+      STORYPANE_APP_URL: origin,
+      HOST: '127.0.0.1',
+      PORT: String(address.port),
+      INSTALLATION_DATABASE_URL: installationURL,
+      INSTALLATION_ENCRYPTION_KEY: key,
+      PROVISIONING_DATABASE_URL: '',
+      BETTER_AUTH_SECRET: randomBytes(32).toString('hex'),
+      WEBHOOK_ENCRYPTION_KEY: randomBytes(32).toString('base64'),
+      S3_ENDPOINT: 'http://127.0.0.1:1',
+      S3_REGION: 'auto',
+      S3_BUCKET: 'reviews-test',
+      S3_ACCESS_KEY_ID: 'test',
+      S3_SECRET_ACCESS_KEY: 'test',
+      SMTP_URL: '',
+      MAIL_FROM: '',
+    };
     app = spawn(
       process.execPath,
       ['--conditions=storypane-node', '--import', 'tsx', 'apps/web/src/node.ts'],
       {
-        env: {
-          ...process.env,
-          AUTH_PROVIDER: 'local',
-          STORYPANE_APP_URL: origin,
-          HOST: '127.0.0.1',
-          PORT: String(address.port),
-          INSTALLATION_DATABASE_URL: installationURL,
-          INSTALLATION_ENCRYPTION_KEY: key,
-          PROVISIONING_DATABASE_URL: '',
-          BETTER_AUTH_SECRET: randomBytes(32).toString('hex'),
-          WEBHOOK_ENCRYPTION_KEY: randomBytes(32).toString('base64'),
-          S3_ENDPOINT: 'http://127.0.0.1:1',
-          S3_REGION: 'auto',
-          S3_BUCKET: 'reviews-test',
-          S3_ACCESS_KEY_ID: 'test',
-          S3_SECRET_ACCESS_KEY: 'test',
-          SMTP_URL: '',
-          MAIL_FROM: '',
-        },
+        env: environment,
         stdio: ['ignore', log.fd, log.fd],
       },
     );
@@ -176,6 +180,42 @@ export async function reviewInstallation() {
       localeId: locale.id as string,
       rootBlockId: locale.root_block_id as string,
       db,
+      installation,
+      async startReplica() {
+        const probe = createServer();
+        await new Promise<void>((resolve) => probe.listen(0, '127.0.0.1', resolve));
+        const address = probe.address();
+        if (!address || typeof address === 'string') throw new Error('Missing replica port');
+        await new Promise<void>((resolve) => probe.close(() => resolve()));
+        const log = await open(join(directory, 'replica.log'), 'a', 0o600);
+        const child = spawn(
+          process.execPath,
+          ['--conditions=storypane-node', '--import', 'tsx', 'apps/web/src/node.ts'],
+          {
+            env: { ...environment, PORT: String(address.port) },
+            stdio: ['ignore', log.fd, log.fd],
+          },
+        );
+        replicas.push(child);
+        await log.close();
+        const replicaOrigin = `http://127.0.0.1:${address.port}`;
+        await expect
+          .poll(
+            async () => {
+              if (child.exitCode !== null || child.signalCode)
+                throw new Error(`Replica exited; see ${directory}/replica.log`);
+              return fetch(`${replicaOrigin}/api/ready`, {
+                signal: AbortSignal.timeout(2000),
+              }).then(
+                (response) => response.status,
+                () => 0,
+              );
+            },
+            { timeout: 30000 },
+          )
+          .toBe(200);
+        return { origin: replicaOrigin, process: child };
+      },
       close,
     };
   } catch (error) {

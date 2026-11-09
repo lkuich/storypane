@@ -1,9 +1,11 @@
 import { createServices } from '../../../lib/context';
+import { env } from '#platform';
 
 export const dynamic = 'force-dynamic';
 export async function GET() {
   let services: ReturnType<typeof createServices> | undefined;
   try {
+    if (env.ROOMS?.ready === false) throw new Error('Room notifications disconnected');
     services = createServices();
     await services.installation.assertProvider();
     const failed = await services.installation.forEachSpace(async (id) => {

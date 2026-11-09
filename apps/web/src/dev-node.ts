@@ -10,10 +10,10 @@ const vite = await createServer({
   plugins: [
     {
       name: 'storypane-node-services',
-      configureServer(server) {
+      async configureServer(server) {
         if (!(server.httpServer instanceof Server))
           throw new Error('Node development requires an HTTP server');
-        const stopCurrent = attachNodeServices(server.httpServer);
+        const stopCurrent = await attachNodeServices(server.httpServer);
         stop = stopCurrent;
         server.httpServer.once('close', () => {
           void stopCurrent();
