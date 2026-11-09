@@ -118,7 +118,9 @@ export function DatabaseSettings({
                     <Copy aria-hidden="true" />
                     Copy full URL
                   </Button>
-                  <span role="status">{copyStatus}</span>
+                  <span className="sr-only" role="status">
+                    {copyStatus}
+                  </span>
                 </div>
               </div>
             )}

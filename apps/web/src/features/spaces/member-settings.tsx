@@ -120,7 +120,7 @@ export function MemberSettings({
         </div>
         {!adding && !removing && <ErrorNotice message={error} />}
         {message && (
-          <p className="member-status" role="status">
+          <p className={message === 'Link copied.' ? 'sr-only' : 'member-status'} role="status">
             <Check aria-hidden="true" />
             {message}
           </p>

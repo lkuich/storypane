@@ -158,8 +158,16 @@ test('inserts and pastes between siblings and clears the clipboard, including th
     const copy = editor.getByRole('button', { name: 'Copy Hero', exact: true }).first();
     await copy.click();
     await expect(pasteButtons).toHaveCount(4);
+    const clipboardStatus = page
+      .getByRole('status')
+      .filter({ hasText: 'Block copied, including nested blocks.' });
+    await expect(clipboardStatus).toHaveClass('sr-only');
+    await expect(page.getByRole('button', { name: 'Dismiss clipboard message' })).toHaveCount(0);
     const copiedText = await page.evaluate(() => navigator.clipboard.readText());
     await editor.getByRole('button', { name: 'Clear clipboard', exact: true }).click();
+    await expect(page.getByRole('status').filter({ hasText: 'Clipboard cleared.' })).toHaveClass(
+      'sr-only',
+    );
     expect(await page.evaluate(() => navigator.clipboard.readText())).toBe('');
     await expect(pasteButtons).toHaveCount(0);
     await expect(editor.getByRole('button', { name: 'Clear clipboard', exact: true })).toHaveCount(
@@ -200,6 +208,9 @@ test('inserts and pastes between siblings and clears the clipboard, including th
     await between.focus();
     await page.keyboard.press('Enter');
     await expect(editor.getByLabel('Title', { exact: true })).toBeEditable();
+    await expect(
+      page.getByRole('status').filter({ hasText: 'Block pasted as an independent copy.' }),
+    ).toHaveClass('sr-only');
     const pasted: LocaleSnapshot = await get(base);
     const children = pasted.blocks
       .filter((block) => block.parentId === root)

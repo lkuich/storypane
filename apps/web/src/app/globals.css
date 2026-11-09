@@ -1624,7 +1624,7 @@ hr {
   margin-bottom: 18px;
 }
 .story-identity {
-  flex: 1;
+  flex: 1 1 280px;
   min-width: 0;
 }
 .story-identity h1 {

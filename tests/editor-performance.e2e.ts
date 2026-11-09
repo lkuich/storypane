@@ -427,6 +427,46 @@ test('Blocks table previews are lazy, keyboard accessible, and independently con
   }
 });
 
+test('editor heading stays readable at tablet widths and keeps actions keyboard accessible', async ({
+  browser,
+  installation,
+}, info) => {
+  const { context, page } = await signIn(browser, installation, 'admin');
+  try {
+    await page.goto(`/?space=${installation.spaceId}&story=${installation.storyId}`);
+    const title = page.locator('.story-heading h1');
+    await expect(title).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Review & publish', exact: true })).toBeEnabled();
+    for (const width of [320, 390, 640, 744, 768, 820, 900, 1024, 1100, 1440]) {
+      await page.setViewportSize({ width, height: 900 });
+      expect((await title.boundingBox())!.height).toBeLessThan(45);
+      if (width > 640) {
+        expect((await page.locator('.story-identity').boundingBox())!.width).toBeGreaterThanOrEqual(
+          280,
+        );
+      }
+      expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(
+        width,
+      );
+      await page.getByRole('button', { name: 'History', exact: true }).focus();
+      for (const name of [
+        'Hide preview',
+        'Reviews & comments',
+        'Review & publish',
+        'Story actions',
+      ]) {
+        await page.keyboard.press('Tab');
+        const action = page.getByRole('button', { name, exact: true });
+        await expect(action).toBeFocused();
+        await expect(action).toBeInViewport();
+      }
+      await page.screenshot({ path: info.outputPath(`editor-heading-${width}.png`) });
+    }
+  } finally {
+    await context.close();
+  }
+});
+
 test('mobile editor uses a header hamburger and a compact accessible toolbar', async ({
   browser,
   installation,

@@ -503,6 +503,7 @@ test('member invitations keep the header aligned and expose the link only throug
     await copy.focus();
     await admin.page.keyboard.press('Enter');
     await expect(members.getByRole('status')).toHaveText('Link copied.');
+    await expect(members.getByRole('status')).toHaveClass('sr-only');
     expect(await admin.page.evaluate(() => navigator.clipboard.readText())).toBe(
       `${installation.origin}/?space=${installation.spaceId}`,
     );
@@ -530,6 +531,7 @@ test('member invitations keep the header aligned and expose the link only throug
     await inviteCopy.focus();
     await admin.page.keyboard.press('Enter');
     await expect(members.getByRole('status')).toHaveText('Link copied.');
+    await expect(members.getByRole('status')).toHaveClass('sr-only');
     expect(await admin.page.evaluate(() => navigator.clipboard.readText())).toBe(invitation.link);
     for (const theme of ['light', 'dark']) {
       await admin.page

@@ -79,7 +79,7 @@ test('database connection is available only in installation-admin space settings
   await expect(savedUrl).toHaveValue(maskedUrl);
   expect(reveals).toBe(0);
   await page.getByRole('button', { name: 'Copy full URL', exact: true }).click();
-  await expect(page.getByText('Full URL copied', { exact: true })).toBeVisible();
+  await expect(page.getByText('Full URL copied', { exact: true })).toHaveClass('sr-only');
   expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(fullUrl);
   await expect(savedUrl).toHaveValue(maskedUrl);
   await page.getByRole('button', { name: 'Reveal full URL', exact: true }).focus();

@@ -1312,18 +1312,9 @@ function LocaleEditor({
           </span>
         </div>
       )}
-      {clipboardNotice && (
-        <div className="notice" role="status">
-          <span>{clipboardNotice}</span>
-          <Button
-            variant="ghost"
-            aria-label="Dismiss clipboard message"
-            onClick={() => setClipboardNotice('')}
-          >
-            ×
-          </Button>
-        </div>
-      )}
+      <p className="sr-only" role="status">
+        {clipboardNotice}
+      </p>
       {editor.connection === 'disconnected' && (
         <div className="notice notice--warning" role="status">
           Editing is paused while the connection is unavailable. Your unsaved input is kept on this
