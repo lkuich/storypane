@@ -3317,6 +3317,10 @@ main.login-form-wrap {
   }
 }
 
+.mobile-navigation-toggle,
+.story-action-mobile-label {
+  display: none;
+}
 /* In stories, navigation expands over the canvas unless explicitly pinned. */
 .app-shell--editing .app-main {
   max-width: none;
@@ -3425,41 +3429,69 @@ main.login-form-wrap {
   border-color: transparent;
 }
 @media (max-width: 640px) {
-  .app-shell--editing .app-sidebar {
-    position: fixed;
-    width: 64px;
-    height: 52px;
-    border-bottom: 0;
+  .app-shell .app-sidebar {
+    display: none;
   }
-  .app-shell--editing .app-sidebar[data-expanded='true'] {
+  .mobile-navigation-toggle {
+    display: inline-flex;
+    flex-shrink: 0;
+  }
+  .mobile-navigation-dialog {
+    margin: 0;
+    width: min(300px, calc(100vw - 32px));
+    max-width: calc(100vw - 32px);
     height: 100dvh;
-    border-right: 1px solid var(--line);
+    max-height: 100dvh;
+    border-radius: 0 12px 12px 0;
+    padding: 18px;
   }
-  .app-shell--editing .sidebar-brand,
-  .app-shell--editing .sidebar-pin {
-    display: none;
+  .mobile-navigation-dialog[open] {
+    display: flex;
+    flex-direction: column;
   }
-  .app-shell--editing .sidebar-controls {
-    min-height: 52px;
-    padding: 5px 12px;
+  .mobile-navigation-docs {
+    margin-top: auto;
   }
-  .app-shell--editing
-    .app-sidebar[data-expanded='false']
-    :is(.workspace-card, .workspace-nav, .nav-section-label, .sidebar-footer) {
-    display: none;
+  .mobile-navigation-dialog .workspace-nav {
+    flex-direction: column;
+    padding: 0;
+    margin-bottom: 20px;
   }
-  .app-shell--editing .workspace-body,
+  .mobile-navigation-dialog .workspace-nav button {
+    justify-content: flex-start;
+  }
+  .app-shell .workspace-body,
   .app-shell--editing[data-sidebar-pinned] .workspace-body {
     margin-left: 0;
   }
-  .app-shell--editing .app-header {
-    padding-left: 76px;
+  .app-shell .app-header {
+    padding: 0 12px;
+    gap: 8px;
   }
-  .app-shell--editing .header-space-name {
+  .header-breadcrumb {
+    flex: 1;
+  }
+  .header-breadcrumb > button:first-child,
+  .header-breadcrumb > svg,
+  .header-breadcrumb > strong {
+    display: none;
+  }
+  .app-shell .header-space-name {
     max-width: 120px;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+  .story-action-label {
+    display: none;
+  }
+  .story-action-mobile-label {
+    display: inline;
+  }
+  .story-actions > .story-action-icon {
+    width: 42px;
+    min-width: 42px;
+    padding: 9px;
   }
   .editor-navigation {
     padding: 10px;

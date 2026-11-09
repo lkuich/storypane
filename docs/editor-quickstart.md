@@ -383,3 +383,14 @@ filters survive reloads, and story navigation keeps its unsaved-change guard.
 On phones, story titles keep a readable column width. Swipe the content table
 horizontally to reach Page ID, last-modified details, and row actions. Keyboard
 focus also scrolls those controls into view.
+
+## Mobile navigation
+
+On phones, open the top-left hamburger in the header to reach workspace views,
+All spaces, and Docs. The navigation menu traps focus and closes with Escape,
+the close button, a tap outside, or a successful navigation. The desktop rail
+is hidden on phones so it cannot cover story content.
+
+The phone editor toolbar keeps History, preview, comments, and story actions as
+labeled icon controls. The primary action shows **Publish** or **Review**; its
+accessible name still describes the full action.

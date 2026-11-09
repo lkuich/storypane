@@ -111,6 +111,7 @@ test('field gears open the matching active schema with keyboard access and schem
       '/datasources': [],
       '/migrations': [],
       '/presence': {},
+      '/reviews': [],
       '/delivery-settings': { previewUrls: [] },
       '/assets/uploads': { items: [] },
     };
@@ -133,8 +134,10 @@ test('field gears open the matching active schema with keyboard access and schem
   for (const width of [1440, 390]) {
     await page.setViewportSize({ width, height: 900 });
     const sidebar = page.getByRole('complementary', { name: 'Workspace', exact: true });
-    const docs = sidebar.getByRole('link', { name: 'Docs (opens in a new tab)', exact: true });
-    if (width === 390) await sidebar.getByRole('button', { name: 'Toggle navigation' }).click();
+    if (width === 390) await page.getByRole('button', { name: 'Toggle navigation' }).click();
+    const navigation =
+      width === 390 ? page.getByRole('dialog', { name: 'Navigation', exact: true }) : sidebar;
+    const docs = navigation.getByRole('link', { name: 'Docs (opens in a new tab)', exact: true });
     await docs.focus();
     await expect(docs).toBeFocused();
     await expect(docs).toHaveAttribute('rel', 'noopener noreferrer');

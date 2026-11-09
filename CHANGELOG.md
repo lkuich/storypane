@@ -2,6 +2,8 @@
 
 ## 0.1.0-rc.7 — 2026-11-07
 
+- Replace the floating phone navigation rail with a header hamburger and focus-managed menu; compact editor actions into labeled icons and shorter primary controls.
+
 - Keep mobile story titles readable by reserving title-column width while secondary table columns scroll.
 
 - Let cross-site previews load already-public media through the existing publication and public-media eligibility checks when CMS cookies are absent.

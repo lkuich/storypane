@@ -1041,47 +1041,73 @@ function LocaleEditor({
             {defaultLocale && snapshot.locale.id !== defaultLocale.id && (
               <Button
                 disabled={busy || viewRelease || !can(session.space, 'content:edit')}
+                className="story-action-icon"
+                aria-label={`Updates from ${defaultLocale.name}`}
+                title={`Updates from ${defaultLocale.name}`}
                 onClick={() => setSourceScope(null)}
               >
-                <Globe2 aria-hidden="true" /> Updates from {defaultLocale.name}
+                <Globe2 aria-hidden="true" />
+                <span className="story-action-label">Updates from {defaultLocale.name}</span>
               </Button>
             )}
             {!snapshot.story.formOnly && (
               <Button
                 aria-pressed={previewOpen}
+                aria-label={previewOpen ? 'Hide preview' : 'Preview'}
+                className="story-action-icon"
                 onClick={onPreview}
                 disabled={visibleSnapshot.access?.preview === false}
                 title={
                   visibleSnapshot.access?.preview === false
                     ? 'Preview requires read access to every field.'
-                    : undefined
+                    : previewOpen
+                      ? 'Hide preview'
+                      : 'Preview'
                 }
               >
                 <Monitor aria-hidden="true" />
-                {previewOpen ? 'Hide preview' : 'Preview'}
+                <span className="story-action-label">
+                  {previewOpen ? 'Hide preview' : 'Preview'}
+                </span>
               </Button>
             )}
             <Button
+              className="story-action-icon"
+              aria-label="Reviews & comments"
+              title="Reviews & comments"
               onClick={() => setDiscussionScope({ blockId: null, request: false })}
               disabled={busy || viewRelease || snapshot.access?.complete === false}
             >
-              <MessageSquare aria-hidden="true" /> Reviews & comments
+              <MessageSquare aria-hidden="true" />
+              <span className="story-action-label">Reviews & comments</span>
             </Button>
             {can(session.space, 'content:publish') && snapshot.access?.publish !== false ? (
               <Button
                 variant="primary"
+                aria-label="Review & publish"
+                title="Review & publish"
                 onClick={() => void openReview()}
                 disabled={busy || viewRelease || editor.connection !== 'connected'}
               >
-                <Upload aria-hidden="true" /> Review & publish
+                <Upload aria-hidden="true" />
+                <span className="story-action-label">Review & publish</span>
+                <span className="story-action-mobile-label" aria-hidden="true">
+                  Publish
+                </span>
               </Button>
             ) : (
               <Button
                 variant="primary"
+                aria-label="Request review"
+                title="Request review"
                 onClick={() => setDiscussionScope({ blockId: null, request: true })}
                 disabled={busy || viewRelease || snapshot.access?.complete === false}
               >
-                <CheckCheck aria-hidden="true" /> Request review
+                <CheckCheck aria-hidden="true" />
+                <span className="story-action-label">Request review</span>
+                <span className="story-action-mobile-label" aria-hidden="true">
+                  Review
+                </span>
               </Button>
             )}
             {(can(session.space, 'content:edit') ||

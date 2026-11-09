@@ -15,13 +15,14 @@ import {
   ExternalLink,
   FileText,
   ImageIcon,
+  Menu,
   PanelLeftClose,
   PanelLeftOpen,
   Pin,
   PinOff,
   Settings2,
 } from 'lucide-react';
-import { Button, ErrorNotice, Loading } from '@storypane/ui';
+import { Button, ErrorNotice, Loading, Modal } from '@storypane/ui';
 import { api, errorMessage } from '../features/editor/api';
 import { setStoryLocation } from '../lib/space-url';
 import { can, type Space, type Story } from '@storypane/core';
@@ -152,6 +153,15 @@ export function CMSApp({ session: initialSession }: { session: CMSSession }) {
     setStoryError(null);
   }
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [mobileNavigationOpen, setMobileNavigationOpen] = useState(false);
+  useEffect(() => {
+    const desktop = window.matchMedia('(min-width: 641px)');
+    const closeOnDesktop = () => {
+      if (desktop.matches) setMobileNavigationOpen(false);
+    };
+    desktop.addEventListener('change', closeOnDesktop);
+    return () => desktop.removeEventListener('change', closeOnDesktop);
+  }, []);
   const [sidebarPinned, setSidebarPinned] = useState(false);
   const sidebar = useRef<HTMLElement>(null);
   const sidebarToggle = useRef<HTMLButtonElement>(null);
@@ -215,9 +225,13 @@ export function CMSApp({ session: initialSession }: { session: CMSSession }) {
     };
   }, []);
   async function navigate(next: Tab) {
-    if (next === tab && !storyId) return;
+    if (next === tab && !storyId) {
+      setMobileNavigationOpen(false);
+      return;
+    }
     if (guard.current && !(await guard.current())) return;
     guard.current = null;
+    setMobileNavigationOpen(false);
     closeStory();
     setTab(next);
     const url = new URL(window.location.href);
@@ -230,6 +244,27 @@ export function CMSApp({ session: initialSession }: { session: CMSSession }) {
     if (guard.current && !(await guard.current())) return;
     window.location.assign('/');
   }
+  const navigationButtons = tabs.map(({ id, label, icon: Icon }) => (
+    <button
+      key={id}
+      aria-label={label}
+      aria-current={tab === id ? 'page' : undefined}
+      title={label}
+      onClick={() => void navigate(id)}
+    >
+      <Icon aria-hidden="true" />
+      <span>{label}</span>
+      {id === 'reviews' && reviewCount > 0 && (
+        <span
+          className="review-nav-badge"
+          aria-label={`${reviewCount} reviews awaiting your decision`}
+        >
+          {reviewCount}
+        </span>
+      )}
+      {tab === id && <span className="nav-active-dot" aria-hidden="true" />}
+    </button>
+  ));
   return (
     <div
       className={`app-shell${editingStory ? ' app-shell--editing' : ''}`}
@@ -328,27 +363,7 @@ export function CMSApp({ session: initialSession }: { session: CMSSession }) {
         </button>
         <div className="nav-section-label">Workspace</div>
         <nav id="workspace-navigation" className="workspace-nav" aria-label="Main navigation">
-          {tabs.map(({ id, label, icon: Icon }) => (
-            <button
-              key={id}
-              aria-label={label}
-              aria-current={tab === id ? 'page' : undefined}
-              title={label}
-              onClick={() => void navigate(id)}
-            >
-              <Icon aria-hidden="true" />
-              <span>{label}</span>
-              {id === 'reviews' && reviewCount > 0 && (
-                <span
-                  className="review-nav-badge"
-                  aria-label={`${reviewCount} reviews awaiting your decision`}
-                >
-                  {reviewCount}
-                </span>
-              )}
-              {tab === id && <span className="nav-active-dot" aria-hidden="true" />}
-            </button>
-          ))}
+          {navigationButtons}
         </nav>
         <div className="sidebar-footer">
           <a
@@ -365,8 +380,47 @@ export function CMSApp({ session: initialSession }: { session: CMSSession }) {
           </a>
         </div>
       </aside>
+      <Modal
+        open={mobileNavigationOpen}
+        onClose={() => setMobileNavigationOpen(false)}
+        title="Navigation"
+        className="mobile-navigation-dialog"
+        closeOnBackdrop
+      >
+        <nav
+          id="mobile-workspace-navigation"
+          className="workspace-nav"
+          aria-label="Main navigation"
+        >
+          {navigationButtons}
+        </nav>
+        <Button variant="ghost" onClick={() => void allSpaces()}>
+          <Boxes aria-hidden="true" /> All spaces
+        </Button>
+        <a
+          className="button button--ghost mobile-navigation-docs"
+          aria-label="Docs (opens in a new tab)"
+          href="https://storypane.dev/docs/"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          <BookOpen aria-hidden="true" /> Docs
+        </a>
+      </Modal>
       <div className="workspace-body">
         <header className="app-header">
+          <Button
+            variant="ghost"
+            className="icon-button mobile-navigation-toggle"
+            aria-label="Toggle navigation"
+            aria-expanded={mobileNavigationOpen}
+            aria-haspopup="dialog"
+            aria-controls="mobile-workspace-navigation"
+            title="Open navigation"
+            onClick={() => setMobileNavigationOpen(true)}
+          >
+            <Menu aria-hidden="true" />
+          </Button>
           <div className="header-breadcrumb">
             <button onClick={() => void allSpaces()} aria-label="All spaces">
               Spaces

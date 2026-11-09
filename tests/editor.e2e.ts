@@ -406,11 +406,12 @@ test.describe('editor navigation', () => {
     await expect
       .poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth))
       .toBe(true);
-    await sidebar.getByRole('button', { name: 'Toggle navigation' }).tap();
-    await expect(sidebar).toHaveAttribute('data-expanded', 'true');
-    await page.locator('#main-content').tap({ position: { x: 300, y: 10 } });
-    await expect(sidebar).toHaveAttribute('data-expanded', 'false');
-    await expect.poll(async () => (await sidebar.boundingBox())!.width).toBe(64);
+    await expect(sidebar).toBeHidden();
+    await page.getByRole('button', { name: 'Toggle navigation' }).tap();
+    const navigation = page.getByRole('dialog', { name: 'Navigation', exact: true });
+    await expect(navigation).toBeVisible();
+    await page.mouse.click(382, 100);
+    await expect(navigation).toBeHidden();
     await page.screenshot({ path: '/tmp/storypane-editor-mobile.png', fullPage: true });
     await page.getByRole('button', { name: 'Outline', exact: true }).click();
     await expect(drawer).toBeVisible();

@@ -16,6 +16,7 @@ const test = base.extend<{ installation: Awaited<ReturnType<typeof reviewInstall
 async function signIn(
   browser: Browser,
   installation: Awaited<ReturnType<typeof reviewInstallation>>,
+  person: 'writer' | 'admin' = 'writer',
 ) {
   const context = await browser.newContext({
     baseURL: installation.origin,
@@ -23,7 +24,7 @@ async function signIn(
   });
   const response = await context.request.post('/api/auth/sign-in/email', {
     headers: { origin: installation.origin },
-    data: { email: installation.people.writer.email, password: installation.password },
+    data: { email: installation.people[person].email, password: installation.password },
   });
   expect(response.ok()).toBe(true);
   return { context, page: await context.newPage() };
@@ -421,6 +422,72 @@ test('Blocks table previews are lazy, keyboard accessible, and independently con
     await page.waitForTimeout(500);
     await expect(tooltip).toHaveCount(0);
     expect(documents).toBe(before);
+  } finally {
+    await context.close();
+  }
+});
+
+test('mobile editor uses a header hamburger and a compact accessible toolbar', async ({
+  browser,
+  installation,
+}, info) => {
+  const { context, page } = await signIn(browser, installation, 'admin');
+  try {
+    for (const width of [320, 390]) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto(`/?space=${installation.spaceId}&story=${installation.storyId}`);
+      await expect(page.getByRole('region', { name: 'Block editor' })).toBeVisible();
+      const menu = page.getByRole('button', { name: 'Toggle navigation', exact: true });
+      const header = page.locator('.app-header');
+      await expect(
+        header.getByRole('button', { name: 'Toggle navigation', exact: true }),
+      ).toBeVisible();
+      await expect(page.locator('.app-sidebar')).toBeHidden();
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
+        true,
+      );
+      for (const name of [
+        'History',
+        'Hide preview',
+        'Reviews & comments',
+        'Review & publish',
+        'Story actions',
+      ]) {
+        const action = page.getByRole('button', { name, exact: true });
+        await expect(action).toBeVisible();
+        const bounds = (await action.boundingBox())!;
+        expect(bounds.x).toBeGreaterThanOrEqual(0);
+        expect(bounds.x + bounds.width).toBeLessThanOrEqual(width);
+      }
+      const preview = page.getByRole('button', { name: 'Hide preview', exact: true });
+      expect((await preview.boundingBox())!.width).toBeLessThanOrEqual(44);
+      const actions = await page.locator('.story-actions').boundingBox();
+      expect(actions!.height).toBeLessThan(100);
+      await page.screenshot({ path: info.outputPath(`editor-mobile-${width}.png`) });
+      await menu.focus();
+      await menu.press('Enter');
+      const navigation = page.getByRole('dialog', { name: 'Navigation', exact: true });
+      await expect(navigation).toBeVisible();
+      await expect(navigation.getByRole('button', { name: 'Settings', exact: true })).toBeVisible();
+      await navigation.getByRole('button', { name: 'Settings', exact: true }).focus();
+      await page.keyboard.press('Escape');
+      await expect(navigation).toBeHidden();
+      await expect(menu).toBeFocused();
+      await menu.click();
+      await page.mouse.click(width - 8, 100);
+      await expect(navigation).toBeHidden();
+      await menu.click();
+      await navigation.getByRole('button', { name: 'Content', exact: true }).click();
+      await expect(navigation).toBeHidden();
+      await expect(page.getByRole('heading', { name: 'Content', exact: true })).toBeVisible();
+    }
+    await page.getByRole('button', { name: 'Toggle navigation', exact: true }).click();
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await expect(page.getByRole('dialog', { name: 'Navigation', exact: true })).toBeHidden();
+    await expect(page.locator('.app-sidebar')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Toggle navigation', exact: true })).toHaveCount(
+      0,
+    );
   } finally {
     await context.close();
   }
