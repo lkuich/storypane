@@ -243,8 +243,9 @@ editor server, collaboration rooms, or publication/webhook schedulers.
    exercise simultaneous editor joins and website reads across delivery replicas.
    Stop the editor briefly in a disposable installation and confirm existing
    publications still read from delivery. Check health and database connections
-   before increasing replicas further. This optional layout still needs hosted
-   acceptance; local tests do not establish a safe capacity target.
+   before increasing replicas further. See the [scoped hosted results](deployment-verification.md#separate-delivery-hosted-checks--2026-11-09);
+   multi-replica and load acceptance remain open. These checks do not establish a
+   safe capacity target.
 
 Delivery reads the same authoritative databases and private storage directly, so
 it does not depend on the editor process being available. Both services still

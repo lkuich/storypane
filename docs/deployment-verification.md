@@ -608,3 +608,38 @@ The release workflow must pass its full CI, database, Docker, and packed-SDK gat
 before publishing rc.9. No new hosted-installation acceptance run or physical-device
 check was performed. There is no new public SDK API or database migration beyond
 rc.8; apply older pending migrations through the existing transactional runner.
+
+## Separate delivery hosted checks — 2026-11-09
+
+Application revision `f46d910` was deployed to the existing Railway installation.
+Both the combined/editor deployment and the separate `STORYPANE_SERVICE=delivery`
+deployment reached `SUCCESS`. Each runs one replica in the same region as Postgres,
+with sleeping disabled. Delivery references the existing database, authentication,
+encryption and private-storage configuration; it has no provisioning credential,
+setup/migration command, rooms or schedulers. Original media and encryption keys
+were preserved. A full PostgreSQL logical dump, configuration/key backup and copies
+of all 341 private media objects were retained before rollout.
+
+- Existing administrator sign-in, space access and editor readiness passed.
+- SDK reads returned identical publications and locales from the editor and
+  delivery origins. Eight simultaneous delivery reads alongside two authenticated
+  editor reads passed; this is a smoke check, not a load benchmark.
+- Missing and revoked delivery credentials were rejected. A temporary verification
+  credential was revoked and the verification session signed out afterward.
+- Authenticated published media supported byte ranges and HEAD; an unknown asset
+  was rejected. Delivery CORS preflight and story HEAD requests passed.
+- Editor, management, schema and preview HTTP routes were unavailable on delivery.
+  Deployment logs confirmed the delivery-only startup. Local tests also rejected
+  WebSocket upgrades and retained the existing public-media authorization handler.
+- The focused runtime/database/media run passed 149 tests. CI passed for this
+  revision; earlier local checks also covered type checks and production builds
+  of the CMS and both example sites using separate delivery origins.
+
+The hosted installation has one space, so cross-space isolation remains covered by
+the focused database tests rather than a second hosted space. Two delivery replicas,
+an editor outage during delivery reads, editor join bursts, full hosted preview
+reconnect, public-media opt-in transitions and representative load limits were not
+tested in this rollout. Earlier local checks served publications through two delivery
+processes with their configured editor origin offline. Database capacity remains
+shared; the combined/editor service still requires one replica. These results do
+not establish full fresh-install acceptance or a safe production capacity target.
