@@ -1,5 +1,9 @@
 # Documentation screenshots
 
+`architecture.svg` is a diagram of the Node application, PostgreSQL database
+boundaries, private media storage, and website integration. It is maintained with
+the [architecture guide](../architecture.md).
+
 Captured November 6, 2026 from the current Storypane UI using an isolated local
 installation and fictional Studio website, Maya, and Sam spaces. These are real
 browser captures, with no mocked UI, customer content, or credentials.

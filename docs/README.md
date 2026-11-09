@@ -9,6 +9,8 @@ Follow the modules below in order, or jump to the topic you need.
 
 Already have an instance? Start with content and schemas below.
 
+- [Architecture](architecture.md): the application, databases, media, collaboration,
+  publishing, and how your website connects.
 - [Deploy on Railway](deploy-railway.md): provision the app, PostgreSQL, and private
   media with a branded deployment button. Start with the release-candidate limits.
 - [Local setup](getting-started.md): run Storypane locally or develop from source,

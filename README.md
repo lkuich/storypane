@@ -63,6 +63,9 @@ The current CMS runs on **Node.js and Docker**, backed by PostgreSQL and private
 S3-compatible storage. The Docker setup includes all three services. Built-in
 email/password sign-in is the default; Clerk and SMTP are optional.
 
+Read the [architecture overview](docs/architecture.md) for the application,
+database boundaries, editing and publishing flow, and website integration.
+
 You need Git, Docker with Compose, and Node.js 24.22+ within v24 for setup.
 
 ### 1. Get the source
