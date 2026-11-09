@@ -362,3 +362,11 @@ Use **Blocks → New block → Config → Use SEO & AI preset** for a reusable m
 block. Add it to a dedicated `seo` field on your Page definition, with a maximum
 of one block. The [SEO & AI guide](seo-ai.md) covers the fields, schema promotion,
 frontend metadata, and optional published Markdown mirrors.
+
+## Folder navigation
+
+Opening folders and breadcrumbs adds browser history entries. Browser Back and
+Forward follow the same folder visits as the content list’s **Back** and
+**Forward** buttons, clearing story selection as you navigate. Choosing another
+folder after going back replaces the forward branch. The current folder and
+filters survive reloads, and story navigation keeps its unsaved-change guard.

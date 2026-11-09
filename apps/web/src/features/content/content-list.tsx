@@ -52,11 +52,13 @@ export function ContentList({
   canPublish,
   onOpen,
   onBlocks,
+  onHistoryPush,
 }: {
   canCreate: boolean;
   canPublish: boolean;
   onOpen: (story: Story, locale?: string) => void;
   onBlocks: () => void;
+  onHistoryPush: () => void;
 }) {
   const editors = usePageEditors();
   const [deleted, setDeleted] = useState(false);
@@ -73,14 +75,47 @@ export function ContentList({
   const [folders, setFolders] = useState<ContentFolder[]>([]);
   const [locales, setLocales] = useState<SpaceLocale[]>([]);
   const [deliverySettings, setDeliverySettings] = useState<UserDeliverySettings | null>(null);
-  const [folderHistory, setFolderHistory] = useState(() => ({
-    entries: [
+  const [folderHistory, setFolderHistory] = useState<{
+    entries: (string | null)[];
+    index: number;
+  }>(() => {
+    const folder =
       typeof window === 'undefined'
         ? null
-        : new URLSearchParams(window.location.search).get('folder'),
-    ],
-    index: 0,
-  }));
+        : new URLSearchParams(window.location.search).get('folder');
+    const saved = typeof window === 'undefined' ? null : window.history.state?.storypaneFolders;
+    return saved?.entries[saved.index] === folder ? saved : { entries: [folder], index: 0 };
+  });
+  useEffect(() => {
+    window.history.replaceState(
+      { ...window.history.state, storypaneFolders: folderHistory },
+      '',
+      window.location.href,
+    );
+  }, [folderHistory]);
+  useEffect(() => {
+    function restoreFolder(event: PopStateEvent) {
+      const url = new URL(window.location.href);
+      if (
+        url.searchParams.has('story') ||
+        (url.searchParams.get('view') ?? 'content') !== 'content'
+      )
+        return;
+      const folder = url.searchParams.get('folder');
+      const saved = event.state?.storypaneFolders;
+      setFolderHistory((current) =>
+        saved && current.entries[saved.index] === folder
+          ? { ...current, index: saved.index }
+          : saved?.entries[saved.index] === folder
+            ? saved
+            : { entries: [folder], index: 0 },
+      );
+      setFilters(readContentFilters(url.searchParams));
+      setSelectedIds([]);
+    }
+    window.addEventListener('popstate', restoreFolder);
+    return () => window.removeEventListener('popstate', restoreFolder);
+  }, []);
   const folderId = folderHistory.entries[folderHistory.index];
   const [editingFolder, setEditingFolder] = useState<ContentFolder | null | undefined>(undefined);
   const [locationStory, setLocationStory] = useState<StorySummary | null>(null);
@@ -182,19 +217,29 @@ export function ContentList({
   }
   function openFolder(id: string | null, index?: number) {
     if (id === folderId) return;
+    if (index !== undefined) {
+      window.history.go(index - folderHistory.index);
+      return;
+    }
     setSelectedIds([]);
-    setFolderHistory((current) =>
-      index === undefined
-        ? {
-            entries: [...current.entries.slice(0, current.index + 1), id],
-            index: current.index + 1,
-          }
-        : { ...current, index },
-    );
+    const next = {
+      entries: [...folderHistory.entries.slice(0, folderHistory.index + 1), id],
+      index: folderHistory.index + 1,
+    };
     const url = new URL(window.location.href);
     if (id) url.searchParams.set('folder', id);
     else url.searchParams.delete('folder');
-    window.history.replaceState(window.history.state, '', url);
+    window.history.pushState(
+      {
+        ...window.history.state,
+        storypaneIndex: (window.history.state?.storypaneIndex ?? 0) + 1,
+        storypaneFolders: next,
+      },
+      '',
+      url,
+    );
+    onHistoryPush();
+    setFolderHistory(next);
   }
   async function togglePin(story: StorySummary, button: HTMLButtonElement) {
     if (pinningId) return;

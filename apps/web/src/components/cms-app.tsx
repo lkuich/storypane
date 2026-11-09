@@ -426,6 +426,9 @@ export function CMSApp({ session: initialSession }: { session: CMSSession }) {
                 canPublish={can(session.space, 'content:publish')}
                 onOpen={openStory}
                 onBlocks={() => void navigate('blocks')}
+                onHistoryPush={() => {
+                  historyIndex.current = window.history.state.storypaneIndex;
+                }}
               />
             ))}
           {tab === 'reviews' && (

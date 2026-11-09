@@ -2,6 +2,8 @@
 
 ## 0.1.0-rc.7 — 2026-11-07
 
+- Keep browser Back/Forward and content-folder navigation in the same history.
+
 - Move Page map beneath the editor and Live Preview columns so it spans the full workspace width.
 
 - Allow requesters and space admins to delete reviews and discussions from inbox rows or thread details with confirmation. Remove duplicate story context and requester metadata from review details.

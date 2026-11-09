@@ -1,5 +1,30 @@
-import { expect, test } from '@playwright/test';
-import { signInPage } from './auth';
+import { expect, test as base, type Page } from '@playwright/test';
+import { reviewInstallation } from './fixtures/review-installation';
+const test = base.extend<{ installation: Awaited<ReturnType<typeof reviewInstallation>> }>({
+  installation: [
+    async ({ browserName: _ }, runWithFixture) => {
+      const installation = await reviewInstallation();
+      try {
+        await runWithFixture(installation);
+      } finally {
+        await installation.close();
+      }
+    },
+    { timeout: 60000 },
+  ],
+});
+async function signInPage(
+  page: Page,
+  installation: Awaited<ReturnType<typeof reviewInstallation>>,
+) {
+  const response = await page.request.post(`${installation.origin}/api/auth/sign-in/email`, {
+    headers: { origin: installation.origin },
+    data: { email: installation.people.admin.email, password: installation.password },
+  });
+  expect(response.ok()).toBe(true);
+  await page.goto(`${installation.origin}/?space=${installation.spaceId}`);
+  await expect(page.getByRole('heading', { name: 'Content', exact: true })).toBeVisible();
+}
 
 const alpha = '20000000-0000-4000-8000-000000000001';
 const nested = '20000000-0000-4000-8000-000000000002';
@@ -33,10 +58,11 @@ const stories = [
 
 test('folder lists stay local and navigation clears selection and supports back/forward', async ({
   page,
+  installation,
 }) => {
   await page.route('**/api/cms/stories', (route) => route.fulfill({ json: stories }));
   await page.route('**/api/cms/folders', (route) => route.fulfill({ json: folders }));
-  await signInPage(page);
+  await signInPage(page, installation);
   const rows = page.locator('.data-table tbody tr');
   const navigation = page.getByRole('group', { name: 'Folder navigation' });
   const back = navigation.getByRole('button', { name: 'Back', exact: true });
@@ -70,6 +96,18 @@ test('folder lists stay local and navigation clears selection and supports back/
   await expect(rows).toHaveCount(1);
   await expect(rows).toContainText('Nested page');
   await expect(actions).toHaveCount(0);
+  await page.goBack();
+  await expect(rows).toContainText('Alpha page');
+  await expect(page).toHaveURL(new RegExp(`folder=${alpha}`));
+  await expect(forward).toBeEnabled();
+  await page.goBack();
+  await expect(rows).toHaveCount(2);
+  await expect(back).toBeDisabled();
+  await page.goForward();
+  await expect(rows).toContainText('Alpha page');
+  await page.goForward();
+  await expect(rows).toContainText('Nested page');
+  await expect(forward).toBeDisabled();
 
   await page.getByRole('checkbox', { name: 'Select Nested page', exact: true }).check();
   await back.click();
@@ -100,11 +138,16 @@ test('folder lists stay local and navigation clears selection and supports back/
   await page.reload();
   await expect(rows).toHaveCount(1);
   await expect(rows).toContainText('Sibling page');
+  await back.click();
+  await expect(rows).toHaveCount(2);
+  await page.goForward();
+  await expect(rows).toContainText('Sibling page');
 });
 
 test('search spans folders and paths can be copied or opened on the configured app', async ({
   page,
   context,
+  installation,
 }, testInfo) => {
   await page.addInitScript(() => {
     let copied = '';
@@ -138,7 +181,7 @@ test('search spans folders and paths can be copied or opened on the configured a
   await context.route('http://127.0.0.1:3140/**', (route) =>
     route.fulfill({ contentType: 'text/html', body: '<h1>Site page</h1>' }),
   );
-  await signInPage(page);
+  await signInPage(page, installation);
   const rows = page.locator('.data-table tbody tr');
   const search = page.getByRole('searchbox', { name: 'Search stories' });
   await expect(rows).toHaveCount(2);
