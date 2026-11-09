@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.0-rc.9 — 2026-11-09
+
+- Keep tablet editor headings readable and toolbar actions keyboard accessible.
+- Remove visible copy, paste, clear-clipboard, and link-copy confirmations while
+  preserving screen-reader announcements, error feedback, and manual fallbacks.
+- Advance CMS and SDK versions together. No new public SDK API or database
+  migration beyond rc.8; older installations still apply pending migrations
+  through the transactional production migration runner.
+
 ## 0.1.0-rc.8 — 2026-11-09
 
 - Replace the floating phone navigation rail with a header hamburger and focus-managed menu; compact editor actions into labeled icons and shorter primary controls.

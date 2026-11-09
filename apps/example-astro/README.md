@@ -15,7 +15,7 @@ Configuration uses server-only `STORYPANE_*` variables.
 Install the published SDK in your Astro project:
 
 ```sh
-npm install @storypane/sdk@0.1.0-rc.8
+npm install @storypane/sdk@0.1.0-rc.9
 ```
 
 Use its delivery client in server-side page frontmatter with private space and

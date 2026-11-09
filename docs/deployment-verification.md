@@ -585,3 +585,21 @@ was served. This verifies deployment and delivery, not a new hosted-installation
 acceptance run or a physical-phone check. The release workflow must pass its full
 CI and packed-SDK gates before publishing rc.8. Space migration 034 adds the
 per-surface preview preferences; there is no new public SDK API.
+
+## RC.9 interface checks — 2026-11-09
+
+The candidate includes the interface changes in `8ffb0ca`. The tablet-heading
+browser scenario passed at 320, 390, 640, 744, 768, 820, 900, 1024, 1100, and 1440
+pixels, including keyboard traversal of the editor actions. Database credential
+copying and workspace/invitation link copying passed focused browser checks;
+copy confirmations remain available to screen readers without visible banners.
+The clipboard helper's three unit checks, full lint, type checks, and production
+build passed. The full local suite passed 597 tests, with 25 opt-in tests skipped;
+the packed RC9 SDK passed a clean consumer install, exports, types, CLI, and
+license checks. Existing block-paste browser coverage was updated for silent
+copy/paste/clear status, but that authenticated full-flow scenario was not rerun.
+
+The release workflow must pass its full CI, database, Docker, and packed-SDK gates
+before publishing rc.9. No new hosted-installation acceptance run or physical-device
+check was performed. There is no new public SDK API or database migration beyond
+rc.8; apply older pending migrations through the existing transactional runner.
