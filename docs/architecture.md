@@ -4,14 +4,15 @@ Storypane has three main parts: a Node application, PostgreSQL databases, and
 private S3-compatible file storage. Your public website is a separate application
 that reads published content through the Storypane SDK or delivery API.
 
-By default the Node application serves the React editor and runs the APIs, live
-collaboration, and background jobs together. An optional `STORYPANE_SERVICE=delivery`
-process serves published content and authorized media independently, reusing the
-same database services and storage. It has no rooms or schedulers and can be
-replicated independently of the editor. See
+The `combined` Node application serves the React editor, authenticated APIs, live
+collaboration, and background jobs. A `STORYPANE_SERVICE=delivery` process serves
+published content and authorized media independently, reusing the same databases
+and private storage. It has no rooms or schedulers. Both services support
+independent replicas. The Railway template provisions both; the local Docker
+setup keeps the combined application by default. See
 [separate delivery deployment](deploy-railway.md#scale-published-delivery-separately).
 
-![The editor browser and your website connect to one Storypane Node application. The application uses an installation PostgreSQL database, separate PostgreSQL databases for spaces, and private S3-compatible media storage.](images/architecture.svg)
+![Editor browsers connect to editor replicas; website SDK clients connect to the delivery service. Both share PostgreSQL databases and private storage. Editor replicas exchange room identifiers through installation-database notifications.](images/architecture.svg)
 
 ## What runs where
 
@@ -27,7 +28,8 @@ replicated independently of the editor. See
 The databases can share one PostgreSQL server. A database per space does not require
 a separate server per space. Operators can also attach databases on other
 PostgreSQL hosts. The bundled Docker setup runs the app, PostgreSQL, and MinIO;
-the Railway template provisions the app, PostgreSQL, and a private bucket.
+the Railway template provisions editor and delivery services, PostgreSQL, and a
+private bucket.
 
 ## A space is a data boundary
 
@@ -229,7 +231,20 @@ state and authorizes its own recipients. Reconnecting listeners refresh active
 rooms; heartbeat synchronization covers missed signals. PostgreSQL remains
 authoritative for content, leases, sessions, schedules, and webhook claims.
 
-Start with one replica. Before adding editors, follow the
+Start with one replica per service. Here a replica is a server process, not a
+person using the editor. PostgreSQL notifications currently have no measured
+capacity limit for this application. The 113-connection estimate for two editor
+replicas plus one delivery replica is a sum of configured pool ceilings, not
+observed usage or a notification limit. It does not show that two replicas will
+overload Postgres.
+
+The next capacity check compares one and two editor replicas while delivery stays
+online, with increasing editor join bursts, saves, preview updates, and SDK reads.
+Record actual connections, SQL latency, notification queue usage, update delay,
+errors, CPU, and memory. Repeat listener interruption and process replacement.
+See the [capacity test plan](deployment-verification.md#editor-capacity-test-plan)
+for the workload, measurements, and acceptance evidence still needed. Before
+adding production replicas, follow the
 [shared configuration, readiness, and connection-budget requirements](deploy-railway.md#scale-editors).
 Keep the app running for live collaboration and scheduled work. Your public
 website can use its own hosting and caching strategy independently.
@@ -252,8 +267,8 @@ hosting and framework you choose.
 
 ## Where the code lives
 
-These are code packages within one repository and Docker image. The default CMS
-deploys as one application; published delivery can use a separate service.
+These are code packages within one repository and Docker image. The local default
+is one combined application; the Railway template separates editor and delivery.
 
 | Directory                                 | Responsibility                                                                 |
 | ----------------------------------------- | ------------------------------------------------------------------------------ |

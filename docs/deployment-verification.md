@@ -64,6 +64,48 @@ against production content merely to complete a checklist.
   origin for published reads and the editor origin for live preview. Exercise
   editor join bursts alongside SDK reads and record the database connection budget.
 
+## Editor capacity test plan
+
+**Status: pending.** Multi-process correctness passed locally; production capacity
+has not been benchmarked. An editor replica means a server process, not an editor
+user. The 113-connection estimate for two editors plus delivery is a theoretical
+sum of configured pools, not a measured connection count or notification limit.
+There is no evidence here that two replicas exhaust PostgreSQL notifications.
+
+Use a disposable installation with representative content and shared private
+storage. Record the revision, region, database limits, pool settings, workload,
+and service sizes. Do not infer capacity from the existing correctness test.
+
+1. Establish a baseline with one editor server replica and one delivery replica.
+   Repeat the same workload with two editor replicas. Place collaborators and
+   previews on different replicas and send HTTP writes independently of sockets.
+2. Start with two editor users, then increase users and join bursts in recorded
+   steps. Mix saves on separate and conflicting blocks, lease renewals, previews,
+   scheduled publication, uploads, and steady concurrent SDK reads. Include idle
+   periods, sustained traffic, and a burst followed by recovery.
+3. Measure actual PostgreSQL connections by service/database and state, connection
+   acquisition failures, SQL latency and locks, database CPU/memory, and server
+   CPU/memory. Sample `pg_notification_queue_usage()` separately from connections;
+   measure time from a committed edit to the authorized remote update.
+4. Record p50/p95/p99 for save acknowledgement, remote update, editor join, and
+   delivery requests, along with request rates, disconnects, retries, and errors.
+   Set acceptable latency/error thresholds before the run and report raw results.
+5. Interrupt one listener and replace an editor process under load. Check readiness,
+   reconnect/draining, unsent edits, permission and preview revocation, cross-instance
+   multipart uploads, and publication/webhook recovery. Confirm saved content and
+   later drafts remain intact and SDK reads retain authorization.
+6. Identify the first measured bottleneck and verify recovery after the burst.
+   Record a tested operating range with headroom. Choose pool or database changes
+   from these results; add Redis only if notification measurements justify it.
+
+PostgreSQL documents notification queue behavior and
+`pg_notification_queue_usage()` in the
+[`NOTIFY` reference](https://www.postgresql.org/docs/current/sql-notify.html).
+
+Keep default replica counts unchanged while this test is pending. Record results
+in a dated section below; this checklist documents work to run, not a passing
+capacity claim.
+
 Record actual results, failures, and evidence. Update the website provider status
 and deployment skill together, distinguishing scoped checks from full acceptance.
 Only claim full acceptance when every required step passes.

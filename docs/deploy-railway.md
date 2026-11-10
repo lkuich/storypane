@@ -16,7 +16,8 @@ account or service is required for this runtime.
 
 ## What the template sets up
 
-The template packages the CMS, PostgreSQL, and a private Railway bucket. You
+The template packages the Storypane editor, a separate Delivery service, PostgreSQL,
+and a private Railway bucket. Both application services start with one replica. You
 select a bucket region and provide the first administrator’s name, email, and
 password in Railway before deployment. The application’s pre-deploy command creates an isolated installation
 database and unprivileged role, runs transactional migrations, and creates that
@@ -40,12 +41,12 @@ Clerk, and SMTP are optional and are not needed to get started.
 These settings describe the maintained template and are also useful for auditing
 or recreating it. They are not additional steps for someone deploying the template.
 
-Create a Railway project with an application from this repository, Railway
-Postgres, and a private Storage Bucket. Name the supporting services `Postgres`
-and `Bucket` when using these references. Keep **one application replica** and
+Create a Railway project with `Storypane` and `Delivery` applications from this
+repository, Railway `Postgres`, and a private Storage `Bucket`. Keep
+**one replica per application service** and
 **sleeping disabled**. Configure the application service in Railway's dashboard;
 provider settings are not part of the application's default build configuration.
-The template retains its one-replica default. See [editor scaling](#scale-editors)
+The template retains one replica per service by default. See [editor scaling](#scale-editors)
 before changing it.
 
 | Service setting                  | Value                                          |
@@ -59,6 +60,11 @@ before changing it.
 | Restart policy / maximum retries | On failure / 10                                |
 | Replicas                         | 1                                              |
 | Sleeping                         | Disabled                                       |
+
+These settings apply to `Storypane`. `Delivery` uses the same repository/image,
+HTTP port 3000, `/api/ready`, one replica, and sleeping disabled, with no
+pre-deploy command. Its `STORYPANE_SERVICE` is `delivery`; the editor uses the
+default `combined` mode.
 
 For existing deployments, save these settings in the dashboard and clear any
 custom config file path before upgrading. This repository no longer supplies
@@ -92,6 +98,28 @@ Use `${{secret(64, "0123456789abcdef")}}` independently for
 `STORYPANE_ADMIN_EMAIL`, and `STORYPANE_ADMIN_PASSWORD` as required deployment
 inputs with no shared defaults. The admin password must contain 12–128 characters.
 Set `AUTH_PROVIDER=local`, `PORT=3000`, and `S3_FORCE_PATH_STYLE=false`.
+
+The `Delivery` service references the editor's runtime values instead of generating
+another installation or set of keys:
+
+| Delivery variable                                                 | Value                                                   |
+| ----------------------------------------------------------------- | ------------------------------------------------------- |
+| `STORYPANE_SERVICE`                                               | `delivery`                                              |
+| `PORT`                                                            | `3000`                                                  |
+| `STORYPANE_APP_URL`                                               | `${{Storypane.STORYPANE_APP_URL}}` (the editor origin)  |
+| `INSTALLATION_DATABASE_URL`                                       | `${{Storypane.INSTALLATION_DATABASE_URL}}`              |
+| `INSTALLATION_ENCRYPTION_KEY`                                     | `${{Storypane.INSTALLATION_ENCRYPTION_KEY}}`            |
+| `AUTH_PROVIDER`                                                   | `${{Storypane.AUTH_PROVIDER}}`                          |
+| `BETTER_AUTH_SECRET`                                              | `${{Storypane.BETTER_AUTH_SECRET}}`                     |
+| `WEBHOOK_ENCRYPTION_KEY`                                          | `${{Storypane.WEBHOOK_ENCRYPTION_KEY}}`                 |
+| `S3_ENDPOINT`, `S3_REGION`, `S3_BUCKET`                           | Matching `${{Storypane.<variable>}}` reference for each |
+| `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_FORCE_PATH_STYLE` | Matching `${{Storypane.<variable>}}` reference for each |
+
+Delivery has its own public HTTPS domain. It has no `PROVISIONING_DATABASE_URL`,
+`INSTALLATION_DB_PASSWORD`, administrator inputs, or pre-deploy migrations. Only
+`Storypane` prepares and migrates the installation. Delivery readiness waits for
+the installation to be available. Existing deployments are unchanged by template
+edits; use [the manual split steps](#scale-published-delivery-separately) to add it.
 
 `prepare-railway.ts` is only for a dedicated template PostgreSQL service. It
 refuses initial setup alongside unrelated databases, never changes existing role
@@ -139,7 +167,8 @@ docker build -t storypane .
 The template pre-deploy command runs `scripts/prepare-railway.ts`. The runner
 uses separate transactional migration histories and visits every registered space.
 `/api/ready` reports installation readiness and degraded space availability;
-it does not prove sign-in, media or background publishing. The template contains exactly these three resources, wires their references,
+it does not prove sign-in, media or background publishing. The template contains
+these four resources, wires their references,
 generates independent secrets per deployment, and exposes only the application.
 Use the [acceptance checklist](deployment-verification.md) before recommending a
 new template revision. Never copy verification-project secrets into a public template.
@@ -211,12 +240,16 @@ destructive checks at an existing installation.
 
 ## Scale published delivery separately
 
-The default `STORYPANE_SERVICE=combined` keeps the existing one-service setup.
-For independent website capacity, add a second application service from the same
+The local default `STORYPANE_SERVICE=combined` serves all routes in one process.
+For existing installations, add a second application service from the same
 repository revision and Docker image with `STORYPANE_SERVICE=delivery`. Keep the
 image's default start command and `/api/ready` healthcheck. This mode starts a
 small HTTP server using the existing delivery handlers; it does not start vinext's
 editor server, collaboration rooms, or publication/webhook schedulers.
+
+New template deployments already include `Delivery`; use its public origin for
+published SDK reads. The steps below are for existing deployments and for auditing
+the shared runtime configuration.
 
 1. Keep the original application on `combined`, initially one replica, and sleeping disabled.
    It continues to serve editors, management, schema tooling, live preview and
@@ -290,8 +323,13 @@ Budget up to **38 connections per combined/editor replica** (five installation,
 32 space, one listener), or **37 per delivery replica**, with additional headroom
 for provisioning, migrations, operators and other applications. This is a
 conservative pool ceiling, not an expected idle connection count. For example,
-two editors plus one delivery can reach 113 connections before that headroom;
-a PostgreSQL server capped at 100 cannot accommodate this ceiling.
+two editor server replicas plus one delivery replica have a summed ceiling of
+113 connections before that headroom. This is not measured usage or a PostgreSQL
+`NOTIFY` limit, and it does not imply that two users or two replicas will exhaust
+Postgres. A server capped at 100 cannot sustain all three pools at their ceilings
+simultaneously; measure actual connection pressure before deciding whether pool
+limits, pooling, or more database capacity are needed. Follow the
+[capacity test plan](deployment-verification.md#editor-capacity-test-plan).
 
 A shared transaction pooler such as [PgBouncer](https://www.pgbouncer.org/features.html) can reduce backend connection churn
 and bound physical PostgreSQL connections across replicas. It does not remove the

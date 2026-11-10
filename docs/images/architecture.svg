@@ -1,48 +1,63 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 610" role="img" aria-labelledby="title desc">
-  <title id="title">Storypane architecture</title>
-  <desc id="desc">The editor browser and your website server or build communicate with one Storypane Node application. It uses an installation PostgreSQL database, a separate PostgreSQL database per space, and private S3-compatible storage for original media.</desc>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 680" role="img" aria-labelledby="title desc">
+  <title id="title">Storypane editor and delivery architecture</title>
+  <desc id="desc">Editor browsers connect to editor server replicas over HTTP and WebSocket. Website SDK clients read published content from a separate delivery service. Both use the same installation database, space databases, and private storage. Editor replicas exchange room identifiers through PostgreSQL LISTEN and NOTIFY, then authorize and reread state for their own recipients.</desc>
   <defs>
     <marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto-start-reverse"><path d="M0 0 8 4 0 8" fill="#6fe8ee"/></marker>
   </defs>
-  <rect width="720" height="610" rx="16" fill="#080f19"/>
+  <rect width="900" height="680" rx="16" fill="#080f19"/>
   <g fill="#101b29" stroke="#375562" stroke-width="1.5">
-    <rect x="24" y="24" width="300" height="96" rx="10"/>
-    <rect x="396" y="24" width="300" height="96" rx="10"/>
-    <rect x="130" y="218" width="460" height="126" rx="10" stroke="#6fe8ee"/>
-    <rect x="24" y="450" width="208" height="136" rx="10"/>
-    <rect x="256" y="450" width="208" height="136" rx="10"/>
-    <rect x="488" y="450" width="208" height="136" rx="10"/>
+    <rect x="24" y="24" width="410" height="96" rx="10"/>
+    <rect x="466" y="24" width="410" height="96" rx="10"/>
+    <rect x="24" y="202" width="410" height="156" rx="10" stroke="#6fe8ee"/>
+    <rect x="466" y="202" width="410" height="156" rx="10" stroke="#6fe8ee"/>
+    <rect x="24" y="470" width="270" height="176" rx="10"/>
+    <rect x="315" y="470" width="270" height="176" rx="10"/>
+    <rect x="606" y="470" width="270" height="176" rx="10"/>
   </g>
   <g fill="none" stroke="#6fe8ee" stroke-width="2" marker-end="url(#arrow)">
-    <path d="M174 120V169H246V218" marker-start="url(#arrow)"/>
-    <path d="M546 120V169H474V218" marker-start="url(#arrow)"/>
-    <path d="M360 344V394H128V450"/>
-    <path d="M360 394V450"/>
-    <path d="M360 394H592V450"/>
+    <path d="M229 120V202" marker-start="url(#arrow)"/>
+    <path d="M671 120V202" marker-start="url(#arrow)"/>
+    <path d="M229 358V413H159V470" marker-start="url(#arrow)"/>
+    <path d="M671 358V413H159"/>
+    <path d="M450 413V470"/>
+    <path d="M671 413H741V470"/>
   </g>
   <g font-family="system-ui,sans-serif" text-anchor="middle" fill="#f0f5fa">
-    <g font-size="24" font-weight="600">
-      <text x="174" y="65">Editor browser</text>
-      <text x="546" y="65">Your website</text>
-      <text x="360" y="263">Storypane Node application</text>
+    <g font-size="25" font-weight="600">
+      <text x="229" y="65">Editor browsers</text>
+      <text x="671" y="65">Your website</text>
+      <text x="229" y="242">Editor server replica(s)</text>
+      <text x="671" y="242">Delivery replica(s)</text>
     </g>
-    <g font-size="18" fill="#a9b7c7">
-      <text x="174" y="95">React editor + live preview</text>
-      <text x="546" y="95">Server or build + SDK</text>
-      <text x="360" y="298">Editor + APIs + collaboration</text>
-      <text x="360" y="324">Images + background jobs</text>
-      <text x="90" y="198">HTTP + WebSocket</text>
-      <text x="602" y="198">Published JSON</text>
+    <g font-size="19" fill="#a9b7c7">
+      <text x="229" y="96">React editor + live preview</text>
+      <text x="671" y="96">Server or build + SDK</text>
+      <text x="229" y="166">HTTP + WebSocket</text>
+      <text x="671" y="166">Published JSON + media</text>
+      <text x="229" y="276">Editor + authenticated APIs + sockets</text>
+      <text x="229" y="306">Preview + images + scheduled work</text>
+      <text x="229" y="335">STORYPANE_SERVICE=combined</text>
+      <text x="671" y="276">Published reads + authorized media</text>
+      <text x="671" y="306">No rooms or schedulers</text>
+      <text x="671" y="335">STORYPANE_SERVICE=delivery</text>
+      <text x="450" y="446">Shared authoritative databases and private storage</text>
     </g>
-    <g font-size="21" font-weight="600">
-      <text x="128" y="485">Installation DB</text>
-      <text x="360" y="485">Space databases</text>
-      <text x="592" y="485">Private files</text>
+    <g font-size="23" font-weight="600">
+      <text x="159" y="509">Installation DB</text>
+      <text x="450" y="509">Space databases</text>
+      <text x="741" y="509">Private files</text>
     </g>
-    <g font-size="18" fill="#a9b7c7">
-      <text x="128" y="518">PostgreSQL</text><text x="128" y="545">Identities + registry</text>
-      <text x="360" y="518">PostgreSQL</text><text x="360" y="545">Content + history</text>
-      <text x="592" y="518">S3-compatible</text><text x="592" y="545">Original media</text>
+    <g font-size="19" fill="#a9b7c7">
+      <text x="159" y="542">PostgreSQL</text>
+      <text x="159" y="572">Identities + registry</text>
+      <text x="159" y="599">Room signals</text>
+      <text x="159" y="626">LISTEN / NOTIFY</text>
+      <text x="450" y="542">PostgreSQL</text>
+      <text x="450" y="572">Content + history + leases</text>
+      <text x="450" y="605">Publications + queued work</text>
+      <text x="741" y="542">S3-compatible</text>
+      <text x="741" y="572">Original media</text>
+      <text x="741" y="605">Access checked by services</text>
     </g>
   </g>
 </svg>
