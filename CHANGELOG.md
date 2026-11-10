@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.1.0-rc.10 — 2026-11-09
+
+- Run published SDK delivery in a separate optional service with independent
+  replicas, while keeping preview and schema tooling on the editor origin.
+- Share editor room notifications through PostgreSQL `LISTEN`/`NOTIFY`, recheck
+  each recipient on refresh, and recover active rooms after listener interruptions.
+- Move space deletion from workspace cards into General settings, preserving
+  administrator checks and confirmation safeguards.
+- Document architecture, deployment connection budgets, and scoped verification.
+  Editor capacity and hosted multi-replica acceptance remain pending; the Railway
+  template and deployed replica counts are unchanged.
+- Advance CMS and SDK versions together. No new public SDK API or database
+  migration beyond rc.9; older installations apply pending migrations through
+  the transactional production migration runner.
+
 ## 0.1.0-rc.9 — 2026-11-09
 
 - Keep tablet editor headings readable and toolbar actions keyboard accessible.

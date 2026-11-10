@@ -673,3 +673,22 @@ multi-editor routing, connection draining, unsent-edit reconnect, cross-instance
 multipart uploads, and representative capacity are not verified here. The Railway
 template and production replica count remain unchanged. Earlier single-replica
 results above describe their recorded revisions.
+
+## rc.10 release scope — 2026-11-09
+
+This candidate packages the separate delivery service, PostgreSQL editor-room
+notifications, and Settings-only space deletion described above. The runtime
+changes passed [CI on `7fd4157`](https://github.com/lkuich/storypane/actions/runs/42721419646);
+local checks passed 621 Vitest tests (25 optional integration tests skipped),
+the multi-process browser test, lint, type checks, and production build. The
+subsequent documentation-only revision also passed CI.
+
+Railway editor deployment `a577b220-4b99-4b1f-93f1-41a2b7e872e5` reached `SUCCESS`
+for `7fd4157`. Read-only hosted checks observed its dedicated PostgreSQL listener,
+verified administrator sign-in and space navigation, and confirmed editor and
+delivery readiness. This is a single-editor rollout, not hosted multi-replica or
+capacity acceptance. Capacity testing is deferred to the next operator session.
+
+The candidate changes no public SDK contract and adds no migration beyond rc.9.
+Older installations still apply pending migrations through the transactional
+production runner. The Railway template and deployed replica counts are unchanged.
