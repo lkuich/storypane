@@ -32,15 +32,15 @@
     <g font-size="19" fill="#a9b7c7">
       <text x="229" y="96">React editor + live preview</text>
       <text x="671" y="96">Server or build + SDK</text>
-      <text x="229" y="166">HTTP + WebSocket</text>
-      <text x="671" y="166">Published JSON + media</text>
+      <text x="229" y="166" paint-order="stroke" stroke="#080f19" stroke-width="7" stroke-linejoin="round">HTTP + WebSocket</text>
+      <text x="671" y="166" paint-order="stroke" stroke="#080f19" stroke-width="7" stroke-linejoin="round">Published JSON + media</text>
       <text x="229" y="276">Editor + authenticated APIs + sockets</text>
       <text x="229" y="306">Preview + images + scheduled work</text>
       <text x="229" y="335">STORYPANE_SERVICE=combined</text>
       <text x="671" y="276">Published reads + authorized media</text>
       <text x="671" y="306">No rooms or schedulers</text>
       <text x="671" y="335">STORYPANE_SERVICE=delivery</text>
-      <text x="450" y="446">Shared authoritative databases and private storage</text>
+      <text x="450" y="446" paint-order="stroke" stroke="#080f19" stroke-width="7" stroke-linejoin="round">Shared authoritative databases and private storage</text>
     </g>
     <g font-size="23" font-weight="600">
       <text x="159" y="509">Installation DB</text>
