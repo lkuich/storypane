@@ -67,6 +67,20 @@ after testing, and have other developers sync afterward. Follow
 review and conflict workflow, or the [Editor quickstart](editor-quickstart.md)
 to build your first blocks and publish a page.
 
+### Use migrations from your local checkout
+
+- **Author and test in dev:** follow the
+  [local schema migration workflow](../packages/sdk/README.md#schema-migrations-and-generated-types)
+  to configure CLI access, pull your schema, edit `storypane/migrations/active.json`,
+  deploy in dev, and generate frontend types. Point `STORYPANE_SPACE_ID` and
+  `STORYPANE_MANAGEMENT_TOKEN` at your linked **Development** space.
+- **Promote to production:** follow the
+  [CLI promotion walkthrough](../packages/sdk/README.md#linked-development-and-production-spaces)
+  for separate production credentials, sync, and `storypane migrations promote`,
+  or use the [editor's promotion review](development-workflow.md#promote-to-production).
+  Deploy and test the migration in dev first; active schema drafts are not promoted.
+  Keep production's **Schema read-only** enabled while applying reviewed promotions.
+
 ## 4. Connect your local website to dev
 
 1. Choose the [Astro](../apps/example-astro/README.md) or
