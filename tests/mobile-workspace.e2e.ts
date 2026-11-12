@@ -1,3 +1,4 @@
+import { dismissRecommendedSetup } from './fixtures/recommended-setup';
 import { expect, test } from '@playwright/test';
 import { contentScopesSchema } from '@storypane/core';
 import type { CMSSession } from '../apps/web/src/components/cms-app';
@@ -47,7 +48,8 @@ test('mobile content keeps navigation compact and all tabs keyboard accessible',
         width,
       );
       if (width <= 640) {
-        expect((await page.locator('.app-sidebar').boundingBox())!.height).toBeLessThan(130);
+        await expect(page.locator('.app-sidebar')).toBeHidden();
+        await expect(page.getByRole('button', { name: 'Toggle navigation' })).toBeVisible();
         const folder = (await page
           .getByRole('button', { name: 'New folder', exact: true })
           .boundingBox())!;
@@ -65,7 +67,11 @@ test('mobile content keeps navigation compact and all tabs keyboard accessible',
     });
   }
   await page.setViewportSize({ width: 390, height: 844 });
-  const navigation = page.getByRole('navigation', { name: 'Main navigation' });
+  const menu = page.getByRole('button', { name: 'Toggle navigation' });
+  await menu.focus();
+  await page.keyboard.press('Enter');
+  const drawer = page.getByRole('dialog', { name: 'Navigation', exact: true });
+  const navigation = drawer.getByRole('navigation');
   await navigation.getByRole('button', { name: 'Content', exact: true }).focus();
   for (const name of ['Reviews', 'Releases', 'Blocks', 'Datasources', 'Assets', 'Settings']) {
     await page.keyboard.press('Tab');
@@ -75,6 +81,8 @@ test('mobile content keeps navigation compact and all tabs keyboard accessible',
   }
   await navigation.getByRole('button', { name: 'Reviews', exact: true }).focus();
   await page.keyboard.press('Enter');
+  await expect(drawer).toBeHidden();
+  await menu.click();
   await expect(navigation.getByRole('button', { name: 'Reviews', exact: true })).toHaveAttribute(
     'aria-current',
     'page',
@@ -84,4 +92,8 @@ test('mobile content keeps navigation compact and all tabs keyboard accessible',
   await page.getByRole('button', { name: 'Filters', exact: true }).focus();
   await page.keyboard.press('Enter');
   await expect(page.getByLabel('Status', { exact: true })).toBeVisible();
+});
+
+test.beforeEach(async ({ page }) => {
+  await dismissRecommendedSetup(page);
 });

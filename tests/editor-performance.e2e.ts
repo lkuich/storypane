@@ -1,3 +1,4 @@
+import { dismissRecommendedSetup } from './fixtures/recommended-setup';
 import { test as base, expect, type Browser } from '@playwright/test';
 import { reviewInstallation } from './fixtures/review-installation';
 const test = base.extend<{ installation: Awaited<ReturnType<typeof reviewInstallation>> }>({
@@ -27,7 +28,9 @@ async function signIn(
     data: { email: installation.people[person].email, password: installation.password },
   });
   expect(response.ok()).toBe(true);
-  return { context, page: await context.newPage() };
+  const page = await context.newPage();
+  await dismissRecommendedSetup(page);
+  return { context, page };
 }
 const headers = (installation: Awaited<ReturnType<typeof reviewInstallation>>) => ({
   origin: installation.origin,

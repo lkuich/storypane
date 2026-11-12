@@ -1,3 +1,4 @@
+import { dismissRecommendedSetup } from './fixtures/recommended-setup';
 import { expect, test } from '@playwright/test';
 
 const session = {
@@ -108,4 +109,8 @@ test('uses the same recovery page when authentication cannot load', async ({ pag
   unavailable = false;
   await page.getByRole('button', { name: 'Try again', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Spaces', exact: true })).toBeVisible();
+});
+
+test.beforeEach(async ({ page }) => {
+  await dismissRecommendedSetup(page);
 });

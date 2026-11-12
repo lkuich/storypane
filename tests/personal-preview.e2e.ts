@@ -1,3 +1,4 @@
+import { dismissRecommendedSetup } from './fixtures/recommended-setup';
 import { expect, test } from '@playwright/test';
 import type { Space, UserDeliverySettings } from '@storypane/core';
 
@@ -137,4 +138,8 @@ test('members save a personal default, recover from save errors, and return to t
   await expect(personal).toHaveValue('');
   expect(settings.defaultPreviewId).toBe(settings.previewUrls[0].id);
   expect(unexpected).toEqual([]);
+});
+
+test.beforeEach(async ({ page }) => {
+  await dismissRecommendedSetup(page);
 });

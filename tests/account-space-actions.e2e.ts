@@ -1,3 +1,4 @@
+import { dismissRecommendedSetup } from './fixtures/recommended-setup';
 import { test, expect } from '@playwright/test';
 
 const space = {
@@ -97,3 +98,7 @@ for (const width of [1280, 390]) {
     );
   });
 }
+
+test.beforeEach(async ({ page }) => {
+  await dismissRecommendedSetup(page);
+});

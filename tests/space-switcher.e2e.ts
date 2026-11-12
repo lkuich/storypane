@@ -1,3 +1,4 @@
+import { dismissRecommendedSetup } from './fixtures/recommended-setup';
 import { test, expect } from '@playwright/test';
 import type { Space } from '@storypane/core';
 
@@ -104,4 +105,8 @@ test('keeps environment identity visible, switches linked spaces in both directi
     }
   }
   expect(errors).toEqual([]);
+});
+
+test.beforeEach(async ({ page }) => {
+  await dismissRecommendedSetup(page);
 });

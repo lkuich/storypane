@@ -1,3 +1,4 @@
+import { dismissRecommendedSetup } from './fixtures/recommended-setup';
 import { expect, test, type Page } from '@playwright/test';
 
 const spaceId = '11111111-1111-4111-8111-111111111111';
@@ -326,4 +327,8 @@ test('collapsing the panel cancels an in-flight graph request', async ({ page })
   release();
   expect((await aborted).failure()?.errorText).toContain('ERR_ABORTED');
   await expect(page.locator('.map-canvas')).toHaveCount(0);
+});
+
+test.beforeEach(async ({ page }) => {
+  await dismissRecommendedSetup(page);
 });

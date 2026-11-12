@@ -1,3 +1,4 @@
+import { dismissRecommendedSetup } from './fixtures/recommended-setup';
 import { test, expect } from '@playwright/test';
 import { execFile } from 'node:child_process';
 import { mkdtemp, rm } from 'node:fs/promises';
@@ -198,4 +199,8 @@ test('clones a dev space, promotes a migration to protected production, and supp
       await page.request.delete(api(`/management-tokens/${tokens[index].id}`), { headers: h });
   }
   expect(errors).toEqual([]);
+});
+
+test.beforeEach(async ({ page }) => {
+  await dismissRecommendedSetup(page);
 });

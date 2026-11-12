@@ -1,3 +1,4 @@
+import { dismissRecommendedSetup } from './fixtures/recommended-setup';
 import { test, expect } from '@playwright/test';
 import { reviewInstallation } from './fixtures/review-installation';
 import type { LocaleSnapshot, StoryLocale, SpaceLocale } from '@storypane/core';
@@ -32,6 +33,7 @@ test('create, compare, keep translations and apply scoped locale updates with ke
     const base = `/api/cms/stories/${installation.storyId}/locales/${french.id}`;
     const page = await context.newPage(),
       errors: string[] = [];
+    await dismissRecommendedSetup(page);
     page.on('pageerror', (error) => errors.push(error.message));
     await page.goto(`/?space=${installation.spaceId}&story=${installation.storyId}&locale=ca-fr`);
     const updates = page.getByRole('button', { name: 'Updates from Default', exact: true });
@@ -182,6 +184,7 @@ test('links a pre-existing locale from a child block without changing translated
       (b) => original.definitions.find((d) => d.versionId === b.schemaVersionId)?.name === 'hero',
     )!;
     const page = await context.newPage();
+    await dismissRecommendedSetup(page);
     await page.goto(`/?space=${installation.spaceId}&story=${installation.storyId}&locale=ca-fr`);
     await page.getByRole('button', { name: 'Copy blocks from Default…', exact: true }).click();
     const copies = page.getByRole('dialog', { name: 'Copy blocks from Default', exact: true });

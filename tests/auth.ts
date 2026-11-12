@@ -1,5 +1,6 @@
 import { expect, type APIRequestContext, type Page } from '@playwright/test';
 import { readFile } from 'node:fs/promises';
+import { dismissRecommendedSetup } from './fixtures/recommended-setup';
 
 type Role = 'admin' | 'editor';
 export const cmsOrigin = process.env.STORYPANE_LOCAL_AUTH_TEST_URL ?? 'http://127.0.0.1:3130';
@@ -16,6 +17,7 @@ async function state(role: Role) {
   >;
 }
 export async function signInPage(page: Page, role: Role = 'admin') {
+  await dismissRecommendedSetup(page);
   await page.context().addCookies((await state(role)).cookies);
   await page.goto(new URL(`/?space=${cmsSpace}`, cmsOrigin).href);
   await expect(page.getByRole('heading', { name: 'Content', exact: true })).toBeVisible();

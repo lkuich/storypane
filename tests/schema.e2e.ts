@@ -1,4 +1,5 @@
 import { signInApi, signInPage, authState } from './auth';
+import { dismissRecommendedSetup } from './fixtures/recommended-setup';
 import { expect, test, type Page } from '@playwright/test';
 import type {
   BlockDefinition,
@@ -797,6 +798,7 @@ test('shared migration saves conflict safely and deployment updates existing blo
   const context = await browser.newContext({ storageState: authState() });
   try {
     const second = await context.newPage();
+    await dismissRecommendedSetup(second);
     for (const editor of [page, second]) {
       await editor.goto('/?space=11111111-1111-4111-8111-111111111111&view=blocks');
       await editor.getByRole('button', { name, exact: true }).click();

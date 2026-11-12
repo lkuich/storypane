@@ -1,3 +1,4 @@
+import { dismissRecommendedSetup } from './fixtures/recommended-setup';
 import { expect, test } from '@playwright/test';
 
 test('database connection is available only in installation-admin space settings', async ({
@@ -140,4 +141,8 @@ test('database connection is available only in installation-admin space settings
   await expect(button).toHaveCount(0);
   await expect(databaseTab).toHaveCount(0);
   expect(summaries).toBe(before);
+});
+
+test.beforeEach(async ({ page }) => {
+  await dismissRecommendedSetup(page);
 });

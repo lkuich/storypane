@@ -14,6 +14,7 @@ import { SpacesScreen } from '../features/spaces/spaces-screen';
 import { spaceUrl } from '../lib/space-url';
 import { ThemePicker } from './theme-picker';
 import { WorkspaceError } from './workspace-error';
+import { RecommendedSetup } from './recommended-setup';
 
 function WorkspaceLoading() {
   return (
@@ -194,6 +195,7 @@ export function AuthenticatedApp({
   if (session && !invitation)
     return (
       <AccountUserContext.Provider value={session.user}>
+        <RecommendedSetup key={session.user.id} userId={session.user.id} />
         {session.space ? (
           <UploadProvider canUpload={session.space.permissions.includes('assets:write')}>
             <CMSApp session={{ ...session, space: session.space }} />

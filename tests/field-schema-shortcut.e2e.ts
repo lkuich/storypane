@@ -1,3 +1,4 @@
+import { dismissRecommendedSetup } from './fixtures/recommended-setup';
 import { expect, test } from '@playwright/test';
 import type { BlockDefinition, LocaleSnapshot, Story, StoryLocale } from '@storypane/core';
 
@@ -187,4 +188,8 @@ test('field gears open the matching active schema with keyboard access and schem
   await expect(editor.getByRole('button', { name: /^Edit schema/ })).toHaveCount(0);
   expect(mutations).toEqual([]);
   expect(unexpected).toEqual([]);
+});
+
+test.beforeEach(async ({ page }) => {
+  await dismissRecommendedSetup(page);
 });

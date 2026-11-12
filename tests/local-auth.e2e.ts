@@ -1,3 +1,4 @@
+import { dismissRecommendedSetup } from './fixtures/recommended-setup';
 import { test, expect } from '@playwright/test';
 import { writeFile } from 'node:fs/promises';
 const url = process.env.STORYPANE_LOCAL_AUTH_TEST_URL;
@@ -66,6 +67,7 @@ test('local auth, installation privileges, invitation, logout and responsive key
   const invited = await browser.newContext({ baseURL: url, viewport: { width: 390, height: 844 } });
   try {
     const person = await invited.newPage();
+    await dismissRecommendedSetup(person);
     await person.goto(invitation.link);
     await expect(person.getByRole('heading', { name: 'Accept invitation' })).toBeVisible();
     await person.getByLabel('Name', { exact: true }).fill('Invited Editor');
@@ -113,4 +115,8 @@ test('local auth, installation privileges, invitation, logout and responsive key
     JSON.stringify(await page.context().storageState()),
     { mode: 0o600 },
   );
+});
+
+test.beforeEach(async ({ page }) => {
+  await dismissRecommendedSetup(page);
 });

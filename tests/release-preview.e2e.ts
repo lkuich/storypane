@@ -1,3 +1,4 @@
+import { dismissRecommendedSetup } from './fixtures/recommended-setup';
 import { readFile } from 'node:fs/promises';
 import { test, expect } from '@playwright/test';
 import { reviewInstallation } from './fixtures/review-installation';
@@ -29,6 +30,7 @@ test('release checkbox flushes drafts, shows frozen fields and real SDK preview,
       ],
     );
     const page = await context.newPage();
+    await dismissRecommendedSetup(page);
     const errors: string[] = [];
     page.on('pageerror', (error) => errors.push(error.message));
     await page.route('http://127.0.0.1:3159/**', async (route) => {

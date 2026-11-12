@@ -1,3 +1,4 @@
+import { dismissRecommendedSetup } from './fixtures/recommended-setup';
 import { expect, test } from '@playwright/test';
 
 test('redirect-provider sign-in preserves invitations and supports responsive keyboard access', async ({
@@ -103,4 +104,8 @@ test('redirect-provider account control reports sign-out failures and returns to
   await expect(page.getByRole('alert')).toHaveText('Unable to sign out. Please retry.');
   await signOut.click();
   await expect(page.getByRole('button', { name: 'Continue with Example provider' })).toBeVisible();
+});
+
+test.beforeEach(async ({ page }) => {
+  await dismissRecommendedSetup(page);
 });

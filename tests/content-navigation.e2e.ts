@@ -1,3 +1,4 @@
+import { dismissRecommendedSetup } from './fixtures/recommended-setup';
 import { expect, test as base, type Page } from '@playwright/test';
 import { reviewInstallation } from './fixtures/review-installation';
 const test = base.extend<{ installation: Awaited<ReturnType<typeof reviewInstallation>> }>({
@@ -273,4 +274,8 @@ test('long mobile story titles retain readable width while secondary columns scr
       .locator('.content-results')
       .screenshot({ path: info.outputPath(`story-titles-${width}.png`) });
   }
+});
+
+test.beforeEach(async ({ page }) => {
+  await dismissRecommendedSetup(page);
 });

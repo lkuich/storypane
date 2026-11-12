@@ -24,3 +24,13 @@ browser captures, with no mocked UI, customer content, or credentials.
 Refresh these when the corresponding UI changes. Keep image text legible and add
 alt text where each image is embedded. The website's `pnpm docs:sync` copies this
 folder alongside the canonical guides.
+
+Captured November 12, 2026 from a disposable local installation for the
+[recommended setup guide](../recommended-setup.md):
+
+- `recommended-production.png`: fictional Studio website production space with
+  **Schema read-only** enabled in General settings.
+- `recommended-previews.png`: the current member's three block hover preview
+  preferences disabled and saved. This is a browser capture cropped to the controls.
+
+These captures contain no customer content or credentials.

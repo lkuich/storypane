@@ -1,3 +1,4 @@
+import { dismissRecommendedSetup } from './fixtures/recommended-setup';
 import { expect, test } from '@playwright/test';
 import type { BlockDefinition, Space } from '@storypane/core';
 
@@ -105,6 +106,7 @@ test('block columns, references and row actions work with nesting, permissions a
       });
     }
     const responses: Record<string, unknown> = {
+      '/reviews': [],
       '/definitions': definitions,
       '/datasources': [],
       '/migrations': [],
@@ -277,4 +279,8 @@ test('block columns, references and row actions work with nesting, permissions a
   await expect(checkbox).not.toBeChecked();
   expect(unexpected).toEqual([]);
   expect(errors).toEqual([]);
+});
+
+test.beforeEach(async ({ page }) => {
+  await dismissRecommendedSetup(page);
 });

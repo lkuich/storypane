@@ -1,3 +1,4 @@
+import { dismissRecommendedSetup } from './fixtures/recommended-setup';
 import {
   test as base,
   expect,
@@ -37,6 +38,7 @@ async function signIn(
   });
   expect(response.ok(), await response.text()).toBe(true);
   const page = await context.newPage();
+  await dismissRecommendedSetup(page);
   return { context, page };
 }
 async function noOverflow(page: Page) {
@@ -143,7 +145,7 @@ test('teams in Members & roles, writer requests, two independent approvals, badg
       contexts.push(reviewer.context);
       reviewer.page.on('pageerror', (error) => errors.push(error.message));
       await reviewer.page.goto(`/?space=${installation.spaceId}&view=reviews`);
-      await expect(reviewer.page.locator('.review-nav-badge')).toHaveText('1');
+      await expect(reviewer.page.locator('.review-nav-badge:visible')).toHaveText('1');
       await reviewer.page.locator('.review-inbox-row').focus();
       await reviewer.page.keyboard.press('Enter');
       const details = reviewer.page.getByRole('dialog', { name: 'Review details' });
@@ -470,7 +472,7 @@ test('editing approved content requires approval again and rejects a stale revie
     await expect(refresh).toHaveText('');
     await refresh.focus();
     await reviewer.page.keyboard.press('Enter');
-    await expect(reviewer.page.locator('.review-nav-badge')).toHaveText('1');
+    await expect(reviewer.page.locator('.review-nav-badge:visible')).toHaveText('1');
     await reviewer.page.locator('.review-inbox-row').click();
     await expect(
       details.getByText('Content has changed since this review was requested.', { exact: false }),
@@ -634,6 +636,7 @@ test('invited account creation and existing sign-in have a designed responsive s
     expect(response.status()).toBe(201);
     const { link } = await response.json();
     const page = await invited.newPage();
+    await dismissRecommendedSetup(page);
     await page.goto(link);
     const card = page.getByRole('region', { name: 'Accept invitation', exact: true });
     await expect(card.getByRole('textbox', { name: 'Name', exact: true })).toBeVisible();

@@ -1,3 +1,4 @@
+import { dismissRecommendedSetup } from './fixtures/recommended-setup';
 import { expect, test } from '@playwright/test';
 import { contentScopesSchema, type BlockDefinition, type Space } from '@storypane/core';
 
@@ -81,6 +82,7 @@ test('read-only schemas explain protection and permissions, with accessible dev 
       route.request().headers()['x-storypane-space-id'] === developer.id ? developer : current;
     const responses: Record<string, unknown> = {
       '/definitions': [definition],
+      '/reviews': [],
       '/datasources': [],
       '/migrations': [],
       '/migrations/environment': {
@@ -190,4 +192,8 @@ test('read-only schemas explain protection and permissions, with accessible dev 
   await expect(notice.getByRole('alert')).toHaveCount(0);
   expect(errors).toEqual([]);
   expect(unexpected).toEqual([]);
+});
+
+test.beforeEach(async ({ page }) => {
+  await dismissRecommendedSetup(page);
 });

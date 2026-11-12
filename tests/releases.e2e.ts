@@ -1,3 +1,4 @@
+import { dismissRecommendedSetup } from './fixtures/recommended-setup';
 import { expect, test } from '@playwright/test';
 import type { ContentRelease, Story } from '@storypane/core';
 
@@ -148,4 +149,8 @@ test('release approvals, drafts, moving, publishing now and cancellation work ac
     final.find((group) => group.name === 'Autumn launch' && group.status === 'scheduled')?.items,
   ).toHaveLength(0);
   expect(errors).toEqual([]);
+});
+
+test.beforeEach(async ({ page }) => {
+  await dismissRecommendedSetup(page);
 });

@@ -72,6 +72,9 @@ and publication. There are no default credentials or public signup endpoint. See
 [Node installation and production setup](self-hosting.md) for external Postgres
 and object storage, invites, backup/restore, upgrades, and recovery.
 
+For a first-time checklist, follow [Recommended setup](recommended-setup.md),
+including production protection, local website development, and preview preferences.
+
 ## Choose the right workspace
 
 For a new team, content editors work in production. Developers deploy and test
