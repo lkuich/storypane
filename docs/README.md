@@ -31,6 +31,8 @@ Already have an instance? Start with content and schemas below.
 
 ## Content and schemas
 
+- [Recommended setup](recommended-setup.md): first-time setup, production protection,
+  linked dev spaces, local migration workflows, and preview preferences.
 - [Production and development spaces](development-workflow.md): the recommended
   team setup, schema promotion, and keeping linked dev spaces in sync.
 - [Editor quickstart](editor-quickstart.md): build a schema in dev, promote it,
@@ -48,6 +50,9 @@ Explore the SDK, then choose the integration guide for your framework.
   generated types, and management clients.
 - [Astro example](../apps/example-astro/README.md): static pages and authenticated preview.
 - [Next.js example](../apps/example-next/README.md): generated content types and authenticated preview.
+
+- [Media CDN and edge-optimized images](media-cdn.md): publish versioned image
+  copies, configure Cloudflare variants, and verify removal and cache purging.
 
 ## Agents and automation
 

@@ -17,6 +17,8 @@ The everyday cycle is **sync → change → deploy in dev → test → promote**
 promotion, other developers sync before promoting their own work. Sync is explicit;
 Storypane does not silently replace anyone's schema changes.
 
+![Sync the linked dev space, change and deploy its schema, test it, review production impact, then apply the promotion while production stays protected.](images/schema-workflow.svg)
+
 ## Set up your team
 
 Sign in to your [installed CMS](getting-started.md) as an installation administrator.

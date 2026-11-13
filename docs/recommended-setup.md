@@ -114,6 +114,9 @@ generated types. Rebuild or revalidate after publication, using
 [production webhooks](webhooks.md) when your frontend needs them. Test publication
 and the live site before inviting the rest of your team.
 
+For edge-optimized public images, follow the [media CDN guide](media-cdn.md).
+It covers published-image exports, responsive variants, and cache invalidation.
+
 ## 5. Adjust previews if the editor feels slow
 
 Application previews run your website inside the editor. Component hover previews

@@ -1,20 +1,15 @@
 # Page map
 
-Use the **View in map** icon beside a page in the Content list, or the **View in
-map** button at the top right of an open page, to explore its connections. Leaving the editor uses the same unsaved-change check as other
-navigation. The map is read-only: pan or zoom the canvas, but do not move cards,
-create links, or edit content there.
+Explore a page's published links without leaving the editor. Open a page and
+expand **Page map** below the editor and Live Preview columns. The panel starts
+collapsed and loads its code and graph only when opened.
 
-## Explore connections
+![Published Home page connections in the collapsible Page map panel, with outgoing links to About, Journal, and Work.](images/page-map.png)
 
-The page you open is the starting point. The default view shows **Published
-content**, outgoing page links, and two hops. Select a locale, switch to saved
-drafts, choose one to four hops, or follow incoming links or both directions.
-The starting page and filters are stored in the URL; browser Back restores the
-previous exploration. Open a page in the editor and expand **Page map** below the editor and Live Preview columns, spanning the full page width.
-It starts collapsed for each page and locale. The map code and graph request load
-only after expansion; collapsing cancels pending requests. Collapse and reopen to
-refresh the graph. If the preview is hidden, choose **Preview** to show the panel.
+_Example: Home links to three pages; the map also shows their outgoing links up to two hops away._
+
+Collapse and reopen to refresh. Collapsing cancels pending requests. If the
+preview is hidden, choose **Preview** to show the panel.
 
 ## Explore connections
 

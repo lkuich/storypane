@@ -58,16 +58,14 @@ Do not promise regulatory compliance solely because the software is self-hosted.
 
 ## storypane.dev
 
-The marketing site and documentation are static assets served through Cloudflare.
-The site has no signup form and does not connect to your self-hosted CMS.
-Production pages use Sarge to record page views, GitHub and Railway link clicks
+The marketing site and documentation are static assets served through Cloudflare. The site has no signup form and does not connect to your self-hosted CMS. Production pages use Sarge to record page views, GitHub and Railway link clicks
 (including destination URLs and link labels), page URLs, referrers, titles,
-and pseudonymous session/user identifiers. Sarge stores identifiers and optional
+and pseudonymous session/user identifiers.
+
+Sarge stores identifiers and optional
 campaign attribution in browser local storage and can observe existing Meta,
-Google, and dataLayer calls. See [Sarge's privacy policy](https://sargetrack.app/legal/privacy).
-Shader telemetry is disabled. Cloudflare processes requests to serve and secure
-the website; see [Cloudflare's privacy policy](https://www.cloudflare.com/privacypolicy/).
-Provider logs and retention are governed by the site's hosting configuration;
+Google, and dataLayer calls. See [Sarge's privacy policy](https://sargetrack.app/legal/privacy). Shader telemetry is disabled. Cloudflare processes requests to serve and secure
+the website; see [Cloudflare's privacy policy](https://www.cloudflare.com/privacypolicy/). Provider logs and retention are governed by the site's hosting configuration;
 this document does not claim zero logging.
 
 The experimental `/grid-shift` page loads Mona Sans from Google Fonts, which

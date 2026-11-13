@@ -157,9 +157,10 @@ The linking command is operator-only, does not match by email, and refuses to mo
 a subject already linked to another identity. `switch-provider` requires an
 installed adapter and mappings for every active account. It clears Storypane's
 `session`, `cms_sessions` and `verification` records before recording the new
-provider. A custom session store must honor that invalidation or supply its own
-cleanup during maintenance; switching cannot revoke an arbitrary upstream cookie.
-Only then set `AUTH_PROVIDER=okta` and restart. Keep identities, content,
+provider.
+
+A custom session store must honor that invalidation or supply its own
+cleanup during maintenance; switching cannot revoke an arbitrary upstream cookie. Only then set `AUTH_PROVIDER=okta` and restart. Keep identities, content,
 memberships, media and existing encryption keys intact. The mapping check cannot
 prove the target issuer configuration or credentials work; test them first in a
 disposable installation.

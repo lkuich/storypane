@@ -92,9 +92,9 @@ editing and publication, see the [editor quickstart](editor-quickstart.md).
 ## Delete a review or discussion
 
 The requester and space administrators can use the trash action on a Reviews
-inbox row or **Delete review** / **Delete discussion** in the thread details.
-The same permissions apply in **Reviews & comments** in the editor. Confirming
+inbox row or **Delete review** / **Delete discussion** in the thread details. The same permissions apply in **Reviews & comments** in the editor. Confirming
 permanently deletes the thread, its messages, and approvals.
+
 Deleting a review also removes its publishing requirement; it does not publish
 or delete story content. Cancel leaves the thread unchanged. Other members can
 continue using their existing reply, review, and withdrawal

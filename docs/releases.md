@@ -7,7 +7,8 @@ release runs; a blocked member prevents partial publication of the release.
 Group approved pages into a named release and publish them together at a scheduled
 time. Keep writing your next draft without changing what is going live.
 
-<aside class="agent-instructions" aria-labelledby="set-up-with-an-agent">
+<details class="agent-instructions" aria-labelledby="set-up-with-an-agent">
+<summary>Set up with a coding agent</summary>
 
 <div class="agent-instructions-top"><span class="eyebrow">For coding agents</span></div>
 
@@ -27,7 +28,7 @@ Retain request IDs on retries, refresh stale reviews, and report any release on
 hold. Do not publish immediately or include additional pages without my instruction.
 ```
 
-</aside>
+</details>
 
 ![A production release showing two approved page revisions, with newer draft changes excluded from the launch.](images/releases.png)
 

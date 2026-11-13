@@ -5,7 +5,8 @@ source-development workflow when you want to change the application. The CMS
 runtime is Node.js: the Cloudflare Worker deployment in the previous release is
 not compatible with the current installation and per-space database layout.
 
-<aside class="agent-instructions" aria-labelledby="set-up-with-an-agent">
+<details class="agent-instructions" aria-labelledby="set-up-with-an-agent">
+<summary>Set up with a coding agent</summary>
 
 <div class="agent-instructions-top"><span class="eyebrow">For coding agents</span></div>
 
@@ -30,7 +31,7 @@ and the source workflow below. An agent can prepare the installation; review its
 changes and enter passwords locally. The setup script does not create accounts,
 start services, or verify a fresh deployment by itself.
 
-</aside>
+</details>
 
 ## Run a fresh installation
 

@@ -80,12 +80,11 @@ team grows.
 **Completed November 6, 2026:** `@storypane/sdk@0.1.0-rc.2` was published from the
 verified GitHub archive, then installed from npm in an isolated consumer. All
 entrypoints and the CLI passed. The trusted publisher is configured for
-`lkuich/storypane` and `release.yml`, with publishing enabled and no environment.
-No npm token secret is required by CI. The first OIDC publication succeeded for
-`0.1.0-rc.3`; a clean registry install and its provenance attestations were verified.
-The `rc` channel now points to rc.10; `latest` remains on rc.2. Later candidates use
-the same workflow; verify its result and registry version after each publication.
-Do not republish an existing version.
+`lkuich/storypane` and `release.yml`, with publishing enabled and no environment. No npm token secret is required by CI.
+
+The first OIDC publication succeeded for
+`0.1.0-rc.3`; a clean registry install and its provenance attestations were verified. The `rc` channel now points to rc.10; `latest` remains on rc.2. Later candidates use
+the same workflow; verify its result and registry version after each publication. Do not republish an existing version.
 
 The steps below document the initial setup. Existing maintainers should verify
 the publisher configuration and use the next-version workflow rather than repeat

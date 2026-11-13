@@ -94,8 +94,8 @@ Locale is optional. These calls use the space's configured default locale;
 `listStories()` and `listAllStories()` need no options object. A single-story read
 still needs its ID or slug. Pass `{ locale: 'fr' }` to either list method, or add
 `locale: 'fr'` to a story reference, when you want a specific locale.
-You can also set pagination without a locale: `listStories({ limit: 100 })`.
-An explicit `locale: ''` selects the root locale, even if another locale is the
+
+You can also set pagination without a locale: `listStories({ limit: 100 })`. An explicit `locale: ''` selects the root locale, even if another locale is the
 configured default. Changing the default does not change URL prefixes.
 
 These reads use the CMS delivery API, which queries publication snapshots in
@@ -222,10 +222,11 @@ if (story) return <Block block={component ?? story.content} />;
 ```
 
 Use the generated `StorypaneComponent` union here: picker previews include nestable
-blocks as well as content types. Both example apps demonstrate this integration.
-Picker previews are opt-in per definition: set **Config → Picker preview data (JSON)**
+blocks as well as content types. Both example apps demonstrate this integration. Picker previews are opt-in per definition: set **Config → Picker preview data (JSON)**
 and deploy the schema migration. This stores an optional `previewData` object with
-sample field values; nested blocks use `{ _uid, component, ...fields }`. Use real
+sample field values; nested blocks use `{ _uid, component, ...fields }`.
+
+Use real
 representative content, including the nested items your renderer needs. A definition
 without sample data has no picker preview. Samples override defaults for this iframe
 only; inserting a block still uses its normal field defaults.
@@ -389,8 +390,8 @@ multi-option, and story-link fields. These contain current drafts from the same
 space, preferring the preview locale with Default as the fallback. References stay
 as IDs in `content`; renderers can look them up in `references`. Referenced-story
 edits refresh on the 15-second heartbeat even if the parent revision is unchanged.
-References are resolved one level deep and are not added to public delivery responses.
-After interruptions the SDK reconnects and reads the latest durable draft; older
+
+References are resolved one level deep and are not added to public delivery responses. After interruptions the SDK reconnects and reads the latest durable draft; older
 revisions are ignored. Errors are exposed through `onStatus` / the React hook.
 
 ## Current limits
@@ -462,6 +463,8 @@ unchanged. No release-specific CLI command is required or provided.
 
 ## Schema migrations and generated types
 
+![Schema changes are synced, authored and deployed in dev, tested, then reviewed and promoted to protected production.](../../docs/images/schema-workflow.svg)
+
 A space has one shared active migration. CMS schema saves and CLI pushes update
 that migration; page editing and delivery keep using deployed schemas until an
 admin deploys it. New block types must be deployed before they can be inserted.
@@ -488,11 +491,15 @@ instead of running `create`. Migration files target exactly one space. Commit th
 `storypane/migrations` directory with application code. Numbered JSON files are
 immutable deployed history; `active.json` is the editable target schema. New
 fields and definitions may omit their IDs; push assigns and persists IDs before
-sending them. Existing IDs preserve renames, including nested blocks. Field order
+sending them.
+
+Existing IDs preserve renames, including nested blocks. Field order
 in the array controls editor order. Definition API names cannot be renamed. Version 2 migration files also carry
 `parentDefinitionId` beside each definition’s `schema`; preserve these IDs to keep
 the library hierarchy. Version 1 files remain supported and omitted parent metadata
-preserves the current parent. Removing a definition is allowed only when the
+preserves the current parent.
+
+Removing a definition is allowed only when the
 existing content, folder, and schema-reference checks permit it.
 
 Local edits and deployed history are never silently overwritten. A stale push or
@@ -504,13 +511,15 @@ version changed. There is no force-push switch.
 
 Deployment prints the schema diff and affected draft/publication counts. Deleted
 fields lose their active values; removing a nested-block field removes its
-subtree. Type changes reset values to a valid target default or unset them.
-Renames and plain text format changes preserve values. Defaults do not overwrite
-unchanged fields. Invalid resulting publications, constraints, references, or
-nesting block deployment. Drafts may still omit fields required for publication.
-Interactive deployment requires typing `DEPLOY <version>` when the review
+subtree. Type changes reset values to a valid target default or unset them. Renames and plain text format changes preserve values. Defaults do not overwrite
+unchanged fields.
+
+Invalid resulting publications, constraints, references, or
+nesting block deployment. Drafts may still omit fields required for publication. Interactive deployment requires typing `DEPLOY <version>` when the review
 includes data loss. In the CMS, **Preview destructive deployment** can additionally
-remove disallowed/excess nested blocks and reset invalid field values. It still
+remove disallowed/excess nested blocks and reset invalid field values.
+
+It still
 validates the resulting content and requires explicit confirmation. The CLI uses
 standard deployment and does not automatically select this destructive mode.
 
@@ -522,8 +531,8 @@ apply intervening migrations; restore an older checkpoint before publishing it.
 
 For new teams, create **Production** first for content editors, keep its schema
 read-only, and create a dedicated **Development** space per developer using
-production as the base. Follow the [UI setup and promotion walkthrough](https://github.com/lkuich/storypane/blob/main/docs/development-workflow.md).
-An installation admin can clone a space or choose a base when creating one.
+production as the base. Follow the [UI setup and promotion walkthrough](https://github.com/lkuich/storypane/blob/main/docs/development-workflow.md). An installation admin can clone a space or choose a base when creating one.
+
 One production space can have multiple linked dev spaces. Starting in dev is supported: creating
 production from an unlinked dev space establishes the link. New production spaces
 created with an explicit environment start with **Schema read-only** enabled;
@@ -571,7 +580,9 @@ Blocks screen or `storypane migrations sync`. Sync preserves deployed history,
 replays incoming production transformations, and reconciles local changes by block
 and field ID. The UI offers a choice for each conflict. If independent changes
 create invalid nesting or references, choose the complete dev or production schema
-for that step. The CLI prints conflict
+for that step.
+
+The CLI prints conflict
 paths; put the choices in a JSON object mapping each path to `"dev"` or `"prod"`,
 then run `storypane migrations sync --input resolutions.json`. Review data loss
 before applying. Unresolved conflicts and stale reviews block application.
@@ -665,6 +676,10 @@ server-side rendering or static export. It requires a valid delivery token and
 only serves assets referenced by a current publication in that token's space;
 draft-only and historical references do not grant access. Keep the token on the
 server. Static copies must be rebuilt or removed when their publications change.
+
+For edge optimization of intentionally public copies, follow the
+[media CDN guide](../../docs/media-cdn.md). It covers content-hashed exports,
+Cloudflare transformations, and the required removal and purge workflow.
 
 ### Public media URLs
 

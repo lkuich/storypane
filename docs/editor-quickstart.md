@@ -7,6 +7,10 @@ JSON snapshot you can inspect without connecting a website first.
 
 For Teams, approval requests and inline discussions, see [Reviews and comments](reviews.md).
 
+![A saved Home page with its live website preview on the left and editable Page and nested block fields on the right.](images/editor-overview.png)
+
+_Example project: the Fieldwork editor and website preview. The collaborator avatars are staged demo data; the steps below use your own Marketing website space._
+
 ## Before you start
 
 Sign in to your running Storypane CMS. If you still need an installation, follow
@@ -99,6 +103,10 @@ migration**. Close it using **Close dialog** before creating the next definition
 The **Parent block** setting organizes the block library. The **Blocks** field
 created next controls how actual content is nested inside a page.
 
+![Block library showing reusable definitions and a Feature definition organized beneath Feature grid.](images/block-library.png)
+
+_Block definitions describe reusable field structures. Library parents organize definitions; Blocks fields control content nesting._
+
 ## 4. Define the Page content type
 
 Choose **New block** again and configure:
@@ -135,6 +143,10 @@ schema until an administrator deploys the migration.
 4. Resolve any reported issues, then choose **Deploy migration**.
 5. Check that **Current release** shows the deployed version and the workspace
    reports **All changes deployed**.
+
+![Migration review lists changed fields and the affected draft and published story counts before deployment.](images/migration-review.png)
+
+_Example review of an optional CTA field. Your first migration will instead list the Page and Hero additions._
 
 This deployment makes the schema available in dev. For this first migration you
 should not need destructive deployment or data-loss confirmation.
@@ -173,11 +185,11 @@ content fields that your application can render.
 If the preview pane says **Connect your app**, you can choose **Hide preview**
 and continue editing. Connecting a website is optional for this walkthrough.
 
-Click anywhere in the bottom **Add block** row to append a block to the list.
-To insert between two blocks, hover over their divider or tab to its controls.
-Choose the round **+** to open the block picker at that position. If you have a
+Click anywhere in the bottom **Add block** row to append a block to the list. To insert between two blocks, hover over their divider or tab to its controls. Choose the round **+** to open the block picker at that position. If you have a
 compatible copied block, the round clipboard button pastes an independent copy
-there. Touch screens keep these controls visible. Block limits and permissions
+there.
+
+Touch screens keep these controls visible. Block limits and permissions
 still apply. **Clear clipboard** in the editor header empties the clipboard and
 removes the paste options; if the browser refuses clipboard access, the copy is
 retained and an error is shown.
@@ -200,6 +212,8 @@ choose **Add block** in Body again. Each Hero instance has its own values. Drag
 its handle to reorder sections.
 
 ## 8. Review and publish
+
+![Editing autosaves a draft; reviewing selects a saved revision; publishing exposes that fixed snapshot; your frontend then rebuilds or revalidates.](images/publication-flow.svg)
 
 1. Wait until all changes are saved, then choose **Review & publish**.
 2. In **Review before publishing**, check the locale, URL, and changed components.
@@ -228,10 +242,9 @@ To publish later, choose **Add to release** in the publishing review. Create a
 named release or add this revision to an existing one. The **Releases** view lists
 approved pages and flags newer drafts that are not included. Scheduled pages offer
 **Update release** or **Publish now & remove from release** on their next review.
+
 Check **View release version (read-only)** to inspect the scheduled fields, nested
-blocks and website preview. Uncheck it to continue editing your current draft.
-The checkbox appears only while this page locale belongs to an upcoming release.
-See [Content releases](releases.md) for planning, linked pages and conflict handling.
+blocks and website preview. Uncheck it to continue editing your current draft. The checkbox appears only while this page locale belongs to an upcoming release. See [Content releases](releases.md) for planning, linked pages and conflict handling.
 
 ## 9. Connect a website and live preview
 
@@ -255,7 +268,9 @@ Once your application's preview route is ready:
 The **Space default** is shared and can be changed by an admin or someone with
 space settings permission. Every member can set **My default preview** and save
 their own choice in **Settings → API & preview**. It applies only to that user in
-that space and follows them across browsers. Choose **Use space default** to
+that space and follows them across browsers.
+
+Choose **Use space default** to
 follow the shared default again. Removing a URL clears personal defaults that
 used it. A manual choice in the editor's Preview dropdown lasts for that editing
 session; it doesn't change either saved default.
@@ -288,7 +303,9 @@ sizes preserves the loaded page and live connection.
 When the preview app and CMS are on different sites, the browser may omit CMS
 session cookies on media requests. For an image already used by a current
 publication in a space with **Public media delivery** enabled, the CMS asset
-content URL falls back to the existing public-media checks. Images and videos
+content URL falls back to the existing public-media checks.
+
+Images and videos
 then load without third-party cookies. This fallback does not authorize draft-only
 or other private media; those requests still need a CMS session. No delivery or
 management token should be added to browser URLs. No additional CORS setting is
@@ -310,12 +327,12 @@ This works in the block list, outline, breadcrumbs, and **Add a block** picker.
 ![Component preview beside the Add a block picker, showing the Hero renderer without the surrounding page](images/component-previews.png)
 
 Existing blocks show saved content, including their nested blocks. Picker entries
-only show a preview when their definition has **Config → Picker preview data (JSON)**.
-Add representative field values and populated nested blocks, then deploy the schema
-migration. Leave this setting empty to disable that picker preview. Samples are
+only show a preview when their definition has **Config → Picker preview data (JSON)**. Add representative field values and populated nested blocks, then deploy the schema
+migration. Leave this setting empty to disable that picker preview.
+
+Samples are
 separate from the defaults used when inserting a block. Hovering does not insert,
-save, publish, or take an editing lock.
-Move away or press **Escape** to dismiss the preview; you can move the pointer
+save, publish, or take an editing lock. Move away or press **Escape** to dismiss the preview; you can move the pointer
 onto the preview to keep it open.
 
 Previews use the selected preview URL and existing preview permissions. Only one

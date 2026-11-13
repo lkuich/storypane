@@ -13,6 +13,8 @@ none of those events. Delivery is still separate per page with independent
 retries; coalesce build requests for multi-page launches. There is no separate
 release webhook event.
 
+![A publication transaction enqueues an event, a durable queue sends signed HTTPS requests, the receiver verifies and deduplicates, and a build reads published content.](images/webhook-delivery.svg)
+
 ## Production and development spaces
 
 For the [recommended team workflow](development-workflow.md), configure live-site
@@ -156,14 +158,17 @@ pnpm exec playwright test --config playwright.webhooks.config.ts
 
 The Vitest database tests use isolated schemas in disposable local test databases;
 their HTTP and DNS destinations are controlled test doubles. The sample receiver
-is exercised by a signed publication event and builds from token-authorized delivery content.
-The browser harness covers admin controls without requiring a Clerk sign-in;
-Postgres tests independently verify session, role, and space enforcement. The
+is exercised by a signed publication event and builds from token-authorized delivery content. The browser harness covers admin controls without requiring a Clerk sign-in;
+Postgres tests independently verify session, role, and space enforcement.
+
+The
 actual local scheduled endpoint was invoked twice against an isolated schema: a
 due checkpoint published once, produced one immutable event and delivery attempt,
 and the second invocation produced no duplicates. The empty runtime allowlist
 blocked that test destination before any external DNS/HTTP. These earlier checks do not establish
-deployed webhook delivery. The signed-in process-recovery regression below covers
+deployed webhook delivery.
+
+The signed-in process-recovery regression below covers
 the local Node installation separately.
 
 ### Real HTTPS and process-crash regression

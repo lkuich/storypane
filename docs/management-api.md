@@ -156,10 +156,10 @@ media is not overwritten by a failed upload.
 ## CLI
 
 Install the SDK in your project with `npm install @storypane/sdk@0.1.0-rc.10`, then
-run `storypane` through your package manager (for example, `pnpm exec storypane`).
-The [SDK guide](../packages/sdk/README.md) also covers local builds and the verified
-GitHub archive. Use an explicit version or `@storypane/sdk@rc` for this candidate.
-`storypane --help` lists the supported resource commands. Management commands
+run `storypane` through your package manager (for example, `pnpm exec storypane`). The [SDK guide](../packages/sdk/README.md) also covers local builds and the verified
+GitHub archive. Use an explicit version or `@storypane/sdk@rc` for this candidate. `storypane --help` lists the supported resource commands.
+
+Management commands
 write JSON to stdout; `--json` makes it compact. Failures exit nonzero, and with
 `--json` produce an error envelope on stderr. JSON input uses `--input file.json`
 or `--input -` for stdin. Tokens are read from the environment, never command flags.

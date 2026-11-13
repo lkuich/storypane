@@ -43,6 +43,8 @@ cards. Add separate overrides using ordinary fields if your site needs them.
 
 ## Frontend integration
 
+![Metadata and Markdown mirrors follow the publication workflow: save a draft, review a revision, publish it, then rebuild the frontend.](images/publication-flow.svg)
+
 The [Astro](../apps/example-astro/README.md#seo-and-markdown-mirrors) and
 [Next.js](../apps/example-next/README.md#seo-and-markdown-mirrors) examples implement
 the complete flow. Set **`SITE_URL`** to your public website origin for production

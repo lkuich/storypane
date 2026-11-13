@@ -7,6 +7,10 @@ it is available for evaluation while broader acceptance remains outstanding.
 Local unit/build checks do not count as fresh-deployment acceptance. Never test
 against production content merely to complete a checklist.
 
+## Acceptance checklist
+
+### Accounts and database boundaries
+
 - Start fresh Docker with no Clerk keys or SMTP. Bootstrap through the hidden CLI
   prompt, sign in, create/attach two databases, accept an invitation, sign out,
   recover an account and verify old sessions are rejected.
@@ -15,6 +19,9 @@ against production content merely to complete a checklist.
 - Verify each space role is denied CONNECT to the other databases. Exercise
   wrong-space CMS/delivery/management requests, media and preview routing, and
   independent migrations, unavailable spaces and interrupted provisioning retries.
+
+### Schema changes and migration
+
 - Create protected production and two linked dev spaces. Check both block-library
   parents and nested-block restrictions survive cloning, while bulk content/media,
   members, tokens and webhooks do not. Review the schema-default dependencies.
@@ -26,6 +33,9 @@ against production content merely to complete a checklist.
 - Rehearse the legacy split and pre-write rollback with multiple spaces, histories,
   draft/published content, permissions, tokens, schedules and media references.
   Run both example sites with the migrated URLs and tokens.
+
+### Collaboration and private media
+
 - Invite a second editor; create a scoped viewer. Verify HTTP and live snapshots
   omit restricted content, session revocation expires access, and lease tokens
   never reach another editor.
@@ -38,6 +48,9 @@ against production content merely to complete a checklist.
   fetch original/ranged/HEAD responses, and verify image variants and focal crops.
   Confirm private and unpublished media cannot be read anonymously. Opt into public
   media and verify only currently published assets are exposed.
+
+### Publishing and delivery
+
 - Publish a reviewed checkpoint while later edits remain drafts. Schedule another
   checkpoint, wait for a minute tick, and verify permissions are rechecked.
 - Create a release with two pages and nested content, edit later drafts, and verify
@@ -50,6 +63,9 @@ against production content merely to complete a checklist.
   without losing checkpoints, publication history or shared-database split data.
 - Configure an allowed HTTPS webhook receiver; verify signatures, delivery retries,
   logs and persistent outbox state after restart.
+
+### Recovery and hosting
+
 - Restart/redeploy the application; verify content, memberships, publication history,
   assets and pending schedules persist. Re-run migrations and confirm no replay/data
   loss. Check `/api/ready` returns 503 with an unavailable installation database and 200
@@ -110,7 +126,15 @@ Record actual results, failures, and evidence. Update the website provider statu
 and deployment skill together, distinguishing scoped checks from full acceptance.
 Only claim full acceptance when every required step passes.
 
-## Local verification — 2026-11-05
+## Verification history
+
+These dated records document specific checks and their limits. They do not replace
+the acceptance checklist above.
+
+<details>
+<summary>Read dated verification records</summary>
+
+### Local verification — 2026-11-05
 
 Checked the working tree based on `08de902cf21358ff68542cff4c2445acae3843c4`.
 Concurrent schema and management API work was preserved.
@@ -139,7 +163,7 @@ request. Cloudflare CMS deployment is unsupported; Cloudflare Workers Static Ass
 static website. Website hosting, DNS, repository rename and public access remain
 separate. These local results do not enable a Railway deployment action.
 
-## Installation layout verification — 2026-11-05
+### Installation layout verification — 2026-11-05
 
 The earlier shared-database/Cloudflare results above do not verify this layout.
 For the Node installation/space split in this working tree:
@@ -175,7 +199,7 @@ revocation still need the checklist above. Clerk revocation has automated covera
 no real user account was disabled to test it. Cloudflare CMS deployment remains
 unsupported; Cloudflare Workers Static Assets website hosting is a separate static-site setup.
 
-## Content release verification — 2026-11-06
+### Content release verification — 2026-11-06
 
 - The full Vitest run passed 503 tests, including real PostgreSQL installation
   isolation and legacy splits both before and after migration 027. The optional
@@ -193,7 +217,7 @@ unsupported; Cloudflare Workers Static Assets website hosting is a separate stat
 These results verify releases locally. They do not replace the fresh provider
 acceptance checklist above or verify a new Railway installation.
 
-## RC package and local checks — 2026-11-06
+### RC package and local checks — 2026-11-06
 
 Checked the `0.1.0-rc.1` source candidate with Node 24.22.0 and pnpm 12.4.2.
 These are local release checks, not fresh hosted-install acceptance:
@@ -214,7 +238,7 @@ Fresh hosted acceptance, authenticated end-to-end browser acceptance for this
 candidate, backup-restore rehearsal, an independent security audit and production
 load benchmarks remain outstanding. The provider deployment gates remain closed.
 
-### rc.2 clean-fixture correction
+#### rc.2 clean-fixture correction
 
 The rc.1 GitHub release gate rejected three legacy suites that still required
 `blok_test`. Their guards/default URLs now match the documented `POSTGRES_DB`
@@ -224,7 +248,7 @@ with no existing databases. The rc.2 packed SDK consumer check and lint passed.
 No rc.1 package was published; the failed tag remains in history. GitHub release
 CI must pass before publishing rc.2. This does not change hosted acceptance status.
 
-## Railway template checks — 2026-11-06
+### Railway template checks — 2026-11-06
 
 Checked CMS revision `ab0da7a` with the real Storypane template `storypane` in a new
 Railway project, `storypane-template-acceptance`. The template builds `main`, not
@@ -266,7 +290,7 @@ as hosted acceptance. Independent security review and production load benchmarks
 also remain outstanding. Cloudflare edge image optimization was not provisioned;
 origin image transformations were checked.
 
-## rc.3 release checks — 2026-11-06
+### rc.3 release checks — 2026-11-06
 
 Checked source revision `57d539d` with the rc.3 version/documentation changes,
 using Node 24.22.0 and pnpm 12.4.2:
@@ -299,7 +323,7 @@ These checks do not establish a fresh installation or full hosted acceptance.
 The outstanding hosted workflows and backup/restore rehearsal listed above remain
 unverified for this candidate.
 
-## Authentication provider boundary — 2026-11-06
+### Authentication provider boundary — 2026-11-06
 
 Checked the working tree based on `e30a7e0` with the shared authentication adapter,
 explicit external identity mapping and provider-switching changes:
@@ -329,7 +353,7 @@ token exchange, callbacks, session service or upstream revocation. Clerk remote
 checks were mocked. Fresh hosted acceptance, backup/restore rehearsal and the
 other production reliability gaps remain outstanding.
 
-## Operational recovery rehearsal — 2026-11-06
+### Operational recovery rehearsal — 2026-11-06
 
 Checked pushed CMS revision `cdab8c5` using the published Railway template in a
 new disposable project, `storypane-operational-acceptance`
@@ -378,6 +402,7 @@ small-fixture timings are not production recovery objectives. No fixture writes
 occurred between stopping the source and backup; no loss was observed in the
 captured records or originals. Pending release execution was checked across app
 restart before backup; pending jobs/outbox recovery from backup was not exercised.
+
 Private dumps, manifests and assertion scripts are retained locally under ignored
 `artifacts/operational-confidence/`; credentials and session states are not public
 evidence. The temporary hosted project and restore containers were removed after
@@ -396,7 +421,7 @@ Keep the single-replica constraint until shared room transport is implemented an
 verified. This record supersedes the matching outstanding items in earlier dated
 records; it does not declare the release production-ready.
 
-## Webhook process recovery regressions — 2026-11-06
+### Webhook process recovery regressions — 2026-11-06
 
 Checked the working tree based on `44953b6` with a fresh Node production build,
 a disposable local PostgreSQL 18 installation and a temporary public HTTPS tunnel.
@@ -438,7 +463,7 @@ This verifies a local production Node build through public HTTPS. It does not
 complete Railway webhook acceptance, receiver database disaster recovery or
 production load testing. The broader acceptance checklist remains open.
 
-## Repeatable operational regressions
+### Repeatable operational regressions
 
 The checks from the operational rehearsal now live in
 `tests/operational.recovery.ts`, alongside `tests/webhooks.recovery.ts`. They cover
@@ -475,11 +500,11 @@ image's single Node process as PID 1, and verifies that process start time chang
 The suite uses real minute ticks and retry delays; allow several minutes. It
 stops the generated source during backup, captures all databases/roles, originals
 and runtime keys, compares every public table and original before endpoint
-rewrites, reruns transactional migrations and tests the restored application.
-The test enqueues one owned test delivery through the existing database service
-after stopping the source, so it remains pending in the backup. The restore also
-exercises the preserved token hashes and webhook encryption key.
-Unit tests check the row comparison against collation/property-order differences,
+rewrites, reruns transactional migrations and tests the restored application. The test enqueues one owned test delivery through the existing database service
+after stopping the source, so it remains pending in the backup.
+
+The restore also
+exercises the preserved token hashes and webhook encryption key. Unit tests check the row comparison against collation/property-order differences,
 lost/duplicated/changed rows, nested content order and scalar types. They also
 reject unrelated projects and invalid target origins before destructive testing.
 
@@ -490,7 +515,7 @@ remove only their own containers. Traces remain disabled for signing secrets.
 These small-fixture checks do not establish production recovery times, a second
 hosted restore, production load limits or the complete acceptance checklist above.
 
-## Automated operational checks — 2026-11-07
+### Automated operational checks — 2026-11-07
 
 Checked CMS runtime revision `674b4b4` with the new test suite in an isolated
 checkout, preserving concurrent application work in the primary checkout. The
@@ -533,7 +558,9 @@ The stricter crash assertion caught an initial false positive: `SIGKILL` sent
 inside the container did not terminate PID 1. The corrected hosted fixture uses
 Node's loopback inspector to request an immediate exit without the application's
 shutdown handler, disconnects the inspector, and requires a changed process start
-time before continuing. Railway's explicit `deploymentStopped` flag and an
+time before continuing.
+
+Railway's explicit `deploymentStopped` flag and an
 unavailable readiness endpoint verify source shutdown for backup; deployment
 `SUCCESS` alone cannot do that. A local MinIO free-disk threshold exposed a fixture
 limit; only disposable test media now uses a bounded temporary filesystem.
@@ -544,18 +571,21 @@ revocation, the remaining schema/CLI/release matrix, security review and load
 benchmarks remain open. This is scoped operational evidence, not full production
 acceptance.
 
-## RC.5 local review and editor checks — 2026-11-07
+### RC.5 local review and editor checks — 2026-11-07
 
 This record covers the review/editor changes prepared for rc.4 and shipped in
 0.1.0-rc.5, not a new hosted
 installation. Real local authentication and disposable PostgreSQL schemas were
 used for seven review/invitation E2E scenarios and four editor-performance E2E
-scenarios. The personal preview settings browser test also passed. Coverage
+scenarios. The personal preview settings browser test also passed.
+
+Coverage
 includes Team thresholds, scoped reviewers, publication gates, version changes,
 inline mentions, invitations, the unified composer, keyboard/mobile layouts,
 rapid block navigation, stale lease snapshots, and lazy rich-text loading with
 saved formatting. Focused review database tests cover authoritative scheduling
 and publishing, original content scopes, and unchanged pinned content.
+
 The release-version browser scenario also passed with the real SDK preview,
 keyboard switching, responsive layouts, saved drafts and read-only fields.
 
@@ -578,7 +608,7 @@ and decisions. rc.5 adds those filters and verifies review history, Teams and
 cross-space isolation against a dedicated PostgreSQL cluster. The rc.4 tag is
 retained without a published GitHub release or npm package.
 
-## RC.6 local locale-source checks — 2026-11-07
+### RC.6 local locale-source checks — 2026-11-07
 
 The locale-source change in PR #2 passed 600 local tests; six optional external
 or Railway fixture cases were skipped. The focused source-update and legacy-split
@@ -596,7 +626,7 @@ adds source tracking without automatically linking or rewriting existing locales
 This is local and CI evidence, not new hosted acceptance or a production load
 benchmark. Existing backup/restore and hosted verification limits still apply.
 
-## RC.7 local interface checks — 2026-11-07
+### RC.7 local interface checks — 2026-11-07
 
 The sign-in, mobile workspace, and installation-admin database settings changes
 passed three Chrome scenarios against the completed local production build.
@@ -615,7 +645,7 @@ isolation/Railway databases and builds the Docker image before publication.
 rc.7 adds no database migrations beyond rc.6. This is local/CI evidence, not a
 fresh Railway installation, hosted upgrade, or new full acceptance run.
 
-## RC.8 interface and preview checks — 2026-11-09
+### RC.8 interface and preview checks — 2026-11-09
 
 The candidate includes changes through `936d3aa`. Local authenticated browser
 checks cover folder Back/Forward, the full-width Page map, and the editor at
@@ -633,13 +663,14 @@ acceptance run or a physical-phone check. The release workflow must pass its ful
 CI and packed-SDK gates before publishing rc.8. Space migration 034 adds the
 per-surface preview preferences; there is no new public SDK API.
 
-## RC.9 interface checks — 2026-11-09
+### RC.9 interface checks — 2026-11-09
 
 The candidate includes the interface changes in `8ffb0ca`. The tablet-heading
 browser scenario passed at 320, 390, 640, 744, 768, 820, 900, 1024, 1100, and 1440
 pixels, including keyboard traversal of the editor actions. Database credential
 copying and workspace/invitation link copying passed focused browser checks;
 copy confirmations remain available to screen readers without visible banners.
+
 The clipboard helper's three unit checks, full lint, type checks, and production
 build passed. The full local suite passed 597 tests, with 25 opt-in tests skipped;
 the packed RC9 SDK passed a clean consumer install, exports, types, CLI, and
@@ -651,7 +682,7 @@ before publishing rc.9. No new hosted-installation acceptance run or physical-de
 check was performed. There is no new public SDK API or database migration beyond
 rc.8; apply older pending migrations through the existing transactional runner.
 
-## Separate delivery hosted checks — 2026-11-09
+### Separate delivery hosted checks — 2026-11-09
 
 Application revision `f46d910` was deployed to the existing Railway installation.
 Both the combined/editor deployment and the separate `STORYPANE_SERVICE=delivery`
@@ -681,12 +712,14 @@ The hosted installation has one space, so cross-space isolation remains covered 
 the focused database tests rather than a second hosted space. Two delivery replicas,
 an editor outage during delivery reads, editor join bursts, full hosted preview
 reconnect, public-media opt-in transitions and representative load limits were not
-tested in this rollout. Earlier local checks served publications through two delivery
+tested in this rollout.
+
+Earlier local checks served publications through two delivery
 processes with their configured editor origin offline. Database capacity remains
 shared; the combined/editor service still requires one replica. These results do
 not establish full fresh-install acceptance or a safe production capacity target.
 
-## Shared editor rooms local checks — 2026-11-09
+### Shared editor rooms local checks — 2026-11-09
 
 `tests/shared-rooms.e2e.ts` runs separate Node application processes against a
 shared disposable local installation and space database. Browser WebSocket peers
@@ -716,7 +749,7 @@ multipart uploads, and representative capacity are not verified here. The Railwa
 template and production replica count remain unchanged. Earlier single-replica
 results above describe their recorded revisions.
 
-## rc.10 release scope — 2026-11-09
+### rc.10 release scope — 2026-11-09
 
 This candidate packages the separate delivery service, PostgreSQL editor-room
 notifications, and Settings-only space deletion described above. The runtime
@@ -734,3 +767,5 @@ capacity acceptance. Capacity testing is deferred to the next operator session.
 The candidate changes no public SDK contract and adds no migration beyond rc.9.
 Older installations still apply pending migrations through the transactional
 production runner. The Railway template and deployed replica counts are unchanged.
+
+</details>

@@ -52,18 +52,17 @@ Open **http://127.0.0.1:3132/home**. The setup command creates a separate
 Default and French locales, and an unpublished Work in progress story. It creates
 scoped API keys and writes them to an ignored, owner-readable `.env`. It only
 seeds a local CMS and preserves an existing `.env` and content on subsequent runs.
+
 Set `STORYPANE_SESSION_COOKIE` from your signed-in local editor session when
 running `pnpm --filter @storypane/example-astro setup`; Clerk installs can use the private
-`STORYPANE_SESSION_TOKEN`. Do not commit or share either value.
-The French hero is translated; the other blocks deliberately start as copies.
+`STORYPANE_SESSION_TOKEN`. Do not commit or share either value. The French hero is translated; the other blocks deliberately start as copies.
 
 Manage locale names and URL prefixes in **Space settings → Locales**. The build
 discovers them with `client.listLocales()`; no `STORYPANE_LOCALES` environment variable
-is needed. A locale gets a public route only when that story locale is published.
-After adding or renaming locales, rebuild the site (or restart the dev server).
+is needed. A locale gets a public route only when that story locale is published. After adding or renaming locales, rebuild the site (or restart the dev server).
+
 For the configured default locale, call `client.listStories()` for one page or
-`client.listAllStories()` for every publication; no options object is needed.
-Read one story with `client.getStory({ slug: 'home' })`. Add `locale: 'fr'` to
+`client.listAllStories()` for every publication; no options object is needed. Read one story with `client.getStory({ slug: 'home' })`. Add `locale: 'fr'` to
 select another locale. An explicit `locale: ''` selects the root URL locale,
 which may differ from the configured default.
 
@@ -125,15 +124,15 @@ updates through its React island. Publishing requires rebuilding/redeploying the
 public site. Published pages ship no React runtime or preview subscription; a small
 script restores the decorative artwork if a hero image fails to load.
 
-The preview island also enables [component hover previews](../../packages/sdk/README.md#block-hover-previews).
-It passes `onComponent` to the SDK and renders that block through the same `Content`
+The preview island also enables [component hover previews](../../packages/sdk/README.md#block-hover-previews). It passes `onComponent` to the SDK and renders that block through the same `Content`
 renderer, without the preview status bar. Hover or focus an existing block or a
 picker entry in the editor; saved blocks use their content, and picker entries
-use the samples in `storypane/preview-data.json`. The setup script installs these
+use the samples in `storypane/preview-data.json`.
+
+The setup script installs these
 samples in new spaces. For an existing space, paste each sample into its block's
 **Config → Picker preview data (JSON)** and deploy the schema migration. Blocks
-without samples have no picker preview. Samples never change inserted defaults.
-No separate preview route or token is needed.
+without samples have no picker preview. Samples never change inserted defaults. No separate preview route or token is needed.
 
 ## Pull schemas and generate TypeScript
 
@@ -189,10 +188,9 @@ function Hero({ block }: { block: HeroBlock }) {
 
 The switch in `src/components/blocks/block.tsx` maps each schema name to a typed
 component in its own file. Add a case when adding a schema. `Page` composes the
-header, `PageBody`, and selected footer; `PageBody` groups adjacent feature cards.
-References and preview settings are explicit props, matching the Next.js example.
-Drafts can be incomplete; renderers should tolerate missing required content.
-Generated types are compile-time contracts, not runtime validators. They describe
+header, `PageBody`, and selected footer; `PageBody` groups adjacent feature cards. References and preview settings are explicit props, matching the Next.js example.
+
+Drafts can be incomplete; renderers should tolerate missing required content. Generated types are compile-time contracts, not runtime validators. They describe
 the pulled deployed migration. The delivery client and preview components pass
 its generated `storypaneMigrationVersion`; outdated integrations warn and keep
 receiving content. Schema deployment migrates both drafts and live publications.
@@ -201,7 +199,9 @@ The current example supports hero images, rich-text descriptions, linked feature
 a page body, and a shared footer selected through `page.footer`. Story links and
 footer references use published stories in the page's locale, with Default as a
 fallback. Publish the referenced footer (separately or with the page during publish
-review) and rebuild before it appears on the public site. In authenticated live
+review) and rebuild before it appears on the public site.
+
+In authenticated live
 preview, the selected footer uses its current draft,
 including unpublished footers. Changes made in another tab refresh on the preview
 heartbeat (within 15 seconds); changing the selection refreshes with the page save.
@@ -239,9 +239,10 @@ const image = (width: PublicImageOptions['width']) =>
 
 The HTML contains IDs and supported image options, never a token. Public URLs work
 only while an active publication uses the asset; draft preview still uses the
-authenticated editor route. Saving focal metadata updates cover crops globally.
-Public responses are not browser/CDN cached; the Node runtime rechecks eligibility
-and computes variants on demand. Disabling the setting or removing the last
+authenticated editor route. Saving focal metadata updates cover crops globally. Public responses are not browser/CDN cached; the Node runtime rechecks eligibility
+and computes variants on demand.
+
+Disabling the setting or removing the last
 live reference returns 404 on the next request. Already exported `/media/` files
 remain until a rebuild removes them. See the [SDK media contract](../../packages/sdk/README.md#public-media-urls)
 for supported variants, still-frame animation, and image size limits.
@@ -344,3 +345,10 @@ visible body renderer. Publishing an opt-out and rebuilding removes both the
 mirror and its discovery entry; deploy a complete fresh build to remove stale
 files. The [SEO & AI guide](../../docs/seo-ai.md) explains setup, hosting headers,
 and the limits of AI discovery.
+
+## Edge-optimized image delivery
+
+For a public website CDN, follow the [media CDN guide](../../docs/media-cdn.md).
+Adapt the existing published-asset export to content-hashed paths, then configure
+responsive edge variants and a verified removal/purge workflow. Keep authenticated
+preview images on the CMS route; direct public-media variants remain `no-store`.

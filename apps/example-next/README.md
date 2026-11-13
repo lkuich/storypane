@@ -119,6 +119,10 @@ page renderer.
 
 ## Live preview
 
+![The Storypane editor beside a connected Fieldwork website preview, with Page and nested component fields.](../../docs/images/editor-overview.png)
+
+_The editor's preview panel uses your website's renderer. This demo capture uses the Astro variant; Next.js connects through the same preview protocol. Demo collaborator avatars are staged._
+
 Configure this application URL in **Storypane → Settings → API & preview**:
 
 ```text
@@ -154,11 +158,12 @@ HTTPS. Draft images use the editor's CMS cookie; run the CMS and preview on the
 same site (locally, `127.0.0.1` on different ports). The example bypasses Next's
 image optimizer so authenticated draft images load in the browser.
 
-The preview component also enables [component hover previews](../../packages/sdk/README.md#block-hover-previews).
-Its `onComponent` callback selects a single block for the existing `StoryContent`
+The preview component also enables [component hover previews](../../packages/sdk/README.md#block-hover-previews). Its `onComponent` callback selects a single block for the existing `StoryContent`
 renderer and hides the preview status bar. Hover or focus a block in the editor
 or picker to use it. Picker entries require the explicit samples in
-`storypane/preview-data.json`. Paste each sample into the matching block's
+`storypane/preview-data.json`.
+
+Paste each sample into the matching block's
 **Config → Picker preview data (JSON)** and deploy the schema migration (the Astro
 setup script also installs these in a new shared example space). Blocks without
 samples have no picker preview. Samples never change inserted defaults. No
@@ -259,3 +264,10 @@ visible body renderer. Publishing an opt-out and rebuilding removes both the
 mirror and its discovery entry; deploy a complete fresh build to remove stale
 files. The [SEO & AI guide](../../docs/seo-ai.md) explains setup, hosting headers,
 and the limits of AI discovery.
+
+## Edge-optimized image delivery
+
+For a public website CDN, follow the [media CDN guide](../../docs/media-cdn.md).
+Adapt the existing published-asset export to content-hashed paths, then configure
+responsive edge variants and a verified removal/purge workflow. Keep authenticated
+preview images on the CMS route; direct public-media variants remain `no-store`.

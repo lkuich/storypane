@@ -34,3 +34,20 @@ Captured November 12, 2026 from a disposable local installation for the
   preferences disabled and saved. This is a browser capture cropped to the controls.
 
 These captures contain no customer content or credentials.
+
+## Documentation readability audit — November 12, 2026
+
+- `editor-overview.png`, `block-library.png`, and `migration-review.png` reuse
+  the website's November 5 Fieldwork demo captures. The editor's collaborator
+  avatars are staged presentation data; they do not demonstrate live concurrency.
+- `page-map.png` reuses the November 9 real, cropped panel capture from a
+  disposable Fieldwork installation. It shows the current two-hop published view.
+- `local-sign-in.png` and `members-and-roles.png` were captured November 12 from
+  the disposable review-installation fixture with fictional accounts and real UI.
+  No production content, tokens, passwords, or invitation URLs appear.
+- `schema-workflow.svg`, `publication-flow.svg`, and `webhook-delivery.svg` explain
+  the corresponding documented workflows. Each has a title, description, and
+  equivalent alt text in its guide. These are diagrams, not UI screenshots.
+
+`media-cdn-flow.svg` explains server-authorized publication exports and the separate
+public CDN boundary. It is an illustration, not a claim of a configured CDN zone.

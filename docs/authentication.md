@@ -10,7 +10,8 @@ Authentication identifies a person. Space memberships, roles, and content scopes
 determine what that person can do. Neither a successful sign-in nor an API token
 bypasses those permissions.
 
-<aside class="agent-instructions" aria-labelledby="auth-agent">
+<details class="agent-instructions" aria-labelledby="auth-agent">
+<summary>Set up with a coding agent</summary>
 <div class="agent-instructions-top"><span class="eyebrow">For coding agents</span></div>
 
 ## Configure authentication with an agent
@@ -29,7 +30,7 @@ recovery, permissions and revoked sessions on a disposable installation. Report
 any checks you could not run. Never paste secrets into chat or commit them.
 ```
 
-</aside>
+</details>
 
 ## Choose a provider
 
@@ -75,6 +76,10 @@ plain HTTP is intended for local development. Keep the database and bucket off
 the public internet wherever possible. Auth writes must originate from the
 configured editor origin; do not weaken that check to fix a proxy mismatch.
 
+![The local Storypane sign-in screen with email and password fields; accounts are created through bootstrap or invitation, not public signup.](images/local-sign-in.png)
+
+_Local sign-in in a disposable installation. Use the CMS origin configured by your operator._
+
 ## Invite your team
 
 1. Open the space's **Settings → Members & roles**. Choose the invited email and
@@ -97,6 +102,10 @@ connections. Space roles and content scopes govern content access separately;
 installation administration is not a blanket space-content permission. Use
 `pnpm admin grant-admin <userId>` only to deliberately grant installation control
 to an existing identity. Keep operator shell and database access restricted.
+
+![Members and roles settings list the fictional workspace members and their independently assigned access roles.](images/members-and-roles.png)
+
+_Inviting a person and assigning a role are space-specific actions._
 
 ## Password changes and recovery
 

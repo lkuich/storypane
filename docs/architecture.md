@@ -239,14 +239,13 @@ observed usage or a notification limit. It does not show that two replicas will
 overload Postgres.
 
 The next capacity check compares one and two editor replicas while delivery stays
-online, with increasing editor join bursts, saves, preview updates, and SDK reads.
-Record actual connections, SQL latency, notification queue usage, update delay,
+online, with increasing editor join bursts, saves, preview updates, and SDK reads. Record actual connections, SQL latency, notification queue usage, update delay,
 errors, CPU, and memory. Repeat listener interruption and process replacement.
+
 See the [capacity test plan](deployment-verification.md#editor-capacity-test-plan)
 for the workload, measurements, and acceptance evidence still needed. Before
 adding production replicas, follow the
-[shared configuration, readiness, and connection-budget requirements](deploy-railway.md#scale-editors).
-Keep the app running for live collaboration and scheduled work. Your public
+[shared configuration, readiness, and connection-budget requirements](deploy-railway.md#scale-editors). Keep the app running for live collaboration and scheduled work. Your public
 website can use its own hosting and caching strategy independently.
 
 Published delivery can run as a separate `STORYPANE_SERVICE=delivery` service and

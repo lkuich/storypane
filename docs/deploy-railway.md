@@ -318,17 +318,22 @@ Each application process has a five-connection installation pool and permits up 
 16 concurrent space acquisitions. Each acquisition creates a short-lived pool
 with at most two space connections, then closes it. These are request/operation
 limits, not a limit of 16 connected editor browsers: idle WebSockets hold no
-space database acquisition. Splitting services separates these admission limits.
-Budget up to **38 connections per combined/editor replica** (five installation,
+space database acquisition.
+
+Splitting services separates these admission limits. Budget up to **38 connections per combined/editor replica** (five installation,
 32 space, one listener), or **37 per delivery replica**, with additional headroom
 for provisioning, migrations, operators and other applications. This is a
-conservative pool ceiling, not an expected idle connection count. For example,
+conservative pool ceiling, not an expected idle connection count.
+
+For example,
 two editor server replicas plus one delivery replica have a summed ceiling of
 113 connections before that headroom. This is not measured usage or a PostgreSQL
 `NOTIFY` limit, and it does not imply that two users or two replicas will exhaust
 Postgres. A server capped at 100 cannot sustain all three pools at their ceilings
 simultaneously; measure actual connection pressure before deciding whether pool
-limits, pooling, or more database capacity are needed. Follow the
+limits, pooling, or more database capacity are needed.
+
+Follow the
 [capacity test plan](deployment-verification.md#editor-capacity-test-plan).
 
 A shared transaction pooler such as [PgBouncer](https://www.pgbouncer.org/features.html) can reduce backend connection churn
@@ -349,8 +354,8 @@ a Cloudflare account, domain, plan, or cache rules.
 
 Cloudflare can [transform images from a remote origin](https://developers.cloudflare.com/images/optimization/transformations/overview/),
 including resizing, quality control, and automatic format selection. Keep the
-Railway bucket private and use only Storypane’s authorized public-media route as
-the public source. Drafts, previews, private assets, and editor/API responses must
+Railway bucket private. For a cacheable public source, export selected published
+images as described in the [media CDN guide](media-cdn.md). Drafts, previews, private assets, and editor/API responses must
 retain their access checks and must not enter a shared public cache.
 
 Storypane currently sends `Cache-Control: no-store` on public-media responses.
@@ -360,3 +365,5 @@ invalidation policy and versioned image URLs before it is enabled. This is not a
 prerequisite for using the Railway installation. See
 [Cloudflare image options](https://developers.cloudflare.com/images/optimization/features/)
 and [pricing](https://developers.cloudflare.com/images/pricing/) when planning that setup.
+The [media CDN walkthrough](media-cdn.md) covers versioned public exports,
+responsive image URLs, and removal/purge checks.

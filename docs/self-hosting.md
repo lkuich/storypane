@@ -9,7 +9,8 @@ see [editor scaling requirements](deploy-railway.md#scale-editors).
 Published delivery can run in separate replicated processes using the same image
 with `STORYPANE_SERVICE=delivery`; keep editor processes on `combined`. See [delivery configuration and connection budgets](deploy-railway.md#scale-published-delivery-separately).
 
-<aside class="agent-instructions" aria-labelledby="work-with-an-agent">
+<details class="agent-instructions" aria-labelledby="work-with-an-agent">
+<summary>Set up with a coding agent</summary>
 
 <div class="agent-instructions-top"><span class="eyebrow">For coding agents</span></div>
 
@@ -32,7 +33,7 @@ local secret manager or terminal; do not paste them into an agent conversation.
 The setup script configures bundled local services and cannot provision external
 provider credentials.
 
-</aside>
+</details>
 
 The example runs PostgreSQL and an AGPL-licensed MinIO service alongside the
 MIT-licensed CMS. Review [third-party notices](../THIRD_PARTY_NOTICES.md); external
@@ -59,14 +60,15 @@ docker compose --env-file .env.production -f compose.node.yaml exec web \
 
 Bootstrap prompts for an email, name and hidden password. It refuses to create
 another initial administrator. There are no default accounts and no public signup
-or bootstrap endpoint. Sign in, then [create production and linked dev spaces](development-workflow.md).
-Keep production for content editors and its schema read-only; give developers
-dedicated dev spaces for schema changes and reviewed promotion. Only installation
-administrators see database provisioning and connection controls.
-Space settings → Database connection shows the saved URL with its password masked.
-Installation admins can explicitly reveal or copy the full URL; each action checks
+or bootstrap endpoint. Sign in, then [create production and linked dev spaces](development-workflow.md). Keep production for content editors and its schema read-only; give developers
+dedicated dev spaces for schema changes and reviewed promotion.
+
+Only installation
+administrators see database provisioning and connection controls. Space settings → Database connection shows the saved URL with its password masked. Installation admins can explicitly reveal or copy the full URL; each action checks
 the current session, installation privileges and editor origin. Ordinary reads
-return only the masked URL. Space admins
+return only the masked URL.
+
+Space admins
 manage only their space's roles, members, schemas, content and settings.
 
 The Compose layout keeps PostgreSQL and MinIO off host ports and persists both in
@@ -88,7 +90,9 @@ PostgreSQL grants `CONNECT` to `PUBLIC` by default. A dedicated space role must
 have no superuser, create-role or create-database privileges and must not connect
 to any other database. On a **dedicated instance**, the operator must revoke public
 CONNECT on every existing database, including `postgres` and `template1`, then
-grant access to the roles that actually need it. Review existing applications
+grant access to the roles that actually need it.
+
+Review existing applications
 before changing privileges on a shared instance. Automatic provisioning revokes
 public access to each database it creates. Attach rejects nonempty databases,
 privileged/shared roles and databases already bound to another space.
@@ -105,13 +109,14 @@ REVOKE ALL ON DATABASE storypane_installation FROM PUBLIC;
 Configure `S3_ENDPOINT`, `S3_REGION`, `S3_BUCKET`, `S3_ACCESS_KEY_ID`,
 `S3_SECRET_ACCESS_KEY`, and optionally `S3_FORCE_PATH_STYLE=true`. Use a private
 bucket with read, write, multipart-upload and delete permissions. Discarding an
-unfinished upload removes its stored bytes; completed originals are preserved.
-Space IDs prefix original object keys; routing and publication checks
-remain in the application. The installation uses a maximum of five control
-connections and sixteen active space handles with at most two connections each.
-The directory and each background job visit up to three databases concurrently.
-Publication and webhook delivery run independently, so a slow webhook receiver
-cannot delay scheduled publication. Together the two jobs can hold six space
+unfinished upload removes its stored bytes; completed originals are preserved. Space IDs prefix original object keys; routing and publication checks
+remain in the application.
+
+The installation uses a maximum of five control
+connections and sixteen active space handles with at most two connections each. The directory and each background job visit up to three databases concurrently. Publication and webhook delivery run independently, so a slow webhook receiver
+cannot delay scheduled publication.
+
+Together the two jobs can hold six space
 handles within the same installation-wide limit.
 
 ```sh
@@ -185,7 +190,9 @@ Create a mode-600 JSON manifest containing `source` (the old PostgreSQL URL),
 /path/to/manifest.json`. The source transaction is read-only. The command copies
 identities and mappings, preserves all IDs, token hashes, content, histories,
 permissions, schedules and asset keys, validates row values/counts and foreign
-keys, and preserves migration timestamps. Only after every space validates does
+keys, and preserves migration timestamps.
+
+Only after every space validates does
 it commit the installation registry. Opaque previews retain their routing index
 until expiration; token and origin validation still occurs in the space database.
 
@@ -308,16 +315,15 @@ background jobs continue processing other spaces. Health is not full acceptance.
 Follow [deployment verification](deployment-verification.md) before rollout.
 
 For local source development, run `node scripts/setup-env.mjs --local` to create
-ignored `.env` with matching credentials and local backing-service URLs.
-`pnpm db:start` starts private local backing services with the
+ignored `.env` with matching credentials and local backing-service URLs. `pnpm db:start` starts private local backing services with the
 `compose.node.local.yaml` override: PostgreSQL on `127.0.0.1:55450`, S3 on
 `127.0.0.1:59120`. Point installation/provisioning URLs and `S3_ENDPOINT` at those
-host ports. Migrate and bootstrap with
-`node --env-file=.env --import tsx scripts/admin.ts`, then run `pnpm dev`.
-Development and production both attach collaboration sockets and the scheduler.
-`pnpm build && pnpm start` serves a production build with `.env`.
-Existing legacy `compose.yaml` and `db:setup` remain local fixture tools; invoke
+host ports.
+
+Migrate and bootstrap with
+`node --env-file=.env --import tsx scripts/admin.ts`, then run `pnpm dev`. Development and production both attach collaboration sockets and the scheduler. `pnpm build && pnpm start` serves a production build with `.env`. Existing legacy `compose.yaml` and `db:setup` remain local fixture tools; invoke
 `docker compose -f compose.yaml up -d` explicitly for those tests.
+
 Use private `STORYPANE_SESSION_COOKIE` for example setup in local auth mode;
 Clerk mode also accepts `STORYPANE_SESSION_TOKEN`.
 

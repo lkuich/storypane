@@ -11,7 +11,8 @@ ID, and a personal access token. Our agent migrated the block definitions and
 content. This guide turns that approach into a repeatable workflow for your space:
 inspect, map, import, and verify using Storypane's existing APIs.
 
-<aside class="agent-instructions" aria-labelledby="start-with-your-agent">
+<details class="agent-instructions" aria-labelledby="start-with-your-agent">
+<summary>Set up with a coding agent</summary>
 
 <div class="agent-instructions-top"><span class="eyebrow">For coding agents</span></div>
 
@@ -49,7 +50,7 @@ overwrite existing target content, modify Storyblok, or switch my frontend.
 Finish with counts, unresolved mappings, validation results, and rerun steps.
 ```
 
-</aside>
+</details>
 
 ## 1. Give your agent the right access
 
