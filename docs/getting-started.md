@@ -137,7 +137,6 @@ or backed up and the replacement installation is verified. See
 
 - [Node installations](self-hosting.md)
 - [Railway setup and status](deploy-railway.md)
-- [Cloudflare and the static website](deploy-cloudflare.md)
 - [Management API, SDK, CLI, and MCP](management-api.md)
 - [Webhooks](webhooks.md)
 

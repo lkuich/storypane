@@ -73,8 +73,6 @@ Explore the SDK, then choose the integration guide for your framework.
 
 ## Deployment references
 
-- [Cloudflare](deploy-cloudflare.md): Cloudflare Workers Static Assets for the static website and
-  status of the previous CMS Worker runtime.
 - [Railway](deploy-railway.md): deployment template, operations, and optional image CDN setup.
 - [Deployment verification](deployment-verification.md): current acceptance status and
   requirements for hosted installations.

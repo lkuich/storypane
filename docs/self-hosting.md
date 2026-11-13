@@ -330,5 +330,4 @@ Clerk mode also accepts `STORYPANE_SESSION_TOKEN`.
 Cloudflare hosts the static marketing website; this CMS release runs on Node and
 does not deploy to Workers. A previous Worker installation can be retired after
 its content, database, private media and encryption keys have been migrated or
-backed up, and the replacement has passed the relevant acceptance checks. See the
-[Cloudflare guide](deploy-cloudflare.md) before removing legacy resources.
+backed up, and the replacement has passed the relevant acceptance checks.
