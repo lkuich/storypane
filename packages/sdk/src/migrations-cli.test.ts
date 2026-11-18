@@ -94,14 +94,17 @@ it('round trips library organization in v2 migration files while keeping deliver
     ...base.definitions[0],
     id: randomUUID(),
     name: 'child',
+    folderPath: 'Marketing/Heroes',
     parentDefinitionId: base.definitions[0].id,
   };
   const file = cli.migrationFile({ ...base, definitions: [...base.definitions, child] });
   expect(file.formatVersion).toBe(2);
   expect(file.definitions[1].parentDefinitionId).toBe(base.definitions[0].id);
+  expect(file.definitions[1].schema.folderPath).toBe(child.folderPath);
   expect(cli.validateMigration(JSON.parse(JSON.stringify(file)))).toEqual(file);
   expect(file.definitions[1].schema).not.toHaveProperty('parentDefinitionId');
   expect(cli.schemaFromMigration(file).components[1]).not.toHaveProperty('parentDefinitionId');
+  expect(cli.schemaFromMigration(file).components[1]).not.toHaveProperty('folderPath');
 });
 it('creates, deploys noninteractively, archives, and generates only the deployed schema', async () => {
   vi.spyOn(console, 'log').mockImplementation(() => {});

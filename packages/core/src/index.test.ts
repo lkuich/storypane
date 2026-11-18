@@ -73,6 +73,15 @@ describe('schema and content validation', () => {
       ),
     ).toBe(true);
   });
+  it('accepts optional nested block folders and rejects empty segments and control characters', () => {
+    const block = { name: 'hero', displayName: 'Hero', kind: 'nestable', fields: [] };
+    expect(definitionInputSchema.parse(block)).not.toHaveProperty('folderPath');
+    expect(
+      definitionInputSchema.parse({ ...block, folderPath: ' Marketing / Héros ' }).folderPath,
+    ).toBe('Marketing/Héros');
+    for (const folderPath of ['', '/Marketing', 'Marketing/', 'A/ /B', 'A\0B', 'a'.repeat(501)])
+      expect(definitionInputSchema.safeParse({ ...block, folderPath }).success).toBe(false);
+  });
   it('requires a configured default and validates named preview targets and fixed origins', () => {
     const id = '11111111-1111-4111-8111-111111111111';
     const target = { id, name: ' Production ', url: 'https://example.com/{locale}/{slug}' };

@@ -103,6 +103,11 @@ migration**. Close it using **Close dialog** before creating the next definition
 The **Parent block** setting organizes the block library. The **Blocks** field
 created next controls how actual content is nested inside a page.
 
+To group definitions in folders, open a block’s **Config** tab and enter a **Block folder**
+such as `Marketing/Heroes`. Choose an existing path to move the block into that folder,
+or clear the field to move it to the root. Folders appear when they contain blocks.
+Save and deploy the schema migration to make the folders available in the page editor.
+
 ![Block library showing reusable definitions and a Feature definition organized beneath Feature grid.](images/block-library.png)
 
 _Block definitions describe reusable field structures. Library parents organize definitions; Blocks fields control content nesting._
@@ -188,6 +193,10 @@ and continue editing. Connecting a website is optional for this walkthrough.
 Click anywhere in the bottom **Add block** row to append a block to the list. To insert between two blocks, hover over their divider or tab to its controls. Choose the round **+** to open the block picker at that position. If you have a
 compatible copied block, the round clipboard button pastes an independent copy
 there.
+
+The picker shows folders containing blocks allowed in the current field. Open a folder
+to search its blocks and immediate subfolders. Use **Back** and **Forward** to revisit
+a folder, or turn on **Flatten blocks** to search across all folders.
 
 Touch screens keep these controls visible. Block limits and permissions
 still apply. **Clear clipboard** in the editor header empties the clipboard and

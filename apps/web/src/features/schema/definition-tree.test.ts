@@ -43,6 +43,13 @@ it('preserves ancestor context when searching collapsed branches and restores co
   expect([...definitionDescendants(definitions, 'a')]).toEqual(['a', 'child', 'grandchild']);
 });
 
+it('shows a block at the top of its folder when its library parent is elsewhere', () => {
+  const child = definition('hero', 'page');
+  expect(definitionTreeRows([child])).toEqual([
+    { definition: child, depth: 0, hasChildren: false },
+  ]);
+});
+
 it.each<DefinitionSort['column']>(['name', 'kind', 'fields', 'updated', 'references'])(
   'sorts %s in both directions within each parent without mutating definitions',
   (column) => {

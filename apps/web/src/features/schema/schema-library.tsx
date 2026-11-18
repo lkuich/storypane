@@ -27,6 +27,7 @@ import type { RegisterGuard } from '../editor/navigation';
 import { EnvironmentPanel } from './environment-panel';
 import { MigrationPanel } from './migration-panel';
 import { SchemaDrawer } from './schema-drawer';
+import { BlockFolderControls, BlockFolderList, useBlockFolders } from './block-folders';
 import { LibraryBlockPreview } from './library-block-preview';
 import { definitionDescendants, definitionTreeRows, type DefinitionSort } from './definition-tree';
 import type { CMSSession } from '../../components/cms-app';
@@ -56,7 +57,8 @@ export function SchemaLibrary({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [moveError, setMoveError] = useState<string | null>(null);
-  const [search, setSearch] = useState('');
+  const browser = useBlockFolders(definitions);
+  const { search, setSearch } = browser;
   const [showReferences, setShowReferences] = useState(false);
   const [referenceCounts, setReferenceCounts] = useState<Record<string, number> | null>(null);
   const [referenceError, setReferenceError] = useState('');
@@ -146,7 +148,13 @@ export function SchemaLibrary({
       window.removeEventListener('focus', refresh);
     };
   }, [showReferences, referenceAttempt]);
-  const rows = definitionTreeRows(definitions, collapsed, search, sort, referenceCounts ?? {});
+  const rows = definitionTreeRows(
+    browser.definitions,
+    collapsed,
+    search,
+    sort,
+    referenceCounts ?? {},
+  );
   const publishedInputs = new Map(
     deployed.map((item) => [
       item.id,
@@ -236,7 +244,10 @@ export function SchemaLibrary({
           <input
             type="search"
             aria-label="Search blocks"
-            placeholder="Search your blocks…"
+            ref={browser.searchRef}
+            placeholder={
+              browser.hasFolders && !browser.flat ? 'Search this folder…' : 'Search your blocks…'
+            }
             value={search}
             onChange={(event) => setSearch(event.target.value)}
           />
@@ -282,7 +293,13 @@ export function SchemaLibrary({
           retry={() => setReferenceAttempt((attempt) => attempt + 1)}
         />
       )}
-      <div className="panel definition-library" aria-busy={moving}>
+      <BlockFolderControls browser={browser} />
+      <BlockFolderList browser={browser} />
+      <div
+        className="panel definition-library"
+        aria-busy={moving}
+        hidden={!loading && !rows.length && !!browser.children.length}
+      >
         {loading ? (
           <Loading />
         ) : rows.length ? (
@@ -432,6 +449,9 @@ export function SchemaLibrary({
                             }) && <span className="pill pill--outline">Pending migration</span>}
                         </div>
                         <div className="entity-subtitle mono">{item.name}</div>
+                        {browser.flat && item.folderPath && (
+                          <div className="entity-subtitle">{item.folderPath}</div>
+                        )}
                       </div>
                     </div>
                   </td>
@@ -537,6 +557,11 @@ export function SchemaLibrary({
           key={editing === 'new' ? `new-${initialParentId ?? 'root'}` : editing.id}
           initialDefinition={editing === 'new' ? null : editing}
           initialParentId={editing === 'new' ? initialParentId : undefined}
+          initialFolderPath={
+            browser.flat
+              ? definitions.find((item) => item.id === initialParentId)?.folderPath
+              : browser.folder || undefined
+          }
           initialView={initialView}
           definitions={definitions}
           datasources={datasources}

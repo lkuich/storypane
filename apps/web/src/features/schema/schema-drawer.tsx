@@ -19,6 +19,7 @@ import { api, errorMessage, fieldName, jsonRequest } from '../editor/api';
 import type { RegisterGuard } from '../editor/navigation';
 import { FieldSettings, newField } from './field-settings';
 import { ParentBlockPicker } from './parent-block-picker';
+import { blockFolderPaths } from './block-folders';
 import { DefinitionReferences } from './definition-references';
 import { FIELD_CHOICES, FieldTypePicker, choiceForField } from './field-type-picker';
 import type { CMSSession } from '../../components/cms-app';
@@ -36,6 +37,7 @@ export function SchemaDrawer({
   initialDefinition,
   initialFieldName,
   initialParentId,
+  initialFolderPath,
   initialView,
   definitions,
   datasources,
@@ -49,6 +51,7 @@ export function SchemaDrawer({
   initialDefinition: BlockDefinition | null;
   initialFieldName?: string;
   initialParentId?: string;
+  initialFolderPath?: string;
   initialView?: 'fields' | 'references' | 'delete';
   definitions: BlockDefinition[];
   datasources: Datasource[];
@@ -68,7 +71,7 @@ export function SchemaDrawer({
   const [draft, setDraft] = useState<DefinitionInput>(() =>
     initialDefinition
       ? structuredClone(definitionInput(initialDefinition))
-      : structuredClone(emptyDefinition),
+      : { ...structuredClone(emptyDefinition), folderPath: initialFolderPath },
   );
   const [parentId, setParentId] = useState<string | null>(
     initialDefinition?.parentDefinitionId ?? initialParentId ?? null,
@@ -472,6 +475,7 @@ export function SchemaDrawer({
                         onClick={() => {
                           change({
                             ...structuredClone(seoBlockPreset),
+                            folderPath: draft.folderPath,
                             fields: seoBlockPreset.fields.map((field) => ({
                               ...structuredClone(field),
                               id: crypto.randomUUID(),
@@ -532,6 +536,27 @@ export function SchemaDrawer({
                     disabled={!canManage || busy}
                     onChange={(next) => void changeParent(next)}
                   />
+                  <Field
+                    label="Block folder"
+                    htmlFor="definition-folder"
+                    description="Choose or type a folder. Use / for subfolders, or leave it blank for the root."
+                  >
+                    <input
+                      id="definition-folder"
+                      list="definition-folder-paths"
+                      placeholder="e.g. Marketing/Heroes"
+                      maxLength={500}
+                      value={draft.folderPath ?? ''}
+                      onChange={(event) =>
+                        change({ ...draft, folderPath: event.target.value || undefined })
+                      }
+                    />
+                    <datalist id="definition-folder-paths">
+                      {blockFolderPaths(availableDefinitions).map((path) => (
+                        <option key={path} value={path} />
+                      ))}
+                    </datalist>
+                  </Field>
                   <Field
                     label="Tags"
                     htmlFor="definition-tags"

@@ -3653,6 +3653,13 @@ main.login-form-wrap {
 .block-picker-search .search-input {
   width: 100%;
 }
+.block-folder-controls > strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.block-picker-body .content-folders {
+  grid-template-columns: 1fr;
+}
 .block-picker-body {
   padding-top: 4px;
 }

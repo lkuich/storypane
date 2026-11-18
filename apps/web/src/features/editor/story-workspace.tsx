@@ -75,6 +75,7 @@ import { ReleaseStoryView } from './release-story-view';
 import { BlockPreview } from './block-preview';
 import { BlockNavigation, blockSummary, blockTitle, definitionFor } from './block-navigation';
 import { SchemaDrawer } from '../schema/schema-drawer';
+import { BlockFolderControls, BlockFolderList, useBlockFolders } from '../schema/block-folders';
 import { StoryActionsDialog } from '../content/story-actions-dialog';
 import { PublicationSchedules, ScheduleForm } from './publication-schedules';
 import { PendingSchemaMigration } from '../schema/pending-schema-migration';
@@ -402,7 +403,15 @@ function LocaleEditor({
     position?: number;
   } | null>(null);
   const [addDefinition, setAddDefinition] = useState('');
-  const [blockSearch, setBlockSearch] = useState('');
+  const availableDefinitions = addTo
+    ? definitions.filter((item) => isBlockAllowed(addTo.field, item))
+    : [];
+  const blockFolders = useBlockFolders(availableDefinitions);
+  function openBlockPicker(target: NonNullable<typeof addTo>) {
+    setAddTo(target);
+    setAddDefinition('');
+    blockFolders.reset();
+  }
   const [historyOpen, setHistoryOpen] = useState(false);
   const [history, setHistory] = useState<Checkpoint[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
@@ -849,13 +858,10 @@ function LocaleEditor({
       Date.parse(lease.expiresAt) > Date.now(),
   );
   const selectedEditor = currentEditors.find((editor) => editor.userId === selectedLease?.userId);
-  const availableDefinitions = definitions.filter((item) =>
-    addTo ? isBlockAllowed(addTo.field, item) : item.kind !== 'content-type',
-  );
-  const matchingDefinitions = availableDefinitions.filter((item) =>
+  const matchingDefinitions = blockFolders.definitions.filter((item) =>
     `${item.displayName} ${item.name} ${(item.tags ?? []).join(' ')}`
       .toLowerCase()
-      .includes(blockSearch.trim().toLowerCase()),
+      .includes(blockFolders.search.trim().toLowerCase()),
   );
   const structureDisabled =
     !can(session.space, 'content:edit') ||
@@ -1642,11 +1648,9 @@ function LocaleEditor({
                                       }
                                       aria-label={`Add block before ${blockTitle(snapshot, child)}`}
                                       title="Add block here"
-                                      onClick={() => {
-                                        setAddTo({ parentId: block.id, field, position });
-                                        setAddDefinition('');
-                                        setBlockSearch('');
-                                      }}
+                                      onClick={() =>
+                                        openBlockPicker({ parentId: block.id, field, position })
+                                      }
                                     >
                                       <Plus aria-hidden="true" />
                                     </Button>
@@ -1751,11 +1755,7 @@ function LocaleEditor({
                                           item.parentField === field.name,
                                       ).length >= field.maxItems)
                                   }
-                                  onClick={() => {
-                                    setAddTo({ parentId: block.id, field });
-                                    setAddDefinition('');
-                                    setBlockSearch('');
-                                  }}
+                                  onClick={() => openBlockPicker({ parentId: block.id, field })}
                                 >
                                   <Plus /> Add block
                                 </Button>
@@ -1954,9 +1954,7 @@ function LocaleEditor({
                   }
                   onClick={() => {
                     setOutlineOpen(false);
-                    setAddTo({ parentId: root.id, field });
-                    setAddDefinition('');
-                    setBlockSearch('');
+                    openBlockPicker({ parentId: root.id, field });
                   }}
                 >
                   <Plus />
@@ -2037,28 +2035,33 @@ function LocaleEditor({
         description={addTo ? `Choose a block to add to ${addTo.field.label}.` : undefined}
       >
         <div className="block-picker-search">
+          <BlockFolderControls browser={blockFolders} />
           <label className="search-input">
             <Search aria-hidden="true" />
             <input
               type="search"
               aria-label="Search blocks"
-              placeholder="Search blocks…"
+              ref={blockFolders.searchRef}
+              placeholder={
+                blockFolders.hasFolders && !blockFolders.flat
+                  ? 'Search this folder…'
+                  : 'Search blocks…'
+              }
               autoFocus
-              value={blockSearch}
-              onChange={(event) => setBlockSearch(event.target.value)}
+              value={blockFolders.search}
+              onChange={(event) => blockFolders.setSearch(event.target.value)}
             />
           </label>
         </div>
         <div className="schema-drawer-body block-picker-body" aria-busy={busy}>
           <ErrorNotice message={editor.error} />
+          <BlockFolderList browser={blockFolders} />
           {!availableDefinitions.length ? (
             <EmptyState title="No blocks available">
-              <p>Create a nestable or universal block that matches this field’s restrictions.</p>
+              Create a nestable or universal block that matches this field’s restrictions.
             </EmptyState>
-          ) : !matchingDefinitions.length ? (
-            <EmptyState title="No matching blocks">
-              <p>Try another name or tag.</p>
-            </EmptyState>
+          ) : !matchingDefinitions.length && !blockFolders.children.length ? (
+            <EmptyState title="No matching blocks">Try another name or tag.</EmptyState>
           ) : (
             <div className="block-picker-list" aria-label="Available blocks">
               {matchingDefinitions.map((item) => (

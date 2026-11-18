@@ -53,7 +53,8 @@ export function definitionTreeRows(
     );
   });
   for (const item of ordered) {
-    const parent = item.parentDefinitionId ?? null;
+    const parent =
+      item.parentDefinitionId && byId.has(item.parentDefinitionId) ? item.parentDefinitionId : null;
     const siblings = children.get(parent) ?? [];
     siblings.push(item);
     children.set(parent, siblings);
