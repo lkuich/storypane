@@ -1,7 +1,15 @@
 'use client';
 
 import { useEffect, useRef, useState, type DragEvent, type FormEvent } from 'react';
-import { ArrowDown, ArrowUp, ChevronDown, GitBranch, GripVertical, Trash2 } from 'lucide-react';
+import {
+  ArrowDown,
+  ArrowUp,
+  ChevronDown,
+  FolderPlus,
+  GitBranch,
+  GripVertical,
+  Trash2,
+} from 'lucide-react';
 import {
   can,
   canonicalJson,
@@ -19,7 +27,7 @@ import { api, errorMessage, fieldName, jsonRequest } from '../editor/api';
 import type { RegisterGuard } from '../editor/navigation';
 import { FieldSettings, newField } from './field-settings';
 import { ParentBlockPicker } from './parent-block-picker';
-import { blockFolderPaths } from './block-folders';
+import { blockFolderPaths, NewBlockFolderDialog } from './block-folders';
 import { DefinitionReferences } from './definition-references';
 import { FIELD_CHOICES, FieldTypePicker, choiceForField } from './field-type-picker';
 import type { CMSSession } from '../../components/cms-app';
@@ -38,6 +46,8 @@ export function SchemaDrawer({
   initialFieldName,
   initialParentId,
   initialFolderPath,
+  savedFolderPaths,
+  onFolderCreated,
   initialView,
   definitions,
   datasources,
@@ -52,6 +62,8 @@ export function SchemaDrawer({
   initialFieldName?: string;
   initialParentId?: string;
   initialFolderPath?: string;
+  savedFolderPaths: string[];
+  onFolderCreated: (path: string) => void;
   initialView?: 'fields' | 'references' | 'delete';
   definitions: BlockDefinition[];
   datasources: Datasource[];
@@ -73,6 +85,7 @@ export function SchemaDrawer({
       ? structuredClone(definitionInput(initialDefinition))
       : { ...structuredClone(emptyDefinition), folderPath: initialFolderPath },
   );
+  const [newFolder, setNewFolder] = useState(false);
   const [parentId, setParentId] = useState<string | null>(
     initialDefinition?.parentDefinitionId ?? initialParentId ?? null,
   );
@@ -536,26 +549,28 @@ export function SchemaDrawer({
                     disabled={!canManage || busy}
                     onChange={(next) => void changeParent(next)}
                   />
-                  <Field
-                    label="Block folder"
-                    htmlFor="definition-folder"
-                    description="Choose or type a folder. Use / for subfolders, or leave it blank for the root."
-                  >
-                    <input
-                      id="definition-folder"
-                      list="definition-folder-paths"
-                      placeholder="e.g. Marketing/Heroes"
-                      maxLength={500}
-                      value={draft.folderPath ?? ''}
-                      onChange={(event) =>
-                        change({ ...draft, folderPath: event.target.value || undefined })
-                      }
-                    />
-                    <datalist id="definition-folder-paths">
-                      {blockFolderPaths(availableDefinitions).map((path) => (
-                        <option key={path} value={path} />
-                      ))}
-                    </datalist>
+                  <Field label="Block folder" htmlFor="definition-folder">
+                    <div className="block-folder-field">
+                      <select
+                        id="definition-folder"
+                        value={draft.folderPath ?? ''}
+                        onChange={(event) =>
+                          change({ ...draft, folderPath: event.target.value || undefined })
+                        }
+                      >
+                        <option value="">Root</option>
+                        {blockFolderPaths(availableDefinitions, savedFolderPaths).map((path) => (
+                          <option key={path} value={path}>
+                            {path}
+                          </option>
+                        ))}
+                      </select>
+                      {canManage && (
+                        <Button onClick={() => setNewFolder(true)}>
+                          <FolderPlus /> New folder
+                        </Button>
+                      )}
+                    </div>
                   </Field>
                   <Field
                     label="Tags"
@@ -935,6 +950,16 @@ export function SchemaDrawer({
           </div>
         )}
       </Modal>
+      {newFolder && (
+        <NewBlockFolderDialog
+          parent={draft.folderPath ?? ''}
+          onClose={() => setNewFolder(false)}
+          onCreated={(path) => {
+            onFolderCreated(path);
+            change({ ...draft, folderPath: path });
+          }}
+        />
+      )}
       <Modal
         open={confirmDelete}
         onClose={cancelDelete}

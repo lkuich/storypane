@@ -3,12 +3,12 @@
 import { useRef, useState } from 'react';
 import { ArrowLeft, ArrowRight, ChevronRight, Folder } from 'lucide-react';
 import type { BlockDefinition } from '@storypane/core';
-import { Button } from '@storypane/ui';
+import { Button, ErrorNotice, Field, Modal } from '@storypane/ui';
+import { api, errorMessage, jsonRequest } from '../editor/api';
 
-export function blockFolderPaths(definitions: BlockDefinition[]) {
+export function blockFolderPaths(definitions: BlockDefinition[], savedPaths: string[]) {
   const paths = new Set<string>();
-  for (const definition of definitions) {
-    let path = definition.folderPath;
+  for (let path of [...savedPaths, ...definitions.map((item) => item.folderPath)]) {
     while (path && !paths.has(path)) {
       paths.add(path);
       path = path.substring(0, path.lastIndexOf('/'));
@@ -17,12 +17,12 @@ export function blockFolderPaths(definitions: BlockDefinition[]) {
   return [...paths].sort((a, b) => a.localeCompare(b));
 }
 
-export function useBlockFolders(definitions: BlockDefinition[]) {
+export function useBlockFolders(definitions: BlockDefinition[], savedPaths: string[]) {
   const [history, setHistory] = useState({ entries: [''], index: 0 });
   const [flat, setFlat] = useState(false);
   const [search, setSearch] = useState('');
   const searchRef = useRef<HTMLInputElement>(null);
-  const paths = blockFolderPaths(definitions);
+  const paths = blockFolderPaths(definitions, savedPaths);
   // Refreshes can remove the last block in the current folder.
   const entries = history.entries.filter((path) => !path || paths.includes(path));
   const index = Math.min(history.index, entries.length - 1);
@@ -66,7 +66,6 @@ export function useBlockFolders(definitions: BlockDefinition[]) {
 type FolderBrowser = ReturnType<typeof useBlockFolders>;
 
 export function BlockFolderControls({ browser }: { browser: FolderBrowser }) {
-  if (!browser.hasFolders) return null;
   return (
     <nav className="content-folder-breadcrumbs block-folder-controls" aria-label="Block folders">
       {!browser.flat && (
@@ -130,5 +129,70 @@ export function BlockFolderList({ browser }: { browser: FolderBrowser }) {
         );
       })}
     </section>
+  );
+}
+
+export function NewBlockFolderDialog({
+  parent,
+  onClose,
+  onCreated,
+}: {
+  parent: string;
+  onClose: () => void;
+  onCreated: (path: string) => void;
+}) {
+  const [name, setName] = useState('');
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  return (
+    <Modal
+      open
+      closeOnBackdrop
+      title="New block folder"
+      description={`Create in ${parent || 'Root'}. Use / to create subfolders.`}
+      onClose={() => !busy && onClose()}
+    >
+      <form
+        onSubmit={async (event) => {
+          event.preventDefault();
+          if (busy) return;
+          setBusy(true);
+          setError('');
+          try {
+            const path = await api<string>(
+              '/block-folders',
+              jsonRequest('POST', { path: parent ? parent + '/' + name : name }),
+            );
+            onCreated(path);
+            onClose();
+          } catch (cause) {
+            setError(errorMessage(cause));
+          } finally {
+            setBusy(false);
+          }
+        }}
+      >
+        <ErrorNotice message={error} />
+        <Field label="Folder name" htmlFor="new-block-folder-name">
+          <input
+            id="new-block-folder-name"
+            autoFocus
+            required
+            disabled={busy}
+            maxLength={500}
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+          />
+        </Field>
+        <div className="button-group">
+          <Button disabled={busy} onClick={onClose}>
+            Cancel
+          </Button>
+          <Button type="submit" variant="primary" disabled={busy || !name.trim()}>
+            Create folder
+          </Button>
+        </div>
+      </form>
+    </Modal>
   );
 }

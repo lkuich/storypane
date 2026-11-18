@@ -81,6 +81,7 @@ test('read-only schemas explain protection and permissions, with accessible dev 
     const space =
       route.request().headers()['x-storypane-space-id'] === developer.id ? developer : current;
     const responses: Record<string, unknown> = {
+      '/block-folders': [],
       '/definitions': [definition],
       '/reviews': [],
       '/datasources': [],

@@ -3653,6 +3653,18 @@ main.login-form-wrap {
 .block-picker-search .search-input {
   width: 100%;
 }
+.block-folder-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.block-folder-field select {
+  flex: 1;
+  min-width: 0;
+}
+.block-folder-field .button {
+  flex-shrink: 0;
+}
 .block-folder-controls > strong {
   min-width: 0;
   overflow-wrap: anywhere;

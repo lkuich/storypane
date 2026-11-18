@@ -490,6 +490,16 @@ export const fieldDefinitionSchema = z.discriminatedUnion('type', [
     ),
 ]);
 export type FieldDefinition = z.infer<typeof fieldDefinitionSchema>;
+export const blockFolderPathSchema = z
+  .string()
+  .max(500)
+  .transform((path) =>
+    path
+      .split('/')
+      .map((name) => name.trim())
+      .join('/'),
+  )
+  .pipe(z.string().regex(/^[^/\p{Cc}]+(?:\/[^/\p{Cc}]+)*$/u, 'Use folder names separated by /'));
 export const definitionInputSchema = z
   .object({
     name: z
@@ -501,17 +511,7 @@ export const definitionInputSchema = z
       .max(80),
     displayName: z.string().min(1).max(120),
     kind: z.enum(['nestable', 'content-type', 'universal']),
-    folderPath: z
-      .string()
-      .max(500)
-      .transform((path) =>
-        path
-          .split('/')
-          .map((name) => name.trim())
-          .join('/'),
-      )
-      .pipe(z.string().regex(/^[^/\p{Cc}]+(?:\/[^/\p{Cc}]+)*$/u, 'Use folder names separated by /'))
-      .optional(),
+    folderPath: blockFolderPathSchema.optional(),
     tags: tagsSchema.optional(),
     fields: z.array(fieldDefinitionSchema).max(200),
     previewData: z

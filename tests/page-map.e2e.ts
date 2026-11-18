@@ -155,6 +155,7 @@ async function mockEditor(page: Page) {
     const data: Record<string, unknown> = {
       '/stories': stories,
       '/locales': locales,
+      '/block-folders': [],
       '/definitions': [definition],
       '/presence': {},
       '/delivery-settings': {

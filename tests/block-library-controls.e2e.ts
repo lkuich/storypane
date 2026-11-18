@@ -107,6 +107,7 @@ test('block columns, references and row actions work with nesting, permissions a
     }
     const responses: Record<string, unknown> = {
       '/reviews': [],
+      '/block-folders': [],
       '/definitions': definitions,
       '/datasources': [],
       '/migrations': [],

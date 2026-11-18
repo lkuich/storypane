@@ -23,11 +23,48 @@ test('organizes blocks and browses only eligible blocks by folder or in a flat l
     expect(signIn.ok()).toBe(true);
     const page = await context.newPage();
     await dismissRecommendedSetup(page);
-    await page.goto(`/?space=${spaceId}&view=blocks`);
+    const editorUrl = `/?space=${spaceId}&story=${storyId}`;
+    const libraryUrl = `/?space=${spaceId}&view=blocks`;
+    const add = page
+      .getByRole('region', { name: 'Block editor' })
+      .getByRole('button', { name: 'Add block', exact: true });
+    const picker = page.getByRole('dialog', { name: 'Add a block' });
+    const navigation = picker.getByRole('navigation', { name: 'Block folders' });
+    await page.goto(editorUrl);
+    await expect(add).toBeEnabled();
+    await add.press('Enter');
+    await expect(navigation.getByRole('status')).toHaveText('Root');
+    await expect(navigation.getByRole('button', { name: 'Back' })).toBeDisabled();
+    await expect(navigation.getByRole('button', { name: 'Forward' })).toBeDisabled();
+    await expect(navigation.getByRole('checkbox', { name: 'Flatten blocks' })).toBeVisible();
+    await page.keyboard.press('Escape');
+
+    await page.goto(libraryUrl);
+    const createFolder = page.getByRole('dialog', { name: 'New block folder' });
+    await page.getByRole('button', { name: 'New folder', exact: true }).click();
+    await createFolder.getByLabel('Folder name').fill('Marketing');
+    await createFolder.getByRole('button', { name: 'Create folder' }).press('Enter');
+    await expect(createFolder).toBeHidden();
+    await page.reload();
+    await page.getByRole('button', { name: 'Open folder Marketing' }).click();
+    await expect(page.getByRole('heading', { name: 'This folder is empty' })).toBeVisible();
+    await page.goto(editorUrl);
+    await expect(add).toBeEnabled();
+    await add.press('Enter');
+    await picker.getByRole('button', { name: 'Open folder Marketing' }).click();
+    await expect(picker.getByRole('heading', { name: 'This folder is empty' })).toBeVisible();
+    await page.keyboard.press('Escape');
+
+    await page.goto(libraryUrl);
     await page.getByRole('button', { name: 'Edit Hero', exact: true }).click();
     const drawer = page.getByRole('dialog', { name: "Edit 'hero'" });
     await drawer.getByRole('tab', { name: 'Config' }).click();
-    await drawer.getByLabel('Block folder', { exact: true }).fill('Marketing / Heroes');
+    const folderSelect = drawer.getByRole('combobox', { name: 'Block folder', exact: true });
+    await folderSelect.selectOption('Marketing');
+    await drawer.getByRole('button', { name: 'New folder', exact: true }).click();
+    await createFolder.getByLabel('Folder name').fill('Heroes');
+    await createFolder.getByRole('button', { name: 'Create folder' }).press('Enter');
+    await expect(folderSelect).toHaveValue('Marketing/Heroes');
     await drawer.getByRole('button', { name: 'Save to migration' }).click();
     await expect(drawer.getByText('Saved to active migration')).toBeVisible();
     await drawer.getByRole('button', { name: 'Close dialog' }).click();
@@ -83,10 +120,6 @@ test('organizes blocks and browses only eligible blocks by folder or in a flat l
     const before = await snapshot();
 
     await page.goto(`/?space=${spaceId}&story=${storyId}`);
-    const add = page
-      .getByRole('region', { name: 'Block editor' })
-      .getByRole('button', { name: 'Add block', exact: true });
-    const picker = page.getByRole('dialog', { name: 'Add a block' });
     const search = picker.getByRole('searchbox', { name: 'Search blocks' });
     const button = (name: string) => picker.getByRole('button', { name, exact: true });
     const flat = picker.getByRole('checkbox', { name: 'Flatten blocks' });
@@ -145,7 +178,7 @@ test('organizes blocks and browses only eligible blocks by folder or in a flat l
     await page.getByRole('button', { name: 'Edit Card', exact: true }).click();
     const cardDrawer = page.getByRole('dialog', { name: "Edit 'card'" });
     await cardDrawer.getByRole('tab', { name: 'Config' }).click();
-    await cardDrawer.getByLabel('Block folder', { exact: true }).fill('');
+    await cardDrawer.getByRole('combobox', { name: 'Block folder', exact: true }).selectOption('');
     await cardDrawer.getByRole('button', { name: 'Save to migration' }).click();
     await expect(cardDrawer.getByText('Saved to active migration')).toBeVisible();
     await cardDrawer.getByRole('button', { name: 'Close dialog' }).click();

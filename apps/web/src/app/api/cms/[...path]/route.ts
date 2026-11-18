@@ -332,6 +332,11 @@ async function handle(request: Request, route: { params: Promise<{ path: string[
         cache: await openCache('storypane-thumbnails-v1'),
       });
     }
+    if (resource === 'block-folders' && path.length === 1) {
+      if (method === 'GET') return jsonResponse(await store.listBlockFolders(actor));
+      if (method === 'POST')
+        return jsonResponse(await store.createBlockFolder(actor, await readJson(request)), 201);
+    }
     if (resource === 'definitions') {
       if (method === 'GET' && id === 'reference-counts' && !child)
         return jsonResponse(await store.listDefinitionReferenceCounts(actor));

@@ -33,6 +33,7 @@ import {
   datasourceInputSchema,
   defaultFields,
   definitionInputSchema,
+  blockFolderPathSchema,
   definitionParentSchema,
   validateDefinitionHierarchy,
   localeInputSchema,
@@ -2220,6 +2221,29 @@ export class StorypaneStore {
         });
     }
     return snapshot;
+  }
+  async listBlockFolders(actor: Actor): Promise<string[]> {
+    return this.tx(actor, async (client) => {
+      if (!unrestrictedRead(await this.contentAccess(client, actor))) return [];
+      const { rows } = await client.query('SELECT block_folder_paths FROM spaces WHERE id=$1', [
+        actor.spaceId,
+      ]);
+      return rows[0].block_folder_paths;
+    });
+  }
+  async createBlockFolder(actor: Actor, raw: unknown): Promise<string> {
+    const { path } = parseInput(z.object({ path: blockFolderPathSchema }).strict(), raw);
+    return this.tx(
+      actor,
+      async (client) => {
+        await client.query(
+          'UPDATE spaces SET block_folder_paths=array_append(block_folder_paths,$2) WHERE id=$1 AND NOT ($2=ANY(block_folder_paths))',
+          [actor.spaceId, path],
+        );
+        return path;
+      },
+      'schemas:write',
+    );
   }
   async listDefinitions(actor: Actor, deployed = false): Promise<BlockDefinition[]> {
     return this.tx(actor, async (client) => {

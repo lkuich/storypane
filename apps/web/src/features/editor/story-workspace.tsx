@@ -116,6 +116,7 @@ export function StoryWorkspace({
   const [locales, setLocales] = useState<StoryLocale[]>([]);
   const [configuredLocales, setConfiguredLocales] = useState<SpaceLocale[]>([]);
   const [definitions, setDefinitions] = useState<BlockDefinition[]>([]);
+  const [savedFolderPaths, setSavedFolderPaths] = useState<string[]>([]);
   const [initialSnapshot, setInitialSnapshot] = useState<LocaleSnapshot | null>(null);
   const [previewOpen, setPreviewOpen] = useState(true);
   const [previewSettings, setPreviewSettings] = useState<UserDeliverySettings | null>(null);
@@ -140,11 +141,12 @@ export function StoryWorkspace({
     setLoading(true);
     setError(null);
     void (async () => {
-      const [available, blocks, configured, settings] = await Promise.all([
+      const [available, blocks, configured, settings, folders] = await Promise.all([
         api<StoryLocale[]>(`/stories/${story.id}/locales`),
         api<BlockDefinition[]>('/definitions?deployed=true'),
         api<SpaceLocale[]>('/locales'),
         api<UserDeliverySettings>('/delivery-settings').catch(() => null),
+        api<string[]>('/block-folders'),
       ]);
       const requestedLocale = new URLSearchParams(window.location.search).get('locale');
       const target =
@@ -176,6 +178,7 @@ export function StoryWorkspace({
       );
       setConfiguredLocales(configured);
       setDefinitions(blocks);
+      setSavedFolderPaths(folders);
       setPreviewSettings(settings);
       setInitialSnapshot(snapshot);
       setStoryLocation(
@@ -267,6 +270,10 @@ export function StoryWorkspace({
             switchingLocale={busy}
             definitions={definitions}
             onDefinitions={setDefinitions}
+            savedFolderPaths={savedFolderPaths}
+            onFolderCreated={(path) =>
+              setSavedFolderPaths((current) => [...new Set([...current, path])])
+            }
             session={session}
             registerGuard={register}
             onLocale={(id) => void switchLocale(id)}
@@ -299,6 +306,8 @@ function LocaleEditor({
   switchingLocale,
   definitions,
   onDefinitions,
+  savedFolderPaths,
+  onFolderCreated,
   session,
   registerGuard,
   onLocale,
@@ -319,6 +328,8 @@ function LocaleEditor({
   switchingLocale: boolean;
   definitions: BlockDefinition[];
   onDefinitions: (definitions: BlockDefinition[]) => void;
+  savedFolderPaths: string[];
+  onFolderCreated: (path: string) => void;
   session: CMSSession;
   registerGuard: RegisterGuard;
   onLocale: (id: string) => void;
@@ -406,7 +417,12 @@ function LocaleEditor({
   const availableDefinitions = addTo
     ? definitions.filter((item) => isBlockAllowed(addTo.field, item))
     : [];
-  const blockFolders = useBlockFolders(availableDefinitions);
+  const blockFolders = useBlockFolders(
+    availableDefinitions,
+    addTo && !addTo.field.allowedDefinitionIds?.length && !addTo.field.allowedTags?.length
+      ? savedFolderPaths
+      : [],
+  );
   function openBlockPicker(target: NonNullable<typeof addTo>) {
     setAddTo(target);
     setAddDefinition('');
@@ -1864,6 +1880,8 @@ function LocaleEditor({
         <SchemaDrawer
           initialDefinition={schema.definition}
           initialFieldName={schema.fieldName}
+          savedFolderPaths={savedFolderPaths}
+          onFolderCreated={onFolderCreated}
           definitions={schema.definitions}
           datasources={schema.datasources}
           space={session.space}
@@ -2056,7 +2074,15 @@ function LocaleEditor({
         <div className="schema-drawer-body block-picker-body" aria-busy={busy}>
           <ErrorNotice message={editor.error} />
           <BlockFolderList browser={blockFolders} />
-          {!availableDefinitions.length ? (
+          {!blockFolders.flat &&
+          blockFolders.folder &&
+          !blockFolders.children.length &&
+          !blockFolders.definitions.length &&
+          !blockFolders.search.trim() ? (
+            <EmptyState title="This folder is empty">
+              Choose another folder to add a block.
+            </EmptyState>
+          ) : !availableDefinitions.length && !blockFolders.children.length ? (
             <EmptyState title="No blocks available">
               Create a nestable or universal block that matches this field’s restrictions.
             </EmptyState>

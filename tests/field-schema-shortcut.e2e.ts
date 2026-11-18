@@ -107,6 +107,7 @@ test('field gears open the matching active schema with keyboard access and schem
       [base]: snapshot,
       [`${base}/schedules`]: [],
       '/locales': [{ id: locale.spaceLocaleId, name: 'English', slug: '', isDefault: true }],
+      '/block-folders': [],
       '/definitions': [url.searchParams.has('deployed') ? definition : active],
       [`/definitions/${definition.id}/references`]: { items: [], total: 0 },
       '/datasources': [],

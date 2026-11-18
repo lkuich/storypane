@@ -7,6 +7,7 @@ import {
   ArrowUpDown,
   Box,
   ChevronRight,
+  FolderPlus,
   GripVertical,
   Layers,
   Pencil,
@@ -27,7 +28,12 @@ import type { RegisterGuard } from '../editor/navigation';
 import { EnvironmentPanel } from './environment-panel';
 import { MigrationPanel } from './migration-panel';
 import { SchemaDrawer } from './schema-drawer';
-import { BlockFolderControls, BlockFolderList, useBlockFolders } from './block-folders';
+import {
+  BlockFolderControls,
+  BlockFolderList,
+  NewBlockFolderDialog,
+  useBlockFolders,
+} from './block-folders';
 import { LibraryBlockPreview } from './library-block-preview';
 import { definitionDescendants, definitionTreeRows, type DefinitionSort } from './definition-tree';
 import type { CMSSession } from '../../components/cms-app';
@@ -57,7 +63,9 @@ export function SchemaLibrary({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [moveError, setMoveError] = useState<string | null>(null);
-  const browser = useBlockFolders(definitions);
+  const [savedFolderPaths, setSavedFolderPaths] = useState<string[]>([]);
+  const [newFolder, setNewFolder] = useState(false);
+  const browser = useBlockFolders(definitions, savedFolderPaths);
   const { search, setSearch } = browser;
   const [showReferences, setShowReferences] = useState(false);
   const [referenceCounts, setReferenceCounts] = useState<Record<string, number> | null>(null);
@@ -80,14 +88,16 @@ export function SchemaLibrary({
     state.pending++;
     if (foreground) setLoading(true);
     try {
-      const [blocks, sources, published] = await Promise.all([
+      const [blocks, sources, published, folders] = await Promise.all([
         api<BlockDefinition[]>('/definitions'),
         api<Datasource[]>('/datasources'),
         api<BlockDefinition[]>('/definitions?deployed=true'),
+        api<string[]>('/block-folders'),
       ]);
       if (current !== state.id) return;
       setError(null);
       setDeployed(published);
+      setSavedFolderPaths(folders);
       setDefinitions(blocks);
       setDatasources(sources);
     } catch (cause) {
@@ -172,6 +182,10 @@ export function SchemaLibrary({
     canManage &&
     (source.parentDefinitionId ?? null) !== parentId &&
     (!parentId || !excluded.has(parentId));
+  function folderCreated(path: string) {
+    requests.current.id++;
+    setSavedFolderPaths((current) => [...new Set([...current, path])]);
+  }
   function create(parentId?: string) {
     setInitialView(undefined);
     setInitialParentId(parentId);
@@ -221,9 +235,14 @@ export function SchemaLibrary({
           <p>The building blocks behind your stories.</p>
         </div>
         {canManage && (
-          <Button variant="primary" disabled={moving} onClick={() => create()}>
-            <Plus /> New block
-          </Button>
+          <div className="button-group">
+            <Button disabled={moving} onClick={() => setNewFolder(true)}>
+              <FolderPlus /> New folder
+            </Button>
+            <Button variant="primary" disabled={moving} onClick={() => create()}>
+              <Plus /> New block
+            </Button>
+          </div>
         )}
       </div>
       <EnvironmentPanel canDeploy={canDeploy} onApply={load} spaceName={space.name} />
@@ -535,22 +554,43 @@ export function SchemaLibrary({
           </table>
         ) : (
           <EmptyState
-            title={search ? 'No matching blocks' : 'Good content starts with a block'}
+            title={
+              search
+                ? 'No matching blocks'
+                : browser.folder
+                  ? 'This folder is empty'
+                  : 'Good content starts with a block'
+            }
             action={
               canManage &&
               !search && (
                 <Button onClick={() => create()}>
-                  <Plus /> Create your first block
+                  <Plus /> {browser.folder ? 'Create block' : 'Create your first block'}
                 </Button>
               )
             }
           >
-            Define a content type for your pages, then add nestable sections to compose them.
+            {browser.folder
+              ? 'Choose this folder in a block’s Config tab or create a block here.'
+              : 'Define a content type for your pages, then add nestable sections to compose them.'}
           </EmptyState>
         )}
       </div>
       {can(space, 'content:read') && definitions.some((item) => item.previewData) && (
         <LibraryBlockPreview key={space.id} definitions={definitions} spaceId={space.id} />
+      )}
+      {newFolder && (
+        <NewBlockFolderDialog
+          parent={browser.flat ? '' : browser.folder}
+          onClose={() => setNewFolder(false)}
+          onCreated={(path) => {
+            folderCreated(path);
+            if (browser.flat) browser.reset();
+            browser.setFlat(false);
+            browser.setSearch('');
+            setAnnouncement(`Created folder ${path}.`);
+          }}
+        />
       )}
       {editing && (
         <SchemaDrawer
@@ -562,6 +602,8 @@ export function SchemaLibrary({
               ? definitions.find((item) => item.id === initialParentId)?.folderPath
               : browser.folder || undefined
           }
+          savedFolderPaths={savedFolderPaths}
+          onFolderCreated={folderCreated}
           initialView={initialView}
           definitions={definitions}
           datasources={datasources}

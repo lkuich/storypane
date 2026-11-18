@@ -50,6 +50,7 @@ export async function migrate(
       '032_release_previews',
       '033_locale_sources',
       '034_block_preview_surfaces',
+      '035_block_folders',
     ]) {
       if (included && !included.has(name)) continue;
       if (

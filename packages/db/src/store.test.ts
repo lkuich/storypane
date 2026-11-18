@@ -4435,6 +4435,32 @@ describe('scoped content permissions', () => {
     await store.updateSpaceMember(alice, bob.userId, { role: role.id });
     return role;
   }
+  it('persists empty block folders per space and checks read scopes and schema write access', async () => {
+    await Promise.all(
+      [' Marketing / Heroes ', 'Marketing/Heroes', 'Navigation'].map((path) =>
+        store.createBlockFolder(alice, { path }),
+      ),
+    );
+    expect((await store.listBlockFolders(alice)).sort()).toEqual([
+      'Marketing/Heroes',
+      'Navigation',
+    ]);
+    await expect(store.createBlockFolder(alice, { path: 'Invalid//Path' })).rejects.toMatchObject({
+      code: 'invalid',
+    });
+    const other = await store.createSpace(alice, { name: 'Other folders' });
+    expect(await store.listBlockFolders({ ...alice, spaceId: other.id })).toEqual([]);
+    const scopes = contentScopesSchema.parse({ read: { definitionIds: [] } });
+    await restrict(scopes);
+    expect(await store.listBlockFolders(bob)).toEqual([]);
+    await expect(store.createBlockFolder(bob, { path: 'Private' })).rejects.toMatchObject({
+      code: 'forbidden',
+    });
+    await pool.query('UPDATE spaces SET schema_read_only=true WHERE id=$1', [alice.spaceId]);
+    await expect(store.createBlockFolder(alice, { path: 'Locked' })).rejects.toMatchObject({
+      code: 'forbidden',
+    });
+  });
   it('restricts block reference counts and links by locale, location, definition, and field access', async () => {
     const hero = blockNamed(snapshot, 'hero'),
       footer = blockNamed(snapshot, 'footer');
