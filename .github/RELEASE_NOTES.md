@@ -1,23 +1,19 @@
-Storypane **0.1.0-rc.12** is a release candidate for evaluation.
+Storypane **0.1.0-rc.13** is a release candidate for evaluation.
 
-- Background editor tabs pause passive reads. Returning to a tab refreshes its
-  data and overlapping refreshes share one request. Edits and lock renewal continue.
-- The block library clears a temporary environment error after the next successful
-  read. Errors from management actions stay visible.
+- Filter Content by locale to see the version’s path, publication status and edit link. Expand a shared story to see all included paths.
+- Choose a starting locale when creating a story, then add or exclude versions as needed. Exclusion preserves the draft and its history. Unpublish a live version and cancel pending publications before excluding it.
+- Rename a story’s editorial title through the management API while preserving its ID and paths. The SDK accepts an optional `spaceLocaleId` when creating a story.
 
-Install the CMS from source tag `v0.1.0-rc.12`. Install the SDK with
-`npm install @storypane/sdk@0.1.0-rc.12` or follow `@storypane/sdk@rc` once
-the npm publication completes. This prerelease includes the SDK archive.
-The public SDK API is unchanged.
+Install the CMS from source tag `v0.1.0-rc.13`. Install the SDK with
+`npm install @storypane/sdk@0.1.0-rc.13` or follow `@storypane/sdk@rc`.
 
-Back up databases, original media, configuration, and keys before upgrading.
-Upgrading from rc.11 requires no database migrations. Earlier versions should
-apply pending migrations through the transactional production migration runner.
+Back up databases, original media, configuration and keys before upgrading.
+The production migration runner applies `037_story_locale_availability` to each space. Existing versions stay included until an editor excludes them.
 
-- [Changelog](https://github.com/lkuich/storypane/blob/v0.1.0-rc.12/CHANGELOG.md)
-- [Railway deployment and updates](https://github.com/lkuich/storypane/blob/v0.1.0-rc.12/docs/deploy-railway.md)
+- [Changelog](https://github.com/lkuich/storypane/blob/v0.1.0-rc.13/CHANGELOG.md)
+- [Railway deployment and updates](https://github.com/lkuich/storypane/blob/v0.1.0-rc.13/docs/deploy-railway.md)
 - [Release and upgrade guide](https://storypane.dev/docs/releases-and-versioning/)
-- [Verification record](https://github.com/lkuich/storypane/blob/v0.1.0-rc.12/docs/deployment-verification.md)
+- [Verification record](https://github.com/lkuich/storypane/blob/v0.1.0-rc.13/docs/deployment-verification.md)
 - [Report security issues privately](https://github.com/lkuich/storypane/security/advisories/new)
 
 MIT licensed, provided without warranty under LICENSE. Hosting, identity, mail,

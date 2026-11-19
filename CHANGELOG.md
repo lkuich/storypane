@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.0-rc.13 — 2026-11-19
+
+- Filter Content by locale to see its path and publication status. Shared stories list each available path.
+- Choose a starting locale for a new story. Add and exclude individual versions while retaining their drafts and history. Opening a link to an absent version leaves the story untouched.
+- Rename editorial titles independently of story IDs and paths using the management API. The SDK accepts an optional starting locale when creating a story.
+- Apply space migration `037_story_locale_availability` when upgrading from rc.12. Existing versions stay included.
+
 ## 0.1.0-rc.12 — 2026-11-19
 
 - Pause passive editor polling in hidden tabs and combine overlapping refreshes.
