@@ -3,9 +3,10 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { Plus, RefreshCw, Webhook } from 'lucide-react';
 import {
+  vercelDeployEvents,
   webhookEventTypes,
   type WebhookDelivery,
-  type WebhookEndpoint,
+  type WebhookDestination,
   type WebhookEventType,
 } from '@storypane/core';
 import { Button, EmptyState, ErrorNotice, Loading, Modal } from '@storypane/ui';
@@ -19,6 +20,17 @@ const initialEvents: WebhookEventType[] = [
   'schema.deployed',
 ];
 type DeliveryPage = { deliveries: WebhookDelivery[]; nextOffset: number | null };
+const vercelEventLabels: Partial<Record<WebhookDelivery['type'], string>> = {
+  'vercel.publish': 'Story published',
+  'vercel.release': 'Release published',
+  'vercel.rebuild': 'Manual rebuild',
+};
+function eventLabel(type: WebhookDelivery['type']) {
+  return vercelEventLabels[type] ?? type;
+}
+function VercelMark() {
+  return <span aria-hidden="true">▲</span>;
+}
 export function WebhookSettings({
   onDirty,
   onBusy,
@@ -26,26 +38,29 @@ export function WebhookSettings({
   onDirty: (dirty: boolean) => void;
   onBusy: (busy: boolean) => void;
 }) {
-  const [endpoints, setEndpoints] = useState<WebhookEndpoint[]>([]);
+  const [endpoints, setEndpoints] = useState<WebhookDestination[]>([]);
   const [configured, setConfigured] = useState(false),
     [loading, setLoading] = useState(true),
     [busy, setBusy] = useState(false);
   const [error, setError] = useState(''),
     [notice, setNotice] = useState('');
-  const [editing, setEditing] = useState<WebhookEndpoint | null | undefined>(undefined);
+  const [editing, setEditing] = useState<WebhookDestination | null | undefined>(undefined);
+  const [vercel, setVercel] = useState(false);
   const [name, setName] = useState(''),
     [url, setUrl] = useState(''),
     [enabled, setEnabled] = useState(true),
-    [events, setEvents] = useState<WebhookEventType[]>(initialEvents);
+    [events, setEvents] = useState<WebhookDestination['events'][number][]>(initialEvents);
   const [secret, setSecret] = useState<string | null>(null);
-  const [logsFor, setLogsFor] = useState<WebhookEndpoint | null>(null),
+  const [logsFor, setLogsFor] = useState<WebhookDestination | null>(null),
     [page, setPage] = useState<DeliveryPage | null>(null),
     [offset, setOffset] = useState(0),
     [logsLoading, setLogsLoading] = useState(false);
   const load = useCallback(async () => {
     setError('');
     try {
-      const result = await api<{ configured: boolean; endpoints: WebhookEndpoint[] }>('/webhooks');
+      const result = await api<{ configured: boolean; endpoints: WebhookDestination[] }>(
+        '/webhooks',
+      );
       setEndpoints(result.endpoints);
       setConfigured(result.configured);
     } catch (cause) {
@@ -65,15 +80,20 @@ export function WebhookSettings({
     onBusy(busy);
     return () => onBusy(false);
   }, [busy, onBusy]);
-  function open(endpoint: WebhookEndpoint | null) {
+  function open(endpoint: WebhookDestination | null, isVercel = endpoint?.kind === 'vercel') {
     setEditing(endpoint);
+    setVercel(isVercel);
     setName(endpoint?.name ?? '');
-    setUrl(endpoint?.url ?? '');
+    setUrl(endpoint?.kind === 'vercel' ? '' : (endpoint?.url ?? ''));
     setEnabled(endpoint?.enabled ?? true);
-    setEvents(endpoint?.events ?? initialEvents);
+    setEvents(endpoint?.events ?? (isVercel ? [...vercelDeployEvents] : initialEvents));
     setError('');
   }
-  async function logs(endpoint: WebhookEndpoint, start = 0) {
+  function closeEditor() {
+    setUrl('');
+    setEditing(undefined);
+  }
+  async function logs(endpoint: WebhookDestination, start = 0) {
     setLogsFor(endpoint);
     setLogsLoading(true);
     setError('');
@@ -92,27 +112,30 @@ export function WebhookSettings({
     setError('');
     setNotice('');
     try {
-      const result = await api<{ endpoint: WebhookEndpoint; secret?: string }>(
+      const result = await api<{ endpoint: WebhookDestination; secret?: string }>(
         '/webhooks' + (editing ? '/' + editing.id : ''),
         jsonRequest(editing ? 'PUT' : 'POST', {
           name,
-          url,
+          ...(vercel ? { kind: 'vercel', ...(url.trim() ? { url } : {}) } : { url }),
           enabled,
           events,
           ...(editing ? { expectedRevision: editing.revision } : {}),
         }),
       );
-      setEditing(undefined);
+      closeEditor();
       if (result.secret) setSecret(result.secret);
       await load();
-      setNotice('Webhook saved.');
+      setNotice(vercel ? 'Vercel connection saved.' : 'Webhook saved.');
     } catch (cause) {
       setError(errorMessage(cause));
     } finally {
       setBusy(false);
     }
   }
-  async function action(endpoint: WebhookEndpoint, operation: 'test' | 'rotate-secret' | 'delete') {
+  async function action(
+    endpoint: WebhookDestination,
+    operation: 'test' | 'rebuild' | 'rotate-secret' | 'delete',
+  ) {
     if (
       operation === 'delete' &&
       !window.confirm('Delete ' + endpoint.name + ' and cancel its queued deliveries?')
@@ -136,14 +159,22 @@ export function WebhookSettings({
         }),
       );
       if (result.secret) setSecret(result.secret);
-      if (operation === 'test') {
+      if (operation === 'test' || operation === 'rebuild') {
         setNotice(
-          'Test queued. Delivery normally starts within a minute; refresh logs to check the result.',
+          operation === 'rebuild'
+            ? 'Rebuild queued. Check delivery logs to see when Vercel accepts it.'
+            : 'Test queued. Delivery normally starts within a minute; refresh logs to check the result.',
         );
         await logs(endpoint);
       } else {
         await load();
-        setNotice(operation === 'delete' ? 'Webhook deleted.' : 'Signing secret rotated.');
+        setNotice(
+          operation === 'delete'
+            ? endpoint.kind === 'vercel'
+              ? 'Vercel connection removed.'
+              : 'Webhook deleted.'
+            : 'Signing secret rotated.',
+        );
       }
     } catch (cause) {
       setError(errorMessage(cause));
@@ -175,17 +206,27 @@ export function WebhookSettings({
           <Webhook aria-hidden="true" />
           Webhooks
         </h2>
-        <Button
-          className="button--small"
-          disabled={!configured || busy || loading}
-          onClick={() => open(null)}
-        >
-          <Plus aria-hidden="true" />
-          New webhook
-        </Button>
+        <div className="button-group">
+          <Button
+            className="button--small button--vercel"
+            disabled={!configured || busy || loading}
+            onClick={() => open(null, true)}
+          >
+            <VercelMark />
+            Connect Vercel
+          </Button>
+          <Button
+            className="button--small"
+            disabled={!configured || busy || loading}
+            onClick={() => open(null)}
+          >
+            <Plus aria-hidden="true" />
+            New webhook
+          </Button>
+        </div>
       </header>
       <div className="panel-body">
-        <p>Notify your site after publishing so it can rebuild or clear cached content.</p>
+        <p>Trigger a Vercel rebuild or notify another service when content changes.</p>
         <ErrorNotice message={error} retry={load} />
         {notice && (
           <p role="status" className="notice">
@@ -193,10 +234,7 @@ export function WebhookSettings({
           </p>
         )}
         {!loading && !configured && (
-          <p className="notice">
-            Webhooks need an encryption key and approved destination hosts configured by the
-            operator.
-          </p>
+          <p className="notice">Webhooks need an encryption key configured by the operator.</p>
         )}
         {loading ? (
           <Loading />
@@ -207,41 +245,55 @@ export function WebhookSettings({
                 <div className="webhook-card-details">
                   <div className="webhook-card-heading">
                     <h3>{endpoint.name}</h3>
+                    {endpoint.kind === 'vercel' && (
+                      <span className="pill pill--outline">
+                        <VercelMark /> Vercel
+                      </span>
+                    )}
                     <span className="pill">{endpoint.enabled ? 'Enabled' : 'Disabled'}</span>
                   </div>
-                  <p className="mono">{endpoint.url}</p>
+                  {endpoint.kind !== 'vercel' && <p className="mono">{endpoint.url}</p>}
                   <div className="webhook-events">
                     {endpoint.events.map((event) => (
                       <span className="pill pill--outline" key={event}>
-                        {event}
+                        {eventLabel(event)}
                       </span>
                     ))}
                   </div>
                 </div>
                 <div className="button-group">
                   <Button disabled={busy || !configured} onClick={() => open(endpoint)}>
+                    {endpoint.kind === 'vercel' && <VercelMark />}
                     Edit
                   </Button>
                   <Button
+                    className={endpoint.kind === 'vercel' ? 'button--vercel' : undefined}
                     disabled={busy || !configured || !endpoint.enabled}
-                    onClick={() => void action(endpoint, 'test')}
+                    onClick={() =>
+                      void action(endpoint, endpoint.kind === 'vercel' ? 'rebuild' : 'test')
+                    }
                   >
-                    Send test
+                    {endpoint.kind === 'vercel' && <VercelMark />}
+                    {endpoint.kind === 'vercel' ? 'Rebuild now' : 'Send test'}
                   </Button>
                   <Button disabled={busy} onClick={() => void logs(endpoint)}>
+                    {endpoint.kind === 'vercel' && <VercelMark />}
                     Delivery logs
                   </Button>
-                  <Button
-                    disabled={busy || !configured}
-                    onClick={() => void action(endpoint, 'rotate-secret')}
-                  >
-                    Rotate secret
-                  </Button>
+                  {endpoint.kind !== 'vercel' && (
+                    <Button
+                      disabled={busy || !configured}
+                      onClick={() => void action(endpoint, 'rotate-secret')}
+                    >
+                      Rotate secret
+                    </Button>
+                  )}
                   <Button
                     variant="danger"
                     disabled={busy}
                     onClick={() => void action(endpoint, 'delete')}
                   >
+                    {endpoint.kind === 'vercel' && <VercelMark />}
                     Delete
                   </Button>
                 </div>
@@ -254,9 +306,17 @@ export function WebhookSettings({
       </div>
       <Modal
         open={editing !== undefined}
-        title={editing ? 'Edit webhook' : 'Create webhook'}
+        title={
+          vercel
+            ? editing
+              ? 'Edit Vercel connection'
+              : 'Connect Vercel'
+            : editing
+              ? 'Edit webhook'
+              : 'Create webhook'
+        }
         onClose={() => {
-          if (!busy) setEditing(undefined);
+          if (!busy) closeEditor();
         }}
       >
         <form onSubmit={save}>
@@ -271,21 +331,28 @@ export function WebhookSettings({
             />
           </label>
           <label className="field">
-            Endpoint URL
+            {vercel ? 'Vercel Deploy Hook URL' : 'Endpoint URL'}
             <input
-              required
-              type="url"
+              required={!vercel || !editing}
+              type={vercel ? 'password' : 'url'}
+              autoComplete={vercel ? 'off' : undefined}
               maxLength={2000}
-              placeholder="https://example.com/api/rebuild"
+              placeholder={vercel ? undefined : 'https://example.com/api/rebuild'}
               value={url}
               disabled={busy}
               onChange={(event) => setUrl(event.target.value)}
             />
-            <span className="field-hint">Use an operator-approved public HTTPS destination.</span>
+            <span className="field-hint">
+              {vercel
+                ? editing
+                  ? 'Leave blank to keep the saved Deploy Hook URL.'
+                  : 'Create a Deploy Hook for the branch you want to rebuild in your Vercel project’s Git settings.'
+                : 'Use an operator-approved public HTTPS destination.'}
+            </span>
           </label>
           <fieldset className="role-permissions" disabled={busy}>
-            <legend>Events</legend>
-            {webhookEventTypes.map((type) => (
+            <legend>{vercel ? 'Rebuild automatically on' : 'Events'}</legend>
+            {(vercel ? vercelDeployEvents : webhookEventTypes).map((type) => (
               <label key={type}>
                 <input
                   type="checkbox"
@@ -298,7 +365,7 @@ export function WebhookSettings({
                     )
                   }
                 />
-                {type}
+                {eventLabel(type)}
               </label>
             ))}
           </fieldset>
@@ -312,16 +379,23 @@ export function WebhookSettings({
             Enabled
           </label>
           <p className="field-hint">
-            Draft events are optional. Changing settings cancels queued deliveries; failed
-            deliveries can be retried with the current configuration.
+            {vercel
+              ? 'Leave both events unchecked for manual rebuilds only. Changing settings cancels queued rebuilds.'
+              : 'Draft events are optional. Changing settings cancels queued deliveries. You can retry failed deliveries with the current configuration.'}
           </p>
           <ErrorNotice message={error} />
           <div className="dialog-actions">
-            <Button disabled={busy} onClick={() => setEditing(undefined)}>
+            <Button disabled={busy} onClick={closeEditor}>
               Cancel
             </Button>
-            <Button type="submit" variant="primary" disabled={busy || !events.length}>
-              {busy ? 'Saving…' : 'Save webhook'}
+            <Button
+              type="submit"
+              variant="primary"
+              className={vercel ? 'button--vercel' : undefined}
+              disabled={busy || (!vercel && !events.length)}
+            >
+              {vercel && <VercelMark />}
+              {busy ? 'Saving…' : vercel ? 'Save connection' : 'Save webhook'}
             </Button>
           </div>
         </form>
@@ -363,7 +437,11 @@ export function WebhookSettings({
         wide
       >
         <ErrorNotice message={error} />
-        <p>Events may arrive more than once or out of order. Logs are retained for 30 days.</p>
+        <p>
+          {logsFor?.kind === 'vercel'
+            ? 'A successful delivery means Vercel accepted the rebuild request. Check Vercel for build progress.'
+            : 'Events may arrive more than once or out of order. Logs are retained for 30 days.'}
+        </p>
         <Button
           className="icon-button"
           aria-label="Refresh deliveries"
@@ -383,7 +461,7 @@ export function WebhookSettings({
               <article className="history-item" key={delivery.id}>
                 <div>
                   <div className="webhook-delivery-heading">
-                    <strong>{delivery.type}</strong>
+                    <strong>{eventLabel(delivery.type)}</strong>
                     <span className="pill">{delivery.status}</span>
                   </div>
                   <p>
@@ -409,9 +487,11 @@ export function WebhookSettings({
                 </div>
                 {['failed', 'cancelled'].includes(delivery.status) && (
                   <Button
+                    className={logsFor?.kind === 'vercel' ? 'button--vercel' : undefined}
                     disabled={busy || !configured || !logsFor?.enabled}
                     onClick={() => void retry(delivery)}
                   >
+                    {logsFor?.kind === 'vercel' && <VercelMark />}
                     Retry delivery
                   </Button>
                 )}

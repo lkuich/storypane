@@ -178,10 +178,9 @@ changes are needed: `client.listAllStories()` still reads the default locale whe
 options are omitted. Static websites must rebuild, and cached websites may need
 revalidation after publication.
 
-A successful release creates the existing `story.published` webhook events for
-its pages in the same transaction. These arrive as separate deliveries; coalesce
-build requests when several pages go live together. There is no release-level
-webhook event. See [webhooks](webhooks.md).
+Each Vercel connection subscribed to releases queues one rebuild after the
+release commits. For other destinations, a successful release sends one
+`story.published` webhook per page. See [Vercel setup and webhooks](webhooks.md).
 
 Use the [management API](management-api.md#content-releases) for release creation,
 rescheduling and cancellation, and the existing scheduling endpoint to approve

@@ -102,6 +102,8 @@ async function handle(request: Request, route: { params: Promise<{ path: string[
         return jsonResponse(await store.rotateWebhookSecret(actor, id, await readJson(request)));
       if (id && child === 'test' && !localeId && method === 'POST')
         return jsonResponse(await store.testWebhook(actor, id), 202);
+      if (id && child === 'rebuild' && !localeId && method === 'POST')
+        return jsonResponse(await store.rebuildVercel(actor, id, await readJson(request)), 202);
       if (id && child === 'deliveries' && !localeId && method === 'GET')
         return jsonResponse(
           await store.listWebhookDeliveries(

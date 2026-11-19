@@ -814,6 +814,15 @@
   display: grid;
   gap: 14px;
 }
+.webhook-settings .button--vercel {
+  color: #fff;
+  background: #000;
+  border-color: var(--muted);
+}
+.webhook-settings .button--vercel:hover:not(:disabled) {
+  background: #262626;
+  border-color: var(--muted);
+}
 .webhook-card {
   border: 1px solid var(--line);
   border-radius: 10px;

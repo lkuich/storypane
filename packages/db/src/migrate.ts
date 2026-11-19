@@ -51,6 +51,7 @@ export async function migrate(
       '033_locale_sources',
       '034_block_preview_surfaces',
       '035_block_folders',
+      '036_vercel_deploy_hooks',
     ]) {
       if (included && !included.has(name)) continue;
       if (

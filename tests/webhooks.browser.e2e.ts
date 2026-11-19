@@ -1,5 +1,91 @@
 import { expect, test } from '@playwright/test';
-import type { WebhookDelivery, WebhookEndpoint } from '@storypane/core';
+import type { WebhookDelivery, WebhookDestination, WebhookEndpoint } from '@storypane/core';
+
+test('connect Vercel and queue a manual rebuild by keyboard on mobile', async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 740 });
+  const hookUrl = 'https://api.vercel.com/v1/integrations/deploy/prj_fixture/hook_fixture';
+  let connection: Extract<WebhookDestination, { kind: 'vercel' }> | undefined;
+  const now = new Date().toISOString();
+  let delivery: WebhookDelivery | undefined;
+  await page.route('**/api/cms/webhooks**', async (route) => {
+    const request = route.request();
+    if (request.url().endsWith('/rebuild')) {
+      expect(request.postDataJSON()).toEqual({ expectedRevision: 1 });
+      delivery = {
+        id: crypto.randomUUID(),
+        eventId: crypto.randomUUID(),
+        type: 'vercel.rebuild',
+        status: 'pending',
+        attemptCount: 0,
+        nextAttemptAt: now,
+        createdAt: now,
+        completedAt: null,
+        httpStatus: null,
+        error: null,
+        endpointRevision: 1,
+        attempts: [],
+      };
+      return route.fulfill({ json: { deliveryId: delivery.id }, status: 202 });
+    }
+    if (request.url().includes('/deliveries?'))
+      return route.fulfill({ json: { deliveries: delivery ? [delivery] : [], nextOffset: null } });
+    if (request.method() === 'POST') {
+      const input = request.postDataJSON();
+      expect(input).toEqual({
+        kind: 'vercel',
+        name: 'Production website',
+        url: hookUrl,
+        enabled: true,
+        events: ['vercel.release'],
+      });
+      connection = {
+        id: crypto.randomUUID(),
+        kind: input.kind,
+        name: input.name,
+        enabled: input.enabled,
+        events: input.events,
+        revision: 1,
+        createdAt: now,
+        updatedAt: now,
+      };
+      return route.fulfill({ json: { endpoint: connection }, status: 201 });
+    }
+    return route.fulfill({ json: { configured: true, endpoints: connection ? [connection] : [] } });
+  });
+  await page.goto('/');
+  const connect = page.getByRole('button', { name: 'Connect Vercel', exact: true });
+  await expect(connect.locator('[aria-hidden="true"]')).toHaveText('▲');
+  await expect(connect).toHaveCSS('background-color', 'rgb(0, 0, 0)');
+  await connect.press('Enter');
+  const dialog = page.getByRole('dialog', { name: 'Connect Vercel' });
+  await expect(dialog.getByRole('button', { name: 'Close dialog' })).toBeFocused();
+  await page.keyboard.press('Tab');
+  await expect(dialog.getByLabel('Name', { exact: true })).toBeFocused();
+  await page.keyboard.insertText('Production website');
+  await page.keyboard.press('Tab');
+  await expect(dialog.getByLabel('Vercel Deploy Hook URL')).toHaveAttribute('type', 'password');
+  await expect(dialog.getByLabel('Vercel Deploy Hook URL')).toBeFocused();
+  await page.keyboard.insertText(hookUrl);
+  await page.keyboard.press('Tab');
+  const publish = dialog.getByLabel('Story published', { exact: true });
+  await expect(publish).toBeFocused();
+  await expect(publish).toBeChecked();
+  await page.keyboard.press('Space');
+  await expect(dialog.getByLabel('Release published', { exact: true })).toBeChecked();
+  await dialog.getByRole('button', { name: 'Save connection' }).press('Enter');
+  await expect(page.getByRole('status').getByText('Vercel connection saved.')).toBeVisible();
+  await page.getByRole('button', { name: 'Edit', exact: true }).press('Enter');
+  const edit = page.getByRole('dialog', { name: 'Edit Vercel connection' });
+  await expect(edit.getByLabel('Vercel Deploy Hook URL')).toHaveValue('');
+  await page.keyboard.press('Escape');
+  const rebuild = page.getByRole('button', { name: 'Rebuild now', exact: true });
+  await expect(rebuild.locator('[aria-hidden="true"]')).toHaveText('▲');
+  await rebuild.press('Enter');
+  const logs = page.getByRole('dialog', { name: 'Deliveries · Production website' });
+  await expect(logs.getByText('Manual rebuild', { exact: true })).toBeVisible();
+  await expect(logs.getByText('pending', { exact: true })).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(375);
+});
 
 // Component browser journey; admin/session/space enforcement has real Postgres coverage.
 test('configure a webhook, show its secret once, send a test, inspect failure and retry', async ({

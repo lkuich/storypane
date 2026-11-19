@@ -38,6 +38,13 @@ const input = {
   events: [...webhookEventTypes],
   enabled: true,
 };
+const vercelInput = {
+  kind: 'vercel',
+  name: 'Production site',
+  url: 'https://api.vercel.com/v1/integrations/deploy/prj_fixture/hook_fixture',
+  events: [],
+  enabled: true,
+};
 let alice: Actor, bob: Actor;
 async function tx<T>(fn: (client: PoolClient) => Promise<T>) {
   const client = await pool.connect();
@@ -100,6 +107,71 @@ afterAll(async () => {
 });
 
 describe('transactional webhook configuration and events', () => {
+  it('keeps Vercel hook URLs private and sends authorized manual rebuilds through the queue', async () => {
+    for (const url of [
+      'https://api.vercel.com/v1/projects/prj_fixture',
+      vercelInput.url.replace('api.vercel.com', 'api.vercel.com.example.org'),
+      vercelInput.url + '?redirect=https://example.org',
+    ])
+      await expect(store.saveWebhook(alice, { ...vercelInput, url })).rejects.toMatchObject({
+        code: 'invalid',
+      });
+    const created = await store.saveWebhook(alice, vercelInput);
+    const id = created.endpoint.id;
+    const revision = { expectedRevision: 1 };
+    expect(created).not.toHaveProperty('secret');
+    expect(created.endpoint).not.toHaveProperty('url');
+    expect((await store.listWebhooks(alice)).endpoints).toEqual([created.endpoint]);
+    const stored = (
+      await pool.query('SELECT url,encrypted_secret FROM webhook_endpoints WHERE id=$1', [id])
+    ).rows[0];
+    expect(stored.url).toBe('');
+    expect(stored.encrypted_secret).toMatch(/^v1\./);
+    expect(stored.encrypted_secret).not.toContain('hook_fixture');
+
+    await expect(store.rebuildVercel(bob, id, revision)).rejects.toMatchObject({
+      code: 'forbidden',
+    });
+    const other = await store.createSpace(alice, { name: 'Other space' });
+    await expect(
+      store.rebuildVercel({ ...alice, spaceId: other.id }, id, revision),
+    ).rejects.toMatchObject({
+      code: 'not_found',
+    });
+    await expect(store.testWebhook(alice, id)).rejects.toMatchObject({ code: 'not_found' });
+    await expect(store.rotateWebhookSecret(alice, id, revision)).rejects.toMatchObject({
+      code: 'invalid',
+    });
+    await emit({ ...eventInput(), type: 'vercel.publish' });
+    expect(await firstDelivery(id)).toBeUndefined();
+
+    await store.rebuildVercel(alice, id, revision);
+    const { url: _oldUrl, ...withoutUrl } = vercelInput;
+    const updated = await store.saveWebhook(
+      alice,
+      { ...withoutUrl, ...revision, name: 'Renamed' },
+      id,
+    );
+    expect(updated.endpoint.revision).toBe(2);
+    expect((await firstDelivery(id)).status).toBe('cancelled');
+    await expect(store.rebuildVercel(alice, id, revision)).rejects.toMatchObject({
+      code: 'stale_revision',
+    });
+    await store.rebuildVercel(alice, id, { expectedRevision: 2 });
+    const send = vi.fn<typeof fetch>().mockResolvedValue(new Response(null, { status: 201 }));
+    expect(await dispatchWebhooks(pool, { ...options, fetch: send })).toEqual({ attempted: 1 });
+    expect(send).toHaveBeenCalledExactlyOnceWith(new URL(vercelInput.url), {
+      method: 'POST',
+      redirect: 'manual',
+      signal: expect.any(AbortSignal),
+    });
+    expect(await firstDelivery(id)).toMatchObject({ type: 'vercel.rebuild', status: 'succeeded' });
+    const replacement = vercelInput.url + '_replacement?buildCache=false';
+    await store.saveWebhook(alice, { ...vercelInput, url: replacement, expectedRevision: 2 }, id);
+    await store.rebuildVercel(alice, id, { expectedRevision: 3 });
+    await dispatchWebhooks(pool, { ...options, fetch: send });
+    expect(send.mock.lastCall?.[0]).toEqual(new URL(replacement));
+  });
   it('requires admin access and isolates configuration, secrets, logs, tests and retries by space', async () => {
     const created = await store.saveWebhook(alice, input);
     const id = created.endpoint.id;
@@ -493,6 +565,50 @@ describe('durable dispatcher and claim fencing', () => {
 });
 
 describe('content hooks', () => {
+  it('queues a Vercel rebuild for committed publishes from the editor and story actions', async () => {
+    const { endpoint } = await store.saveWebhook(alice, {
+      ...vercelInput,
+      events: ['vercel.publish'],
+    });
+    const story = (await store.listStories(alice))[0];
+    const locale = (await store.listLocales(alice, story.id))[0];
+    const before = await store.getSnapshot(alice, story.id, locale.id);
+    const block = before.blocks.find((item) => Object.hasOwn(item.fields, 'title'))!;
+    const lease = await store.acquireLease(alice, story.id, locale.id, block.id);
+    const saved = await store.command(alice, story.id, locale.id, {
+      mutationId: randomUUID(),
+      expectedRevisions: { [block.id]: block.revision },
+      leaseTokens: { [block.id]: lease.token! },
+      type: 'saveBlock',
+      payload: { blockId: block.id, fields: { ...block.fields, title: 'Draft update' } },
+    });
+    expect(await firstDelivery(endpoint.id)).toBeUndefined();
+    const publish = {
+      mutationId: randomUUID(),
+      expectedRevisions: {},
+      leaseTokens: {},
+      type: 'publishCheckpoint',
+      payload: { checkpointId: saved.checkpointId },
+    };
+    await store.command(alice, story.id, locale.id, publish);
+    await store.command(alice, story.id, locale.id, publish);
+    expect((await store.listWebhookDeliveries(alice, endpoint.id)).deliveries).toHaveLength(1);
+    const review = await store.reviewStoryAction(alice, story.id);
+    const action = {
+      action: 'publish',
+      requestId: randomUUID(),
+      locales: review.locales.map(({ id, checkpointId, publicationId }) => ({
+        id,
+        checkpointId,
+        publicationId,
+      })),
+    };
+    await store.storyAction(alice, story.id, action);
+    await store.storyAction(alice, story.id, action);
+    expect(
+      (await store.listWebhookDeliveries(alice, endpoint.id)).deliveries.map((item) => item.type),
+    ).toEqual(['vercel.publish', 'vercel.publish']);
+  });
   it('records path changes once without changing the live publication', async () => {
     await store.saveWebhook(alice, input);
     const story = (await store.listStories(alice))[0];

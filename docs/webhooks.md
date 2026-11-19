@@ -1,5 +1,26 @@
 # Outbound webhooks
 
+## Rebuild a Vercel project
+
+1. In the Git settings for your Git-connected Vercel project, create a
+   [Deploy Hook](https://vercel.com/docs/deploy-hooks) for the branch you want to rebuild.
+2. In Storypane, open **Settings → Webhooks → Connect Vercel**. Give the
+   connection a name, paste the Deploy Hook URL, and save it.
+3. Keep **Story published** and **Release published** selected for automatic
+   rebuilds, or clear both to trigger builds only with **Rebuild now**.
+
+Storypane calls Vercel directly. A successful multi-page release queues one
+rebuild per subscribed connection after all its pages publish. Draft saves and
+failed releases queue none. **Delivery logs** show when Vercel accepts the
+request. Check your Vercel project's Deployments tab for build status.
+
+Storypane encrypts the hook URL with the existing `WEBHOOK_ENCRYPTION_KEY`.
+The built-in connection accepts only Vercel's Deploy Hook URL and needs no
+`WEBHOOK_HOSTS` entry. Keep the URL private and replace it in Storypane if
+you rotate the hook in Vercel.
+
+## Signed webhooks
+
 Admins can configure up to 20 destinations in **Settings → Webhooks**. Create an
 endpoint, copy its signing secret into the receiving service, and use **Send test**.
 Test delivery runs through the same durable queue as content events. **Delivery
@@ -11,7 +32,7 @@ Secrets appear only when created or rotated. Configuration reads never return th
 page's `story.published` event in one transaction. A failed release attempt emits
 none of those events. Delivery is still separate per page with independent
 retries; coalesce build requests for multi-page launches. There is no separate
-release webhook event.
+release webhook event for signed destinations.
 
 ![A publication transaction enqueues an event, a durable queue sends signed HTTPS requests, the receiver verifies and deduplicates, and a build reads published content.](images/webhook-delivery.svg)
 

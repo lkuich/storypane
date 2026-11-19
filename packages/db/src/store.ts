@@ -42,6 +42,7 @@ import {
   parseInput,
   storyInputSchema,
   validateFields,
+  webhookRevisionSchema,
   type Actor,
   type BlockDefinition,
   type BlockDraft,
@@ -749,6 +750,23 @@ export class StorypaneStore {
       actor,
       (client) =>
         webhooks.testWebhook(client, actor.spaceId, id, actor.userId, this.webhookOptions()),
+      'admin',
+    );
+  }
+  async rebuildVercel(actor: Actor, id: string, raw: unknown) {
+    parseInput(z.uuid(), id);
+    const { expectedRevision } = parseInput(webhookRevisionSchema, raw);
+    return this.tx(
+      actor,
+      (client) =>
+        webhooks.testWebhook(
+          client,
+          actor.spaceId,
+          id,
+          actor.userId,
+          this.webhookOptions(),
+          expectedRevision,
+        ),
       'admin',
     );
   }
@@ -5070,6 +5088,14 @@ export class StorypaneStore {
           command.payload.checkpointId,
           command.payload.referenceChoices,
         );
+        if (publicationId)
+          await recordWebhookEvent(client, {
+            spaceId: actor.spaceId,
+            actorId: actor.userId,
+            type: 'vercel.publish',
+            key: `vercel.publish:${publicationId}`,
+            data: {},
+          });
         await this.cancelPendingSchedules(client, localeId);
       } else if (command.type === 'unpublishLocale') {
         await this.requirePublicationAccess(client, actor, before);
@@ -6009,6 +6035,7 @@ export class StorypaneStore {
             } else {
               if (new Set(input.locales.map((locale) => locale.id)).size !== input.locales.length)
                 throw new StorypaneError('invalid', 'Choose each locale once');
+              let publicationId = '';
               for (const target of input.locales) {
                 const locale = locales.find((locale) => locale.id === target.id);
                 if (!locale)
@@ -6028,7 +6055,7 @@ export class StorypaneStore {
                     );
                   if (!target.checkpointId)
                     throw new StorypaneError('invalid', 'Review a saved checkpoint first');
-                  await this.publishCheckpointTx(
+                  publicationId = await this.publishCheckpointTx(
                     client,
                     actor,
                     storyId,
@@ -6054,6 +6081,14 @@ export class StorypaneStore {
                   input.action === 'publish' ? 'publishCheckpoint' : 'unpublishLocale',
                 );
               }
+              if (publicationId)
+                await recordWebhookEvent(client, {
+                  spaceId: actor.spaceId,
+                  actorId: actor.userId,
+                  type: 'vercel.publish',
+                  key: `vercel.publish:${publicationId}`,
+                  data: {},
+                });
             }
             return {
               story: storyRow(
@@ -6719,6 +6754,13 @@ export class StorypaneStore {
             "UPDATE content_releases SET status='published',error=NULL,revision=revision+1,updated_at=clock_timestamp() WHERE id=$1",
             [release.id],
           );
+          if (released.length)
+            await recordWebhookEvent(client, {
+              spaceId: release.space_id,
+              type: 'vercel.release',
+              key: `vercel.release:${release.id}`,
+              data: {},
+            });
         } catch (error) {
           await client.query('ROLLBACK TO SAVEPOINT release_attempt');
           released.length = 0;

@@ -3,10 +3,12 @@ import {
   StorypaneError,
   canonicalJson,
   parseInput,
+  vercelDeployHookInputSchema,
   webhookEventInputSchema,
   webhookInputSchema,
   webhookRevisionSchema,
   type WebhookDelivery,
+  type WebhookDestination,
   type WebhookEndpoint,
   type WebhookEvent,
   type WebhookEventInput,
@@ -16,37 +18,44 @@ import {
   encryptWebhookSecret,
   newWebhookSecret,
   sendWebhook,
+  validateVercelDeployHook,
   validateWebhookUrl,
   webhookEncryptionConfigured,
   type WebhookTransportOptions,
 } from './webhook-transport.js';
 
 export type WebhookOptions = { encryptionKey?: string; allowedHosts: string[] };
+type DeliveryEvent = Omit<WebhookEvent, 'type'> & { type: WebhookDelivery['type'] };
 type EndpointRow = {
   id: string;
   space_id: string;
   name: string;
   url: string;
-  events: WebhookEndpoint['events'];
   enabled: boolean;
   revision: number;
   encrypted_secret: string;
   created_at: Date;
   updated_at: Date;
   deleted_at: Date | null;
-};
-const endpointView = (row: EndpointRow): WebhookEndpoint => ({
-  id: row.id,
-  name: row.name,
-  url: row.url,
-  events: row.events,
-  enabled: row.enabled,
-  revision: row.revision,
-  createdAt: row.created_at.toISOString(),
-  updatedAt: row.updated_at.toISOString(),
-});
+} & (
+  | { kind: 'webhook'; events: WebhookEndpoint['events'] }
+  | { kind: 'vercel'; events: Extract<WebhookDestination, { kind: 'vercel' }>['events'] }
+);
+function endpointView(row: EndpointRow): WebhookDestination {
+  const details = {
+    id: row.id,
+    name: row.name,
+    enabled: row.enabled,
+    revision: row.revision,
+    createdAt: row.created_at.toISOString(),
+    updatedAt: row.updated_at.toISOString(),
+  };
+  return row.kind === 'vercel'
+    ? { ...details, kind: 'vercel', events: row.events }
+    : { ...details, url: row.url, events: row.events };
+}
 const endpointColumns =
-  'id,space_id,name,url,events,enabled,revision,created_at,updated_at,deleted_at';
+  'id,space_id,name,url,events,enabled,revision,created_at,updated_at,deleted_at,kind';
 function requireKey(options: WebhookOptions): string {
   if (!webhookEncryptionConfigured(options.encryptionKey))
     throw new StorypaneError('unavailable', 'Webhook encryption is not configured');
@@ -58,7 +67,7 @@ export async function recordWebhookEvent(
   raw: WebhookEventInput,
 ): Promise<void> {
   const input = parseInput(webhookEventInputSchema, raw);
-  const event: WebhookEvent = {
+  const event: DeliveryEvent = {
     version: 1,
     id: crypto.randomUUID(),
     type: input.type,
@@ -82,7 +91,7 @@ export async function recordWebhookEvent(
       )
     ).rows[0];
     if (existing) {
-      const previous = JSON.parse(existing.payload) as WebhookEvent;
+      const previous = JSON.parse(existing.payload) as DeliveryEvent;
       if (
         canonicalJson({
           type: previous.type,
@@ -146,23 +155,34 @@ export async function saveWebhook(
   options: WebhookOptions,
   id?: string,
 ) {
-  const input = parseInput(webhookInputSchema, raw),
-    encryptionKey = requireKey(options);
-  const url = validateWebhookUrl(input.url, options.allowedHosts).toString();
+  const input =
+    raw && typeof raw === 'object' && 'kind' in raw
+      ? parseInput(vercelDeployHookInputSchema, raw)
+      : parseInput(webhookInputSchema, raw);
+  const encryptionKey = requireKey(options);
+  const kind = 'kind' in input ? input.kind : 'webhook';
+  const url = 'kind' in input ? '' : validateWebhookUrl(input.url, options.allowedHosts).href;
+  const hook = kind === 'vercel' && input.url ? validateVercelDeployHook(input.url).href : null;
   if (id) {
     const row = await lockEndpoint(client, spaceId, id);
     checkRevision(row, input.expectedRevision);
+    if (row.kind !== kind)
+      throw new StorypaneError('invalid', 'The destination type cannot be changed');
+    const encrypted = hook
+      ? await encryptWebhookSecret(hook, encryptionKey, spaceId + ':' + id)
+      : row.encrypted_secret;
     const changed =
       row.name !== input.name ||
       row.url !== url ||
       row.enabled !== input.enabled ||
+      encrypted !== row.encrypted_secret ||
       canonicalJson([...row.events].sort()) !== canonicalJson([...input.events].sort());
     if (changed) await cancelQueued(client, id);
     const updated = (
       await client.query<EndpointRow>(
-        `UPDATE webhook_endpoints SET name=$3,url=$4,events=$5,enabled=$6,revision=revision+$7,updated_at=clock_timestamp()
+        `UPDATE webhook_endpoints SET name=$3,url=$4,events=$5,enabled=$6,revision=revision+$7,encrypted_secret=$8,updated_at=clock_timestamp()
        WHERE space_id=$1 AND id=$2 RETURNING ${endpointColumns}`,
-        [spaceId, id, input.name, url, input.events, input.enabled, changed ? 1 : 0],
+        [spaceId, id, input.name, url, input.events, input.enabled, changed ? 1 : 0, encrypted],
       )
     ).rows[0];
     return { endpoint: endpointView(updated) };
@@ -173,16 +193,20 @@ export async function saveWebhook(
   );
   if ((count.rowCount ?? 0) >= 20)
     throw new StorypaneError('invalid', 'A space supports at most 20 webhook endpoints');
-  const endpointId = crypto.randomUUID(),
-    secret = newWebhookSecret();
+  if (kind === 'vercel' && !hook)
+    throw new StorypaneError('invalid', 'A Vercel Deploy Hook URL is required');
+  const endpointId = crypto.randomUUID();
+  const secret = hook ?? newWebhookSecret();
   const encrypted = await encryptWebhookSecret(secret, encryptionKey, spaceId + ':' + endpointId);
   const row = (
     await client.query<EndpointRow>(
-      `INSERT INTO webhook_endpoints(id,space_id,name,url,events,enabled,encrypted_secret) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING ${endpointColumns}`,
-      [endpointId, spaceId, input.name, url, input.events, input.enabled, encrypted],
+      `INSERT INTO webhook_endpoints(id,space_id,name,url,events,enabled,encrypted_secret,kind) VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING ${endpointColumns}`,
+      [endpointId, spaceId, input.name, url, input.events, input.enabled, encrypted, kind],
     )
   ).rows[0];
-  return { endpoint: endpointView(row), secret };
+  return kind === 'vercel'
+    ? { endpoint: endpointView(row) }
+    : { endpoint: endpointView(row), secret };
 }
 export async function rotateWebhookSecret(
   client: PoolClient,
@@ -194,6 +218,8 @@ export async function rotateWebhookSecret(
   const { expectedRevision } = parseInput(webhookRevisionSchema, raw),
     key = requireKey(options);
   const row = await lockEndpoint(client, spaceId, id);
+  if (row.kind === 'vercel')
+    throw new StorypaneError('invalid', 'Replace the Deploy Hook URL in Vercel settings');
   checkRevision(row, expectedRevision);
   const secret = newWebhookSecret(),
     encrypted = await encryptWebhookSecret(secret, key, spaceId + ':' + id);
@@ -222,14 +248,25 @@ export async function testWebhook(
   id: string,
   actorId: string,
   options: WebhookOptions,
+  expectedRevision?: number,
 ) {
   requireKey(options);
   const row = await lockEndpoint(client, spaceId, id);
-  if (!row.enabled) throw new StorypaneError('invalid', 'Enable the webhook before sending a test');
-  const event: WebhookEvent = {
+  const rebuild = expectedRevision !== undefined;
+  if (row.kind !== (rebuild ? 'vercel' : 'webhook'))
+    throw new StorypaneError('not_found', 'This action is unavailable for the destination');
+  if (rebuild) checkRevision(row, expectedRevision);
+  if (!row.enabled)
+    throw new StorypaneError(
+      'invalid',
+      rebuild
+        ? 'Enable the Vercel connection before rebuilding'
+        : 'Enable the webhook before sending a test',
+    );
+  const event: DeliveryEvent = {
     version: 1,
     id: crypto.randomUUID(),
-    type: 'webhook.test',
+    type: rebuild ? 'vercel.rebuild' : 'webhook.test',
     occurredAt: new Date().toISOString(),
     spaceId,
     actorId,
@@ -274,7 +311,7 @@ export async function listWebhookDeliveries(
   const { rows } = await client.query<{
     id: string;
     event_id: string;
-    event_type: WebhookEvent['type'];
+    event_type: WebhookDelivery['type'];
     status: WebhookDelivery['status'];
     attempt_count: number;
     next_attempt_at: Date;
@@ -413,7 +450,7 @@ export async function dispatchWebhooks(
       );
       if (!current.rowCount) continue;
       result = await sendWebhook(
-        { url: endpoint.url, secret },
+        endpoint.kind === 'vercel' ? { vercelDeployHook: secret } : { url: endpoint.url, secret },
         { id: claim.event_id, body: claim.payload },
         {
           ...options,

@@ -146,6 +146,18 @@ export function validateWebhookUrl(value: string, allowedHosts: string[]): URL {
     );
   return url;
 }
+export function validateVercelDeployHook(value: string): URL {
+  if (
+    !/^https:\/\/api\.vercel\.com\/v1\/integrations\/deploy\/prj_[a-zA-Z0-9_-]+\/[a-zA-Z0-9_-]+(?:\?buildCache=(?:true|false))?$/.test(
+      value,
+    )
+  )
+    throw new StorypaneError(
+      'invalid',
+      'Enter a Vercel Deploy Hook URL from your project’s Git settings',
+    );
+  return new URL(value);
+}
 async function resolveHost(host: string): Promise<string[]> {
   const result = await Promise.allSettled([resolve4(host), resolve6(host)]);
   return result.flatMap((item) => (item.status === 'fulfilled' ? item.value : []));
@@ -179,13 +191,16 @@ export type WebhookAttemptResult = {
   retryAfterMs?: number;
 };
 export async function sendWebhook(
-  endpoint: { url: string; secret: string },
+  endpoint: { url: string; secret: string } | { vercelDeployHook: string },
   event: { id: string; body: string },
   options: WebhookTransportOptions,
 ): Promise<WebhookAttemptResult> {
   let httpStatus: number | null = null;
   try {
-    const url = validateWebhookUrl(endpoint.url, options.allowedHosts);
+    const url =
+      'vercelDeployHook' in endpoint
+        ? validateVercelDeployHook(endpoint.vercelDeployHook)
+        : validateWebhookUrl(endpoint.url, options.allowedHosts);
     const signal = AbortSignal.timeout(10_000);
     const addresses = await beforeAbort((options.resolve ?? resolveHost)(url.hostname), signal);
     if (!addresses.length)
@@ -198,7 +213,19 @@ export async function sendWebhook(
       };
     const now = (options.now ?? Date.now)();
     const timestamp = String(Math.floor(now / 1000));
-    const signature = await signWebhook(endpoint.secret, timestamp, event.body);
+    const payload =
+      'secret' in endpoint
+        ? {
+            body: event.body,
+            headers: {
+              'Content-Type': 'application/json',
+              'User-Agent': 'Storypane-Webhooks/1',
+              'Webhook-Id': event.id,
+              'Webhook-Timestamp': timestamp,
+              'Webhook-Signature': await signWebhook(endpoint.secret, timestamp, event.body),
+            },
+          }
+        : {};
     if (options.beforeSend && !(await beforeAbort(options.beforeSend(), signal)))
       return { httpStatus: null, error: 'Webhook configuration changed', retryable: false };
     const response = await beforeAbort(
@@ -206,14 +233,7 @@ export async function sendWebhook(
         method: 'POST',
         redirect: 'manual',
         signal,
-        body: event.body,
-        headers: {
-          'Content-Type': 'application/json',
-          'User-Agent': 'Storypane-Webhooks/1',
-          'Webhook-Id': event.id,
-          'Webhook-Timestamp': timestamp,
-          'Webhook-Signature': signature,
-        },
+        ...payload,
       }),
       signal,
     );

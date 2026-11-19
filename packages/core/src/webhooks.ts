@@ -10,6 +10,8 @@ export const webhookEventTypes = [
   'schema.deployed',
 ] as const;
 export type WebhookEventType = (typeof webhookEventTypes)[number];
+export const vercelDeployEvents = ['vercel.publish', 'vercel.release'] as const;
+type VercelDeployEvent = (typeof vercelDeployEvents)[number];
 export const webhookInputSchema = z
   .object({
     name: z.string().trim().min(1).max(120),
@@ -26,6 +28,14 @@ export const webhookInputSchema = z
 export const webhookRevisionSchema = z
   .object({ expectedRevision: z.number().int().positive() })
   .strict();
+export const vercelDeployHookInputSchema = webhookInputSchema.extend({
+  kind: z.literal('vercel'),
+  url: z.string().trim().min(1).max(2000).optional(),
+  events: z
+    .array(z.enum(vercelDeployEvents))
+    .max(vercelDeployEvents.length)
+    .refine((values) => new Set(values).size === values.length, 'Duplicate event'),
+});
 export const webhookEventDataSchema = z
   .object({
     storyId: z.uuid().optional(),
@@ -45,7 +55,7 @@ export const webhookEventInputSchema = z
   .object({
     spaceId: z.uuid(),
     actorId: z.string().min(1).max(500).optional(),
-    type: z.enum(webhookEventTypes),
+    type: z.enum([...webhookEventTypes, ...vercelDeployEvents]),
     key: z.string().min(1).max(300),
     data: webhookEventDataSchema,
   })
@@ -70,10 +80,16 @@ export type WebhookEndpoint = {
   createdAt: string;
   updatedAt: string;
 };
+export type WebhookDestination =
+  | (WebhookEndpoint & { kind?: never })
+  | (Omit<WebhookEndpoint, 'url' | 'events'> & {
+      kind: 'vercel';
+      events: VercelDeployEvent[];
+    });
 export type WebhookDelivery = {
   id: string;
   eventId: string;
-  type: WebhookEvent['type'];
+  type: WebhookEvent['type'] | VercelDeployEvent | 'vercel.rebuild';
   status: 'pending' | 'delivering' | 'succeeded' | 'failed' | 'cancelled';
   attemptCount: number;
   nextAttemptAt: string;

@@ -1645,6 +1645,25 @@ describe('Content releases', () => {
     ).toBe('published');
   });
   it('rolls back the whole release when a later publication fails and safely retries', async () => {
+    const integrations = new StorypaneStore(pool, {
+      webhookEncryptionKey: Buffer.alloc(32, 9).toString('base64'),
+      webhookHosts: ['example.com'],
+    });
+    const vercel = await integrations.saveWebhook(alice, {
+      kind: 'vercel',
+      name: 'Vercel site',
+      enabled: true,
+      url: 'https://api.vercel.com/v1/integrations/deploy/prj_fixture/hook_fixture',
+      events: ['vercel.publish', 'vercel.release'],
+    });
+    const webhook = await integrations.saveWebhook(alice, {
+      name: 'Other site',
+      enabled: true,
+      url: 'https://example.com/hook',
+      events: ['story.published'],
+    });
+    const deliveries = async (id: string) =>
+      (await integrations.listWebhookDeliveries(alice, id)).deliveries.map((item) => item.type);
     const first = await add(snapshot);
     const other = await duplicatePage();
     await add(other, (await store.listReleases(alice))[0]);
@@ -1666,12 +1685,16 @@ describe('Content releases', () => {
     }
     expect(await store.getPublication(alice, snapshot.story.id, snapshot.locale.id)).toBeNull();
     expect(await store.getPublication(alice, other.story.id, other.locale.id)).toBeNull();
+    expect(await deliveries(vercel.endpoint.id)).toEqual([]);
+    expect(await deliveries(webhook.endpoint.id)).toEqual([]);
     expect(
       (await store.listReleases(alice))[0].items.every((item) => item.publicationId === null),
     ).toBe(true);
     await makeDue(first.releaseId);
-    await store.runScheduledPublications();
+    await Promise.all([store.runScheduledPublications(), store.runScheduledPublications()]);
     expect((await store.listReleases(alice))[0].status).toBe('published');
+    expect(await deliveries(vercel.endpoint.id)).toEqual(['vercel.release']);
+    expect(await deliveries(webhook.endpoint.id)).toEqual(['story.published', 'story.published']);
   });
   it('rejects stale release edits and moves a page into exactly one upcoming release', async () => {
     const first = await add(snapshot);
