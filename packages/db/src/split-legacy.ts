@@ -114,6 +114,7 @@ export async function splitLegacy(
       'cms_sessions',
       'rateLimit',
       'storypane_migrations',
+      'included_story_locales', // View over story_locales, which is copied in full.
     ]);
     const content = tables.filter((t) => !ignored.has(t.table_name));
     for (const table of content)
