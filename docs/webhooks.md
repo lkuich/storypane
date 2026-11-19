@@ -2,6 +2,9 @@
 
 ## Rebuild a Vercel project
 
+Follow the [Vercel setup guide with screenshots](vercel.md) to create a hook,
+connect your space, and run a test rebuild.
+
 1. In the Git settings for your Git-connected Vercel project, create a
    [Deploy Hook](https://vercel.com/docs/deploy-hooks) for the branch you want to rebuild.
 2. In Storypane, open **Settings → Webhooks → Connect Vercel**. Give the

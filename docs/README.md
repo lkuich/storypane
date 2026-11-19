@@ -50,7 +50,8 @@ Explore the SDK, then choose the integration guide for your framework.
   generated types, and management clients.
 - [Astro example](../apps/example-astro/README.md): static pages and authenticated preview.
 - [Next.js example](../apps/example-next/README.md): generated content types and authenticated preview.
-
+- [Rebuild a Vercel site from Storypane](vercel.md) walks through Deploy Hooks,
+  automatic rebuilds, and delivery logs.
 - [Media CDN and edge-optimized images](media-cdn.md): publish versioned image
   copies, configure Cloudflare variants, and verify removal and cache purging.
 

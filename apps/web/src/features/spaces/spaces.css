@@ -873,6 +873,9 @@
 .webhook-deliveries {
   margin-top: 16px;
 }
+.webhook-delivery-dialog .dialog-heading h2 {
+  overflow-wrap: anywhere;
+}
 .webhook-deliveries .history-item {
   align-items: flex-start;
   flex-wrap: wrap;

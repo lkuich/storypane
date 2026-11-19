@@ -350,6 +350,13 @@ export function WebhookSettings({
                 : 'Use an operator-approved public HTTPS destination.'}
             </span>
           </label>
+          {vercel && !editing && (
+            <p className="field-hint">
+              <a href="https://storypane.dev/docs/vercel/" target="_blank" rel="noreferrer">
+                Vercel setup guide
+              </a>
+            </p>
+          )}
           <fieldset className="role-permissions" disabled={busy}>
             <legend>{vercel ? 'Rebuild automatically on' : 'Events'}</legend>
             {(vercel ? vercelDeployEvents : webhookEventTypes).map((type) => (
@@ -430,6 +437,25 @@ export function WebhookSettings({
       <Modal
         open={logsFor !== null}
         title={'Deliveries · ' + (logsFor?.name ?? '')}
+        className="webhook-delivery-dialog"
+        description={
+          logsFor?.kind === 'vercel'
+            ? 'A successful delivery means Vercel accepted the rebuild request. Check Vercel for build progress.'
+            : 'Events may arrive more than once or out of order. Logs are retained for 30 days.'
+        }
+        headerActions={
+          <Button
+            className="icon-button"
+            aria-label="Refresh deliveries"
+            title="Refresh deliveries"
+            disabled={logsLoading || busy}
+            onClick={() => {
+              if (logsFor) void logs(logsFor, offset);
+            }}
+          >
+            <RefreshCw aria-hidden="true" />
+          </Button>
+        }
         onClose={() => {
           setLogsFor(null);
           setPage(null);
@@ -437,22 +463,6 @@ export function WebhookSettings({
         wide
       >
         <ErrorNotice message={error} />
-        <p>
-          {logsFor?.kind === 'vercel'
-            ? 'A successful delivery means Vercel accepted the rebuild request. Check Vercel for build progress.'
-            : 'Events may arrive more than once or out of order. Logs are retained for 30 days.'}
-        </p>
-        <Button
-          className="icon-button"
-          aria-label="Refresh deliveries"
-          title="Refresh deliveries"
-          disabled={logsLoading || busy}
-          onClick={() => {
-            if (logsFor) void logs(logsFor, offset);
-          }}
-        >
-          <RefreshCw aria-hidden="true" />
-        </Button>
         {logsLoading ? (
           <Loading />
         ) : page?.deliveries.length ? (
@@ -462,7 +472,11 @@ export function WebhookSettings({
                 <div>
                   <div className="webhook-delivery-heading">
                     <strong>{eventLabel(delivery.type)}</strong>
-                    <span className="pill">{delivery.status}</span>
+                    <span
+                      className={`pill ${delivery.status === 'succeeded' ? 'pill--green' : delivery.status === 'failed' ? 'pill--red' : ''}`}
+                    >
+                      {delivery.status}
+                    </span>
                   </div>
                   <p>
                     {dateLabel(delivery.createdAt)} · {delivery.attemptCount} attempts

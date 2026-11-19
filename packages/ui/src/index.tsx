@@ -44,6 +44,7 @@ export function Modal({
   onClose,
   title,
   description,
+  headerActions,
   children,
   wide = false,
   className = '',
@@ -53,6 +54,7 @@ export function Modal({
   onClose: () => void;
   title: string;
   description?: string;
+  headerActions?: ReactNode;
   children: ReactNode;
   wide?: boolean;
   className?: string;
@@ -70,6 +72,11 @@ export function Modal({
       if (dialog?.open) dialog.close();
     };
   }, [open]);
+  const close = (
+    <Button className="dialog-close" variant="ghost" aria-label="Close dialog" onClick={onClose}>
+      ×
+    </Button>
+  );
   return (
     <dialog
       ref={ref}
@@ -108,9 +115,14 @@ export function Modal({
           <h2 id={titleId}>{title}</h2>
           {description && <p id={descriptionId}>{description}</p>}
         </div>
-        <Button variant="ghost" aria-label="Close dialog" onClick={onClose}>
-          ×
-        </Button>
+        {headerActions ? (
+          <div className="dialog-heading-actions">
+            {headerActions}
+            {close}
+          </div>
+        ) : (
+          close
+        )}
       </div>
       {children}
     </dialog>

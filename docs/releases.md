@@ -180,7 +180,8 @@ revalidation after publication.
 
 Each Vercel connection subscribed to releases queues one rebuild after the
 release commits. For other destinations, a successful release sends one
-`story.published` webhook per page. See [Vercel setup and webhooks](webhooks.md).
+`story.published` webhook per page. See the [Vercel setup guide](vercel.md) or
+[signed webhooks](webhooks.md).
 
 Use the [management API](management-api.md#content-releases) for release creation,
 rescheduling and cancellation, and the existing scheduling endpoint to approve

@@ -7,6 +7,7 @@ test('connect Vercel and queue a manual rebuild by keyboard on mobile', async ({
   let connection: Extract<WebhookDestination, { kind: 'vercel' }> | undefined;
   const now = new Date().toISOString();
   let delivery: WebhookDelivery | undefined;
+  let accepted = false;
   await page.route('**/api/cms/webhooks**', async (route) => {
     const request = route.request();
     if (request.url().endsWith('/rebuild')) {
@@ -28,7 +29,18 @@ test('connect Vercel and queue a manual rebuild by keyboard on mobile', async ({
       return route.fulfill({ json: { deliveryId: delivery.id }, status: 202 });
     }
     if (request.url().includes('/deliveries?'))
-      return route.fulfill({ json: { deliveries: delivery ? [delivery] : [], nextOffset: null } });
+      return route.fulfill({
+        json: {
+          deliveries: delivery
+            ? [
+                accepted
+                  ? { ...delivery, status: 'succeeded', attemptCount: 1, httpStatus: 201 }
+                  : delivery,
+              ]
+            : [],
+          nextOffset: null,
+        },
+      });
     if (request.method() === 'POST') {
       const input = request.postDataJSON();
       expect(input).toEqual({
@@ -58,6 +70,10 @@ test('connect Vercel and queue a manual rebuild by keyboard on mobile', async ({
   await expect(connect).toHaveCSS('background-color', 'rgb(0, 0, 0)');
   await connect.press('Enter');
   const dialog = page.getByRole('dialog', { name: 'Connect Vercel' });
+  await expect(dialog.getByRole('link', { name: 'Vercel setup guide' })).toHaveAttribute(
+    'href',
+    'https://storypane.dev/docs/vercel/',
+  );
   await expect(dialog.getByRole('button', { name: 'Close dialog' })).toBeFocused();
   await page.keyboard.press('Tab');
   await expect(dialog.getByLabel('Name', { exact: true })).toBeFocused();
@@ -66,6 +82,8 @@ test('connect Vercel and queue a manual rebuild by keyboard on mobile', async ({
   await expect(dialog.getByLabel('Vercel Deploy Hook URL')).toHaveAttribute('type', 'password');
   await expect(dialog.getByLabel('Vercel Deploy Hook URL')).toBeFocused();
   await page.keyboard.insertText(hookUrl);
+  await page.keyboard.press('Tab');
+  await expect(dialog.getByRole('link', { name: 'Vercel setup guide' })).toBeFocused();
   await page.keyboard.press('Tab');
   const publish = dialog.getByLabel('Story published', { exact: true });
   await expect(publish).toBeFocused();
@@ -84,6 +102,12 @@ test('connect Vercel and queue a manual rebuild by keyboard on mobile', async ({
   const logs = page.getByRole('dialog', { name: 'Deliveries · Production website' });
   await expect(logs.getByText('Manual rebuild', { exact: true })).toBeVisible();
   await expect(logs.getByText('pending', { exact: true })).toBeVisible();
+  const header = logs.locator('.dialog-heading');
+  const refresh = header.getByRole('button', { name: 'Refresh deliveries' });
+  await expect(header.getByRole('button', { name: 'Close dialog' })).toBeVisible();
+  accepted = true;
+  await refresh.press('Enter');
+  await expect(logs.getByText('succeeded', { exact: true })).toHaveClass('pill pill--green');
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(375);
 });
 
@@ -164,7 +188,7 @@ test('configure a webhook, show its secret once, send a test, inspect failure an
   await expect(page.getByLabel('Signing secret')).not.toBeVisible();
   await page.getByRole('button', { name: 'Send test' }).click();
   const logs = page.getByRole('dialog', { name: 'Deliveries · Static site' });
-  await expect(logs.getByText('failed', { exact: true })).toBeVisible();
+  await expect(logs.getByText('failed', { exact: true })).toHaveClass('pill pill--red');
   await expect(logs.getByText('Webhook returned HTTP 400', { exact: true })).toBeVisible();
   await logs.getByRole('button', { name: 'Retry delivery' }).click();
   await expect(logs.getByText('pending', { exact: true })).toBeVisible();

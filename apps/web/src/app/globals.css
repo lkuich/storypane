@@ -857,7 +857,14 @@ hr {
   font-size: 13px;
   margin: 0;
 }
-.dialog-heading > .button {
+.dialog-heading-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.dialog-heading > .button,
+.dialog-heading-actions > .dialog-close {
   font-size: 22px;
   line-height: 1;
   width: 32px;

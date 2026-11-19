@@ -51,3 +51,8 @@ These captures contain no customer content or credentials.
 
 `media-cdn-flow.svg` explains server-authorized publication exports and the separate
 public CDN boundary. It is an illustration, not a claim of a configured CDN zone.
+
+The [Vercel setup guide](../vercel.md) uses the Deploy Hooks form screenshot from
+[Vercel’s documentation](https://vercel.com/docs/deploy-hooks#creating-a-deploy-hook).
+`vercel-connect.webp` and `vercel-delivery.webp` show the Storypane UI with a
+fictional site and example delivery data from the browser test fixture.
