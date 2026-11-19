@@ -792,4 +792,14 @@ navigation and mobile layout. The database operation limit remains 16 per proces
 These checks cover a single editor’s request pattern. Multi-editor capacity
 requires a separate load test.
 
+Railway editor deployment `74730268-ba1b-432e-a093-65d83ce72177` served
+`c41d1e2`. Hosted checks confirmed editor and delivery readiness, an existing
+story, a private asset range read, and a public GCC image. In the block library,
+a browser-intercepted environment 503 cleared on a successful refresh. With
+the document marked hidden for 32 seconds, the page requested neither session,
+reviews, block folders nor environment status. Visibility and focus together
+triggered one review read. During rollout, Railway recorded four 503s from a
+browser that had not loaded the new page during the observation window. Reload
+existing editor tabs to pick up the client fix.
+
 </details>
