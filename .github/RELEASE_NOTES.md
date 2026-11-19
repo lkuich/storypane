@@ -1,41 +1,35 @@
-Storypane **0.1.0-rc.10** — release candidate for evaluation.
+Storypane **0.1.0-rc.11** is a release candidate for evaluation.
 
-- Run published SDK delivery in an optional separate service that can be replicated
-  independently of the editor. Keep live preview and schema tooling on the editor.
-- Share editor room signals through PostgreSQL `LISTEN`/`NOTIFY`. Each process
-  reauthorizes its own recipients and recovers active rooms after listener outages.
-- Move space deletion into General settings with the existing administrator and
-  confirmation safeguards.
-- Update architecture, scaling requirements, connection budgets, and verification
-  records. The Railway template is unchanged.
+- Connect a Vercel project in **Settings → Webhooks** and rebuild on story
+  publishes, content releases, or manually. A multi-page release queues one
+  rebuild per subscribed connection after it commits.
+- Check delivery results with green and red badges and Refresh in the dialog
+  header. [Vercel setup guide with screenshots](https://storypane.dev/docs/vercel/)
+- Organize block definitions into persistent folders and browse them from the
+  block library, editor, and block picker.
+- Follow the new [first-time setup guide](https://storypane.dev/docs/recommended-setup/)
+  or configure [edge-optimized image delivery](https://storypane.dev/docs/media-cdn/).
 
-Install the CMS from source tag `v0.1.0-rc.10`; Docker Compose builds that checkout.
-The Railway template builds moving `main`, not a pinned candidate. Install the
-SDK with `npm install @storypane/sdk@0.1.0-rc.10`, or follow `@storypane/sdk@rc`
-after npm publication completes. The tarball is attached to this prerelease.
-There is no new public SDK API or database migration beyond rc.9. Older
-installations still apply pending migrations through the transactional production
-migration runner.
+Install the CMS from source tag `v0.1.0-rc.11`. Install the SDK with
+`npm install @storypane/sdk@0.1.0-rc.11` or follow `@storypane/sdk@rc` once
+the npm publication completes. This prerelease includes the SDK archive.
+The public SDK API is unchanged.
 
-Back up the installation database, every space database, original media,
-configuration, and keys before upgrading. Keep the existing transactional
-pre-deploy migration command. Never use local-only `db:setup` on a hosted
-installation. Rollback after database changes requires a coordinated backup restore.
+Back up databases, original media, configuration, and keys before upgrading.
+Use the transactional production migration runner to apply migrations 035
+and 036 for block folders and Vercel connections. Preserve the existing webhook
+encryption key so Storypane can still decrypt saved credentials.
 
-Local checks cover two editor processes, concurrent edits, leases, preview,
-recipient filtering, listener recovery, scheduled publication, and process
-replacement. The hosted rollout remains one editor replica; production capacity,
-load-balancer reconnect/draining, and cross-instance upload checks remain pending.
-Budget up to 38 PostgreSQL connections per editor replica and 37 per delivery
-replica, plus operational headroom. Do not increase replicas without checking
-aggregate database capacity. Full fresh-install acceptance, independent security
-review, and production load benchmarks remain outstanding.
+Hosted checks covered an in-place Railway upgrade, an existing story and private
+media, the Vercel connection UI, and mobile delivery logs for an accepted rebuild
+request. Full fresh-install acceptance, hosted multi-replica checks, and
+production capacity testing remain outstanding.
 
-- [Railway deployment and updates](https://github.com/lkuich/storypane/blob/v0.1.0-rc.10/docs/deploy-railway.md)
+- [Changelog](https://github.com/lkuich/storypane/blob/v0.1.0-rc.11/CHANGELOG.md)
+- [Railway deployment and updates](https://github.com/lkuich/storypane/blob/v0.1.0-rc.11/docs/deploy-railway.md)
 - [Release and upgrade guide](https://storypane.dev/docs/releases-and-versioning/)
-- [Verification record](https://github.com/lkuich/storypane/blob/v0.1.0-rc.10/docs/deployment-verification.md)
-- [Changelog](https://github.com/lkuich/storypane/blob/v0.1.0-rc.10/CHANGELOG.md)
+- [Verification record](https://github.com/lkuich/storypane/blob/v0.1.0-rc.11/docs/deployment-verification.md)
 - [Report security issues privately](https://github.com/lkuich/storypane/security/advisories/new)
 
 MIT licensed, provided without warranty under LICENSE. Hosting, identity, mail,
-storage and agent providers have their own terms and costs.
+storage, and agent providers have their own terms and costs.

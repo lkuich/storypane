@@ -768,4 +768,19 @@ The candidate changes no public SDK contract and adds no migration beyond rc.9.
 Older installations still apply pending migrations through the transactional
 production runner. The Railway template and deployed replica counts are unchanged.
 
+### rc.11 release scope — 2026-11-19
+
+Migrations 035 and 036 store block folders and Vercel connection types. Local
+database tests cover release rollback, one queued rebuild per completed
+multi-page release, and encrypted Deploy Hook URL storage. Browser fixtures
+cover the setup form and delivery log states on mobile.
+
+The single-editor Railway upgrades for `fef374f` and `b9dfba0` reached
+`SUCCESS` with the existing pre-deploy migration command. Hosted checks covered
+editor and delivery readiness, administrator sign-in, reading an existing story
+and private media, and the Vercel setup link and green delivery badge on mobile.
+That badge records Vercel accepting a rebuild request. Full fresh-install
+acceptance, hosted multi-replica checks, and production capacity testing remain
+outstanding.
+
 </details>

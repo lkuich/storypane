@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.1.0-rc.11 — 2026-11-19
+
+- Connect Vercel projects from **Settings → Webhooks**. Rebuild on story publish,
+  after a content release commits, or with **Rebuild now**. A multi-page
+  release queues one rebuild per subscribed connection.
+- Show green and red delivery results and put Refresh in the delivery dialog
+  header. Follow the [illustrated Vercel setup guide](docs/vercel.md) to connect a
+  project and check its build in Vercel.
+- Organize block definitions into persistent folders and browse them from the
+  block library, editor, and block picker.
+- Add a [recommended first-time setup](docs/recommended-setup.md) and document
+  [edge-optimized image delivery](docs/media-cdn.md).
+- Apply space migrations 035 and 036 through the transactional production
+  migration runner. They store block folders and Vercel connection types.
+  Keep the existing webhook encryption key. The SDK version advances with the CMS.
+
 ## 0.1.0-rc.10 — 2026-11-09
 
 - Run published SDK delivery in a separate optional service with independent
