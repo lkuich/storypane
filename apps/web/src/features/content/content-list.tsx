@@ -485,7 +485,7 @@ export function ContentList({
                     </th>
                     <th>Story</th>
                     <th>Status</th>
-                    <th className="table-mobile-hide">Path</th>
+                    <th>Path</th>
                     <th>Page ID</th>
                     <th>Last modified</th>
                     <th>
@@ -606,7 +606,7 @@ export function ContentList({
                           </div>
                         )}
                       </td>
-                      <td className="table-mobile-hide">
+                      <td>
                         {(story.versions?.length ?? 0) > 1 ? (
                           <details>
                             <summary>{story.versions!.length} locale paths</summary>

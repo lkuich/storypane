@@ -296,12 +296,13 @@ test('filter, create and manage a market-only story without creating versions on
       'true',
     );
     await expect(page.getByRole('tab', { name: 'Default', exact: true })).toHaveCount(0);
-    await page.setViewportSize({ width: 1440, height: 900 });
     await page.goto('/?space=' + installation.spaceId + '&filterLocale=' + asia.id);
     const row = page
       .getByRole('row')
       .filter({ has: page.getByRole('button', { name: 'Asia booking', exact: true }) });
     await expect(row).toContainText('/asia/asia-booking');
+    await expect(row.getByText('/asia/asia-booking', { exact: true })).toBeVisible();
+    await page.setViewportSize({ width: 1440, height: 900 });
     await expect(row).toContainText('Draft');
     await row.getByRole('button', { name: 'Asia booking', exact: true }).click();
     await expect(page.getByRole('tab', { name: 'Asia asia' })).toHaveAttribute(
