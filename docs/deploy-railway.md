@@ -367,3 +367,16 @@ prerequisite for using the Railway installation. See
 and [pricing](https://developers.cloudflare.com/images/pricing/) when planning that setup.
 The [media CDN walkthrough](media-cdn.md) covers versioned public exports,
 responsive image URLs, and removal/purge checks.
+
+### Editor reports “Database capacity is busy”
+
+The combined service limits concurrent scoped database operations within each
+process. A capacity response can occur during a brief request burst even when
+PostgreSQL has idle connections. Inspect Railway HTTP logs around the error and
+compare request times and paths with active queries in `pg_stat_activity`.
+Public media routed through the combined service also uses that process.
+
+From rc.12, hidden editor tabs pause passive reads and refresh when visible.
+Reload existing tabs after the upgrade so they use the new client. The environment
+banner in Blocks clears on the next successful read. Edit locks and autosave
+continue while an editor has unsaved work.

@@ -1,4 +1,5 @@
 'use client';
+import { visiblePoll } from '../../lib/visible-poll';
 import { useEffect, useRef, useState } from 'react';
 import { ArrowUpRight, CalendarClock, CircleAlert, Layers } from 'lucide-react';
 import type {
@@ -53,11 +54,10 @@ export function PublicationSchedules({
             change.current?.(null);
           }
         });
-    void load();
-    const timer = setInterval(() => void load(), 30000);
+    const poll = visiblePoll(load, 30_000);
     return () => {
       stopped = true;
-      clearInterval(timer);
+      poll.stop();
     };
   }, [base, revision, refresh]);
   const scheduled = schedules.find((item) => item.active);

@@ -33,6 +33,7 @@ test('block columns, references and row actions work with nesting, permissions a
     zulu = make('zulu', 'Zulu');
   let definitions = [zulu, make('child', 'Child', alpha.id), alpha];
   const counts: Record<string, number> = { [alpha.id]: 12, [zulu.id]: 2 };
+  let environmentUnavailable = true;
   let referenceRequests = 0,
     failReferences = false,
     failDelete = false;
@@ -55,6 +56,11 @@ test('block columns, references and row actions work with nesting, permissions a
   await page.route('**/api/spaces', (route) => route.fulfill({ json: [space] }));
   await page.route('**/api/cms/**', async (route) => {
     const path = new URL(route.request().url()).pathname.replace('/api/cms', '');
+    if (path === '/migrations/environment' && environmentUnavailable)
+      return route.fulfill({
+        status: 503,
+        json: { error: { message: 'Database capacity is busy. Please retry.' } },
+      });
     if (path === '/options' && route.request().method() === 'POST') {
       const body = route.request().postDataJSON();
       expect(body.source.type).toBe('inline');
@@ -144,6 +150,11 @@ test('block columns, references and row actions work with nesting, permissions a
   const order = () =>
     rows.evaluateAll((items) => items.map((item) => item.getAttribute('data-definition-id')));
   const checkbox = page.getByRole('checkbox', { name: 'Show references' });
+  const capacityError = page.getByText('Database capacity is busy. Please retry.', { exact: true });
+  await expect(capacityError).toBeVisible();
+  environmentUnavailable = false;
+  await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+  await expect(capacityError).toHaveCount(0);
   await expect(rows).toHaveCount(3);
   await expect(checkbox).not.toBeChecked();
   await expect(page.getByRole('columnheader', { name: 'Sort by References' })).toHaveCount(0);

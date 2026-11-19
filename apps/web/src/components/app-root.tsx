@@ -1,5 +1,6 @@
 'use client';
 
+import { visiblePoll } from '../lib/visible-poll';
 import { lazy, Suspense, useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { LocalSignIn, InvitationForm } from './local-sign-in';
 import type { AuthConfig } from '@storypane/db/authentication';
@@ -173,9 +174,7 @@ export function AuthenticatedApp({
       setLoading(false);
       return;
     }
-    void loadSession();
-    const timer = setInterval(() => void loadSession(), 20_000);
-    return () => clearInterval(timer);
+    return visiblePoll(loadSession, 20_000).stop;
   }, [isLoaded, isSignedIn, loadSession]);
   if (!isLoaded || (isSignedIn && loading)) return <WorkspaceLoading />;
   if (sessionError)

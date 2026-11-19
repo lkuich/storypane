@@ -1,4 +1,5 @@
 'use client';
+import { visiblePoll } from '../../lib/visible-poll';
 import { rememberClipboard, writeClipboardText } from '../../lib/clipboard';
 import {
   createBlockClipboard,
@@ -501,13 +502,12 @@ function LocaleEditor({
         .catch(() => {
           if (!stopped) setDiscussions([]);
         });
-    void refresh();
-    const timer = setInterval(() => void refresh(), 30000);
-    window.addEventListener('reviews-changed', refresh);
+    const poll = visiblePoll(refresh, 30_000);
+    window.addEventListener('reviews-changed', poll.invalidate);
     return () => {
       stopped = true;
-      clearInterval(timer);
-      window.removeEventListener('reviews-changed', refresh);
+      poll.stop();
+      window.removeEventListener('reviews-changed', poll.invalidate);
     };
   }, [story.id, snapshot.locale.id, snapshot.revision]);
   const pendingReviews = discussions.filter(

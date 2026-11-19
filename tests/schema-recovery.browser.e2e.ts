@@ -14,7 +14,9 @@ test('blocks and migrations recover from initial read failures without reloading
       ? 'datasources'
       : url.pathname.endsWith('/migrations') && url.searchParams.has('workspace')
         ? 'migrations'
-        : null;
+        : url.pathname.endsWith('/migrations/environment')
+          ? 'environment'
+          : null;
     if (key && !failed.has(key)) {
       failed.add(key);
       await route.fulfill({ status: 503, json: { error: { code: 'unavailable', message } } });
@@ -24,7 +26,7 @@ test('blocks and migrations recover from initial read failures without reloading
     .getByRole('navigation', { name: 'Main navigation' })
     .getByRole('button', { name: 'Blocks', exact: true })
     .click();
-  await expect(page.getByText(message, { exact: true })).toHaveCount(2);
+  await expect(page.getByText(message, { exact: true })).toHaveCount(3);
   // A focus refresh is the same recovery path as the periodic refresh.
   await page.evaluate(() => window.dispatchEvent(new Event('focus')));
   await expect(page.getByText(message, { exact: true })).toHaveCount(0, { timeout: 15000 });
@@ -34,7 +36,7 @@ test('blocks and migrations recover from initial read failures without reloading
       .getByText('Current release', { exact: true }),
   ).toBeVisible();
   await expect(page.locator('.data-table tbody tr').first()).toBeVisible();
-  expect([...failed].sort()).toEqual(['datasources', 'migrations']);
+  expect([...failed].sort()).toEqual(['datasources', 'environment', 'migrations']);
 });
 
 test('successful polling does not dismiss a failed management action', async ({ page }) => {

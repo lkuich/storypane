@@ -783,4 +783,13 @@ That badge records Vercel accepting a rebuild request. Full fresh-install
 acceptance, hosted multi-replica checks, and production capacity testing remain
 outstanding.
 
+### rc.12 editor polling — 2026-11-19
+
+A timer test covers hidden tabs, simultaneous focus and visibility events,
+in-flight invalidations and cleanup. A local production build passed browser
+checks for block-library recovery from a simulated capacity response, keyboard
+navigation and mobile layout. The database operation limit remains 16 per process.
+These checks cover a single editor’s request pattern. Multi-editor capacity
+requires a separate load test.
+
 </details>

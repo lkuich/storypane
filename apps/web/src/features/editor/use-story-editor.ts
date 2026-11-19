@@ -642,6 +642,11 @@ export function useStoryEditor({
     const warn = (event: BeforeUnloadEvent) => {
       if (Object.keys(buffersRef.current).length || pendingCommand.current) event.preventDefault();
     };
+    const refreshVisibleSnapshot = () => {
+      if (!stopped && !document.hidden && connected.current)
+        return sync().catch((error) => setError(errorMessage(error)));
+    };
+    document.addEventListener('visibilitychange', refreshVisibleSnapshot);
     window.addEventListener('offline', offline);
     window.addEventListener('online', online);
     window.addEventListener('beforeunload', warn);
@@ -672,7 +677,7 @@ export function useStoryEditor({
       }
       if (!stopped) {
         setLeaseRevision((value) => value + 1);
-        await sync().catch((error) => setError(errorMessage(error)));
+        await refreshVisibleSnapshot();
       }
     }, LEASE_RENEW_MS);
     return () => {
@@ -684,6 +689,7 @@ export function useStoryEditor({
       if (maxWait.current) clearTimeout(maxWait.current);
       clearInterval(interval);
       socket?.close();
+      document.removeEventListener('visibilitychange', refreshVisibleSnapshot);
       window.removeEventListener('offline', offline);
       window.removeEventListener('online', online);
       window.removeEventListener('beforeunload', warn);

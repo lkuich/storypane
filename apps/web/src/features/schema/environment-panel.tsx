@@ -1,5 +1,6 @@
 'use client';
-import { useCallback, useEffect, useState } from 'react';
+import { visiblePoll } from '../../lib/visible-poll';
+import { useRef, useEffect, useState } from 'react';
 import type { SchemaStatus, SchemaTransferReview, SchemaResolutions } from '@storypane/core';
 import { Button, ErrorNotice, Modal } from '@storypane/ui';
 import {
@@ -64,21 +65,27 @@ export function EnvironmentPanel({
   const [notice, setNotice] = useState('');
   const [busy, setBusy] = useState(false),
     [error, setError] = useState('');
-  const load = useCallback(async () => {
-    setStatus(await api<SchemaStatus>('/migrations/environment'));
-  }, []);
+  const [loadError, setLoadError] = useState('');
+  const refreshStatus = useRef<() => Promise<void>>(async () => {});
   useEffect(() => {
-    const refresh = () => {
-      if (!document.hidden) void load().catch((e) => setError(errorMessage(e)));
-    };
-    refresh();
-    const timer = setInterval(refresh, 5000);
-    window.addEventListener('focus', refresh);
+    let stopped = false;
+    const poll = visiblePoll(async () => {
+      try {
+        const next = await api<SchemaStatus>('/migrations/environment');
+        if (!stopped) {
+          setStatus(next);
+          setLoadError('');
+        }
+      } catch (cause) {
+        if (!stopped) setLoadError(errorMessage(cause));
+      }
+    }, 5000);
+    refreshStatus.current = poll.invalidate;
     return () => {
-      clearInterval(timer);
-      window.removeEventListener('focus', refresh);
+      stopped = true;
+      poll.stop();
     };
-  }, [load]);
+  }, []);
   async function inspect(
     action: 'sync' | 'promote',
     id = crypto.randomUUID(),
@@ -110,9 +117,9 @@ export function EnvironmentPanel({
       data-environment={status?.environment ?? 'prod'}
     >
       <div className="panel-body">
-        <ErrorNotice message={error} />
+        <ErrorNotice message={error || loadError} />
         {notice && <p role="status">{notice}</p>}
-        {!status && !error && <p>Loading environment…</p>}
+        {!status && !error && !loadError && <p>Loading environment…</p>}
         {status && (
           <>
             <div className="environment-panel-heading">
@@ -332,7 +339,7 @@ export function EnvironmentPanel({
                           : `Migrations applied to ${status?.production?.name ?? 'production'}.`,
                       );
                       setReview(null);
-                      await load();
+                      await refreshStatus.current();
                       await onApply();
                     } catch (e) {
                       setError(errorMessage(e));

@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.0-rc.12 — 2026-11-19
+
+- Pause passive editor polling in hidden tabs and combine overlapping refreshes.
+  Sessions with the same permissions no longer restart the review poll.
+- Clear the block library’s environment error after a successful retry while
+  keeping failed management actions visible.
+- Upgrade the CMS and SDK together. This release adds no database migrations.
+
 ## 0.1.0-rc.11 — 2026-11-19
 
 - Connect Vercel projects from **Settings → Webhooks**. Rebuild on story publish,

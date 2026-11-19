@@ -1,7 +1,7 @@
 # Releases and versioning
 
-The current version is **0.1.0-rc.11**, the current public release candidate. The
-CMS checkout and SDK share that version. Tags use `v0.1.0-rc.11`; later candidates
+The current version is **0.1.0-rc.12**, the current public release candidate. The
+CMS checkout and SDK share that version. Tags use `v0.1.0-rc.12`; later candidates
 increment the final number. `0.1.0` will be the first stable release only after
 its acceptance checks pass. An RC is for evaluation, not a production-readiness
 promise.
@@ -13,13 +13,13 @@ Check out an explicit tag rather than tracking a moving branch:
 ```sh
 git clone https://github.com/lkuich/storypane.git
 cd storypane
-git checkout v0.1.0-rc.11
+git checkout v0.1.0-rc.12
 node scripts/setup-env.mjs
 ```
 
 Continue with [getting started](getting-started.md). The Docker Compose setup
 builds the checked-out source; it does not require an unpublished container image.
-Install the SDK from npm with `npm install @storypane/sdk@0.1.0-rc.11`, or use
+Install the SDK from npm with `npm install @storypane/sdk@0.1.0-rc.12`, or use
 `@storypane/sdk@rc` to follow candidates. The verified archive remains attached to
 the [GitHub release](https://github.com/lkuich/storypane/releases).
 
@@ -60,7 +60,7 @@ and persistence after restart. Record the tested revision, providers, and result
 2. Run the checks above and the relevant browser/deployment acceptance checks.
    Document any unverified areas instead of calling them verified.
 3. Commit and push. Tag that exact commit and push the tag, for example:
-   `git tag v0.1.0-rc.11` then `git push origin v0.1.0-rc.11`.
+   `git tag v0.1.0-rc.12` then `git push origin v0.1.0-rc.12`.
 4. The release workflow repeats CI, validates tag/version agreement, then creates
    a GitHub **prerelease** and uploads the installable SDK tarball. A tag push
    does not publish to npm.

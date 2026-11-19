@@ -1,4 +1,5 @@
 'use client';
+import { visiblePoll } from '../../lib/visible-poll';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ArrowRight,
@@ -71,11 +72,10 @@ export function ReleasesScreen({
         .catch((cause) => {
           if (!stopped) setError(errorMessage(cause));
         });
-    void reload();
-    const timer = setInterval(() => void reload(), 30000);
+    const poll = visiblePoll(reload, 30_000);
     return () => {
       stopped = true;
-      clearInterval(timer);
+      poll.stop();
     };
   }, []);
   const upcoming = (releases ?? [])

@@ -1,5 +1,6 @@
 'use client';
 
+import { visiblePoll } from '../lib/visible-poll';
 import { AccountControl } from './account-control';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
@@ -84,17 +85,11 @@ export function CMSApp({ session: initialSession }: { session: CMSSession }) {
   );
   const [discussions, setDiscussions] = useState<Discussion[] | null>(null);
   const [reviewsError, setReviewsError] = useState('');
-  const refreshReviews = useCallback(async () => {
-    try {
-      setDiscussions(await api<Discussion[]>('/reviews'));
-      setReviewsError('');
-    } catch (cause) {
-      setReviewsError(errorMessage(cause));
-    }
-  }, []);
+  const refreshReviews = useRef<() => Promise<void>>(async () => {});
+  const permissionsKey = session.space.permissions.join(',');
   useEffect(() => {
     let stopped = false;
-    const refresh = async () => {
+    const poll = visiblePoll(async () => {
       try {
         const items = await api<Discussion[]>('/reviews');
         if (!stopped) {
@@ -104,18 +99,15 @@ export function CMSApp({ session: initialSession }: { session: CMSSession }) {
       } catch (cause) {
         if (!stopped) setReviewsError(errorMessage(cause));
       }
-    };
-    void refresh();
-    const timer = setInterval(() => void refresh(), 30000);
-    window.addEventListener('focus', refresh);
-    window.addEventListener('reviews-changed', refresh);
+    }, 30_000);
+    refreshReviews.current = poll.invalidate;
+    window.addEventListener('reviews-changed', poll.invalidate);
     return () => {
       stopped = true;
-      clearInterval(timer);
-      window.removeEventListener('focus', refresh);
-      window.removeEventListener('reviews-changed', refresh);
+      poll.stop();
+      window.removeEventListener('reviews-changed', poll.invalidate);
     };
-  }, [session.space.id, session.space.permissions]);
+  }, [session.space.id, permissionsKey]);
   const reviewCount = (discussions ?? []).filter((item) => item.canDecide).length;
   const historyIndex = useRef(0);
   const [story, setStory] = useState<Story | null>(null);
@@ -491,7 +483,7 @@ export function CMSApp({ session: initialSession }: { session: CMSSession }) {
               userId={session.user.id}
               canReview={can(session.space, 'content:review')}
               error={reviewsError}
-              onRefresh={refreshReviews}
+              onRefresh={() => refreshReviews.current()}
             />
           )}
           {tab === 'releases' && (
