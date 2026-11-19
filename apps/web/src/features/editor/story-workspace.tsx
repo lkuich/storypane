@@ -166,17 +166,11 @@ export function StoryWorkspace({
             ? 'No locale is available for this story.'
             : `Locale “${requestedLocale || '/'}” is not configured in this space.`,
         );
-      const locale =
-        available.find((locale) => locale.spaceLocaleId === target.id) ??
-        (await api<StoryLocale>(
-          `/stories/${story.id}/locales`,
-          jsonRequest('POST', { spaceLocaleId: target.id }),
-        ));
+      const locale = available.find((item) => item.spaceLocaleId === target.id);
+      if (!locale) throw new Error('This locale is not included on this story.');
       const snapshot = await api<LocaleSnapshot>(`/stories/${story.id}/locales/${locale.id}`);
       if (stopped) return;
-      setLocales(
-        available.some((item) => item.id === locale.id) ? available : [...available, locale],
-      );
+      setLocales(available);
       setConfiguredLocales(configured);
       setDefinitions(blocks);
       setSavedFolderPaths(folders);
@@ -222,6 +216,25 @@ export function StoryWorkspace({
       focusLocale.current = spaceLocaleId;
       setInitialSnapshot(snapshot);
       setStoryLocation(story.id, locale.slug);
+    } catch (cause) {
+      setError(errorMessage(cause));
+    } finally {
+      switching.current = false;
+      setBusy(false);
+    }
+  }
+  async function excludeLocale() {
+    if (!initialSnapshot || switching.current) return;
+    const next = locales.find((locale) => locale.id !== localeId);
+    if (!next) return;
+    switching.current = true;
+    setBusy(true);
+    try {
+      if (guard.current && !(await guard.current())) return;
+      await api(`/stories/${story.id}/locales/${localeId}`, { method: 'DELETE' });
+      setStoryLocation(story.id, next.slug);
+      setInitialSnapshot(null);
+      setLoadAttempt((value) => value + 1);
     } catch (cause) {
       setError(errorMessage(cause));
     } finally {
@@ -277,6 +290,7 @@ export function StoryWorkspace({
             }
             session={session}
             registerGuard={register}
+            onExclude={() => void excludeLocale()}
             onLocale={(id) => void switchLocale(id)}
             onManageLocales={() => void manageLocales()}
           />
@@ -312,6 +326,7 @@ function LocaleEditor({
   session,
   registerGuard,
   onLocale,
+  onExclude,
   onManageLocales,
 }: {
   story: Story;
@@ -334,6 +349,7 @@ function LocaleEditor({
   session: CMSSession;
   registerGuard: RegisterGuard;
   onLocale: (id: string) => void;
+  onExclude: () => void;
   onManageLocales: () => void;
 }) {
   const [scheduledRelease, setScheduledRelease] = useState<PublicationSchedule | null>(null);
@@ -1262,34 +1278,75 @@ function LocaleEditor({
       )}
       <div className="locale-bar">
         <div className="locale-tabs" role="tablist" aria-label="Story locale">
-          {configuredLocales.map((locale) => (
-            <button
-              role="tab"
-              aria-label={locale.slug ? `${locale.name} ${locale.slug}` : locale.name}
-              aria-selected={locale.id === snapshot.locale.spaceLocaleId}
-              disabled={
-                switchingLocale ||
-                (!can(session.space, 'content:edit') &&
-                  !locales.some((item) => item.spaceLocaleId === locale.id))
-              }
-              aria-controls="locale-editor"
-              id={`locale-tab-${locale.id}`}
-              key={locale.id}
-              onClick={() => onLocale(locale.id)}
-            >
-              {locale.name}
-              {locale.slug !== '' && (
-                <span
-                  className="mono"
-                  style={{ marginLeft: 7, color: 'var(--muted)', fontSize: 10 }}
-                >
-                  {locale.slug}
-                </span>
-              )}
-            </button>
-          ))}
+          {configuredLocales
+            .filter((option) => locales.some((item) => item.spaceLocaleId === option.id))
+            .map((locale) => (
+              <button
+                role="tab"
+                aria-label={locale.slug ? `${locale.name} ${locale.slug}` : locale.name}
+                aria-selected={locale.id === snapshot.locale.spaceLocaleId}
+                disabled={
+                  switchingLocale ||
+                  (!can(session.space, 'content:edit') &&
+                    !locales.some((item) => item.spaceLocaleId === locale.id))
+                }
+                aria-controls="locale-editor"
+                id={`locale-tab-${locale.id}`}
+                key={locale.id}
+                onClick={() => onLocale(locale.id)}
+              >
+                {locale.name}
+                {locale.slug !== '' && (
+                  <span
+                    className="mono"
+                    style={{ marginLeft: 7, color: 'var(--muted)', fontSize: 10 }}
+                  >
+                    {locale.slug}
+                  </span>
+                )}
+              </button>
+            ))}
         </div>
         <div className="button-group">
+          {can(session.space, 'content:edit') && !viewRelease && (
+            <>
+              {configuredLocales.some(
+                (option) => !locales.some((item) => item.spaceLocaleId === option.id),
+              ) && (
+                <select
+                  aria-label="Add locale to story"
+                  value=""
+                  disabled={switchingLocale}
+                  onChange={(event) => {
+                    if (event.target.value) onLocale(event.target.value);
+                  }}
+                >
+                  <option value="">Add locale…</option>
+                  {configuredLocales
+                    .filter((option) => !locales.some((item) => item.spaceLocaleId === option.id))
+                    .map((option) => (
+                      <option key={option.id} value={option.id}>
+                        {option.name}
+                      </option>
+                    ))}
+                </select>
+              )}
+              {locales.length > 1 && (
+                <Button
+                  variant="ghost"
+                  onClick={onExclude}
+                  disabled={switchingLocale || busy || !!snapshot.locale.publishedVersionId}
+                  title={
+                    snapshot.locale.publishedVersionId
+                      ? 'Unpublish this version before excluding it'
+                      : 'Keep its draft and history for later'
+                  }
+                >
+                  Exclude {snapshot.locale.name}
+                </Button>
+              )}
+            </>
+          )}
           <Button
             variant="ghost"
             onClick={onManageLocales}

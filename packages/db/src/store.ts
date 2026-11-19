@@ -1270,7 +1270,7 @@ export class StorypaneStore {
     const rows = (
       await client.query(
         `SELECT s.id,s.name,s.folder_id,s.deleted_at,l.id AS locale_id,l.url_slug,l.revision,l.checkpoint_id,l.published_version_id,
-        (SELECT coalesce(jsonb_agg(other.id ORDER BY other.id),'[]'::jsonb) FROM story_locales other WHERE other.story_id=s.id AND other.id<>l.id) AS other_locales,
+        (SELECT coalesce(jsonb_agg(other.id ORDER BY other.id),'[]'::jsonb) FROM included_story_locales other WHERE other.story_id=s.id AND other.id<>l.id) AS other_locales,
         (SELECT coalesce(jsonb_agg(jsonb_build_array(p.id,p.revision) ORDER BY p.id),'[]'::jsonb)
           FROM publication_schedules p WHERE p.locale_id=l.id AND p.status='pending') AS schedules
         FROM story_locales l JOIN stories s ON s.id=l.story_id
@@ -1627,7 +1627,7 @@ export class StorypaneStore {
           l.id AS "localeId",l.slug AS "localeSlug",l.name AS "localeName",l.space_locale_id AS "spaceLocaleId",
           b.id AS "blockId",v.definition_id AS "definitionId",v.schema->>'displayName' AS "blockName",
           coalesce(f->>'id','') AS "fieldId",f->>'name' AS "fieldName",f->>'label' AS "fieldLabel",'draft' AS state
-        FROM stories s JOIN story_locales l ON l.story_id=s.id JOIN block_drafts b ON b.locale_id=l.id
+        FROM stories s JOIN included_story_locales l ON l.story_id=s.id JOIN block_drafts b ON b.locale_id=l.id
           JOIN definition_versions v ON v.id=b.schema_version_id
           CROSS JOIN LATERAL jsonb_array_elements(v.schema->'fields') f
         WHERE s.space_id=$1 AND s.deleted_at IS NULL
@@ -1637,7 +1637,7 @@ export class StorypaneStore {
         SELECT s.id,coalesce(p.snapshot->'story'->>'name',s.name),s.folder_id,
           l.id,l.slug,l.name,l.space_locale_id,(b->>'id')::uuid,(d->>'id')::uuid,d->>'displayName',
           coalesce(f->>'id',''),f->>'name',f->>'label','published'
-        FROM stories s JOIN story_locales l ON l.story_id=s.id JOIN publications p ON p.id=l.published_version_id
+        FROM stories s JOIN included_story_locales l ON l.story_id=s.id JOIN publications p ON p.id=l.published_version_id
           CROSS JOIN LATERAL jsonb_array_elements(p.snapshot->'blocks') b
           CROSS JOIN LATERAL jsonb_array_elements(p.snapshot->'definitions') d
           CROSS JOIN LATERAL jsonb_array_elements(d->'fields') f
@@ -1670,7 +1670,7 @@ export class StorypaneStore {
     const { rows } = await this.pool.query(
       `WITH page AS (
       SELECT s.id AS story_id,p.snapshot->'story'->>'name' AS name,coalesce(p.snapshot->'locale'->>'urlSlug',l.url_slug) AS slug,l.slug AS locale,l.id AS locale_id,p.revision,p.content,p.created_at AS published_at
-      FROM stories s JOIN story_locales l ON l.story_id=s.id JOIN publications p ON p.id=l.published_version_id
+      FROM stories s JOIN included_story_locales l ON l.story_id=s.id JOIN publications p ON p.id=l.published_version_id
       WHERE s.space_id=$1 AND s.deleted_at IS NULL AND l.slug=coalesce($2,(SELECT slug FROM space_locales WHERE space_id=$1 AND is_default)) AND ($3::uuid IS NULL OR s.id=$3) AND ($4::text IS NULL OR coalesce(p.snapshot->'locale'->>'urlSlug',l.url_slug)=$4)
       ORDER BY coalesce(p.snapshot->'locale'->>'urlSlug',l.url_slug),s.id LIMIT $5 OFFSET $6)
       SELECT s.schema_version,coalesce(jsonb_agg(to_jsonb(page) ORDER BY page.slug,page.story_id) FILTER(WHERE page.locale_id IS NOT NULL),'[]') AS stories
@@ -1812,7 +1812,7 @@ export class StorypaneStore {
     const client = await this.pool.connect();
     try {
       const { rows } = await client.query(
-        'SELECT s.id AS story_id,l.id AS locale_id FROM stories s JOIN story_locales l ON l.story_id=s.id WHERE s.space_id=$1 AND s.deleted_at IS NULL AND l.slug=coalesce($2,(SELECT slug FROM space_locales WHERE space_id=$1 AND is_default)) AND ($3::uuid IS NULL OR s.id=$3) AND ($4::text IS NULL OR l.url_slug=$4)',
+        'SELECT s.id AS story_id,l.id AS locale_id FROM stories s JOIN included_story_locales l ON l.story_id=s.id WHERE s.space_id=$1 AND s.deleted_at IS NULL AND l.slug=coalesce($2,(SELECT slug FROM space_locales WHERE space_id=$1 AND is_default)) AND ($3::uuid IS NULL OR s.id=$3) AND ($4::text IS NULL OR l.url_slug=$4)',
         [spaceId, input.locale ?? null, input.id ?? null, input.slug ?? null],
       );
       if (!rows[0]) throw new StorypaneError('not_found', 'Story locale not found');
@@ -1838,7 +1838,7 @@ export class StorypaneStore {
     release?: { id: string; revision: number; snapshot: LocaleSnapshot },
   ): Promise<PreviewSession> {
     const { rows } = await client.query(
-      'SELECT s.preview_urls,s.default_preview_id,m.personal_default_preview_id,l.url_slug AS slug,l.slug AS locale FROM spaces s JOIN stories st ON st.space_id=s.id JOIN story_locales l ON l.story_id=st.id LEFT JOIN memberships m ON m.space_id=s.id AND m.user_id=$4 WHERE s.id=$1 AND st.id=$2 AND st.deleted_at IS NULL AND l.id=$3',
+      'SELECT s.preview_urls,s.default_preview_id,m.personal_default_preview_id,l.url_slug AS slug,l.slug AS locale FROM spaces s JOIN stories st ON st.space_id=s.id JOIN included_story_locales l ON l.story_id=st.id LEFT JOIN memberships m ON m.space_id=s.id AND m.user_id=$4 WHERE s.id=$1 AND st.id=$2 AND st.deleted_at IS NULL AND l.id=$3',
       [spaceId, storyId, localeId, owner.userId ?? null],
     );
     const settings: Pick<
@@ -1913,7 +1913,7 @@ export class StorypaneStore {
     const { rows } = await this.pool.query(
       `SELECT p.space_id,p.user_id,p.session_id,p.publication_schedule_id,ps.release_id,ps.approved_snapshot AS release_snapshot,st.folder_id,sp.schema_version AS migration_version,st.id AS story_id,st.name,l.url_slug AS slug,l.slug AS locale,l.id AS locale_id,c.revision,c.content,c.snapshot
       FROM preview_sessions p JOIN spaces sp ON sp.id=p.space_id JOIN stories st ON st.id=p.story_id AND st.space_id=p.space_id
-      JOIN story_locales l ON l.id=p.locale_id AND l.story_id=st.id
+      JOIN included_story_locales l ON l.id=p.locale_id AND l.story_id=st.id
       LEFT JOIN publication_schedules ps ON ps.id=p.publication_schedule_id AND ps.locale_id=p.locale_id AND ps.space_id=p.space_id
       LEFT JOIN content_releases cr ON cr.id=ps.release_id AND cr.space_id=p.space_id
       JOIN checkpoints c ON c.id=coalesce(ps.checkpoint_id,l.checkpoint_id)
@@ -1988,7 +1988,7 @@ export class StorypaneStore {
           await this.pool.query(
             `SELECT DISTINCT ON (st.id) st.id AS story_id,st.name,l.url_slug AS slug,l.slug AS locale,l.id AS locale_id,c.revision,c.content,
       CASE WHEN $4::uuid IS NULL THEN c.snapshot ELSE coalesce(ps.approved_snapshot,pub.snapshot) END AS snapshot
-      FROM stories st JOIN story_locales l ON l.story_id=st.id
+      FROM stories st JOIN included_story_locales l ON l.story_id=st.id
       LEFT JOIN publication_schedules ps ON ps.locale_id=l.id AND ps.release_id=$4 AND ps.status='pending'
       LEFT JOIN publications pub ON pub.id=l.published_version_id
       JOIN checkpoints c ON c.id=CASE WHEN $4::uuid IS NULL THEN l.checkpoint_id ELSE coalesce(ps.checkpoint_id,pub.checkpoint_id) END AND c.locale_id=l.id
@@ -2092,7 +2092,7 @@ export class StorypaneStore {
     localeId: string,
   ): Promise<void> {
     const result = await client.query(
-      'SELECT l.id FROM story_locales l JOIN stories s ON s.id=l.story_id WHERE l.id=$1 AND s.id=$2 AND s.space_id=$3 AND s.deleted_at IS NULL FOR UPDATE OF l',
+      'SELECT l.id FROM included_story_locales l JOIN stories s ON s.id=l.story_id WHERE l.id=$1 AND s.id=$2 AND s.space_id=$3 AND s.deleted_at IS NULL FOR UPDATE OF l',
       [localeId, storyId, actor.spaceId],
     );
     if (!result.rowCount) throw new StorypaneError('not_found', 'Story locale not found');
@@ -2308,14 +2308,14 @@ export class StorypaneStore {
       const { rows } = await client.query<{ definition_id: string; total: number }>(
         `WITH usage AS (
           SELECT v.definition_id,s.id AS story_id
-          FROM stories s JOIN story_locales l ON l.story_id=s.id
+          FROM stories s JOIN included_story_locales l ON l.story_id=s.id
             JOIN block_drafts b ON b.locale_id=l.id JOIN definition_versions v ON v.id=b.schema_version_id
           WHERE s.space_id=$1 AND s.deleted_at IS NULL AND l.id=ANY($2::uuid[])
             AND ($3::uuid[] IS NULL OR v.definition_id=ANY($3))
             AND ($4::text[] IS NULL OR EXISTS(SELECT 1 FROM jsonb_array_elements(v.schema->'fields') f WHERE f->>'id'=ANY($4)))
           UNION ALL
           SELECT (d->>'id')::uuid,s.id
-          FROM stories s JOIN story_locales l ON l.story_id=s.id JOIN publications p ON p.id=l.published_version_id
+          FROM stories s JOIN included_story_locales l ON l.story_id=s.id JOIN publications p ON p.id=l.published_version_id
             CROSS JOIN LATERAL jsonb_array_elements(p.snapshot->'blocks') b
             CROSS JOIN LATERAL jsonb_array_elements(p.snapshot->'definitions') d
           WHERE s.space_id=$1 AND s.deleted_at IS NULL AND l.id=ANY($2::uuid[])
@@ -2368,13 +2368,13 @@ export class StorypaneStore {
         `WITH usage AS (
           SELECT s.id AS story_id,s.name AS story_name,l.id AS locale_id,l.name AS locale_name,
             l.slug AS locale_slug,l.url_slug AS path,b.id::text AS block_id,true AS draft,false AS published
-          FROM stories s JOIN story_locales l ON l.story_id=s.id
+          FROM stories s JOIN included_story_locales l ON l.story_id=s.id
             JOIN block_drafts b ON b.locale_id=l.id JOIN definition_versions v ON v.id=b.schema_version_id
           WHERE s.space_id=$1 AND s.deleted_at IS NULL AND l.id=ANY($4::uuid[]) AND v.definition_id=$2
             AND ($5::text[] IS NULL OR EXISTS(SELECT 1 FROM jsonb_array_elements(v.schema->'fields') f WHERE f->>'id'=ANY($5)))
           UNION ALL
           SELECT s.id,s.name,l.id,l.name,l.slug,l.url_slug,NULL,false,true
-          FROM stories s JOIN story_locales l ON l.story_id=s.id JOIN publications p ON p.id=l.published_version_id
+          FROM stories s JOIN included_story_locales l ON l.story_id=s.id JOIN publications p ON p.id=l.published_version_id
             CROSS JOIN LATERAL jsonb_array_elements(p.snapshot->'blocks') b
             CROSS JOIN LATERAL jsonb_array_elements(p.snapshot->'definitions') d
           WHERE s.space_id=$1 AND s.deleted_at IS NULL AND l.id=ANY($4::uuid[])
@@ -3555,7 +3555,7 @@ export class StorypaneStore {
       const { rows } = await client.query<PageEditor & { storyId: string; sessionIds: string[] }>(
         `SELECT s.id AS "storyId",u.id AS "userId",u.name,u.avatar_url AS "avatarUrl",
         array_agg(DISTINCT l.name ORDER BY l.name) AS locales, array_agg(DISTINCT e.session_id) AS "sessionIds"
-        FROM edit_leases e JOIN story_locales l ON l.id=e.locale_id JOIN stories s ON s.id=l.story_id
+        FROM edit_leases e JOIN included_story_locales l ON l.id=e.locale_id JOIN stories s ON s.id=l.story_id
         JOIN "user" u ON u.id=e.user_id ${this.options.authorizeSession ? '' : 'JOIN cms_sessions se ON se.id=e.session_id AND se.user_id=e.user_id'}
         JOIN memberships m ON m.space_id=s.space_id AND m.user_id=e.user_id
         JOIN space_roles r ON r.space_id=m.space_id AND r.id=m.role
@@ -3693,7 +3693,7 @@ export class StorypaneStore {
     ).rows;
     const stories = (
       await client.query(
-        'SELECT s.*,v.definition_id FROM stories s LEFT JOIN LATERAL (SELECT l.* FROM story_locales l JOIN space_locales c ON c.id=l.space_locale_id WHERE l.story_id=s.id ORDER BY c.is_default DESC,l.id LIMIT 1) l ON true LEFT JOIN block_drafts b ON b.id=l.root_block_id AND b.locale_id=l.id LEFT JOIN definition_versions v ON v.id=b.schema_version_id WHERE s.space_id=$1',
+        'SELECT s.*,v.definition_id FROM stories s LEFT JOIN LATERAL (SELECT l.* FROM included_story_locales l JOIN space_locales c ON c.id=l.space_locale_id WHERE l.story_id=s.id ORDER BY c.is_default DESC,l.id LIMIT 1) l ON true LEFT JOIN block_drafts b ON b.id=l.root_block_id AND b.locale_id=l.id LEFT JOIN definition_versions v ON v.id=b.schema_version_id WHERE s.space_id=$1',
         [actor.spaceId],
       )
     ).rows;
@@ -3836,6 +3836,37 @@ export class StorypaneStore {
       'content:edit',
     );
   }
+  async renameStory(actor: Actor, storyId: string, value: unknown): Promise<Story> {
+    const { name, previousName } = parseInput(
+      z
+        .object({
+          name: z.string().trim().min(1).max(200),
+          previousName: z.string().max(200),
+        })
+        .strict(),
+      value,
+    );
+    return this.tx(
+      actor,
+      async (client) => {
+        await this.lockPaths(client, actor.spaceId);
+        await this.requireAllStoryAccess(client, actor, storyId, 'content:edit');
+        const row = (
+          await client.query(
+            'UPDATE stories SET name=$3,updated_at=clock_timestamp(),updated_by=$4 WHERE id=$1 AND space_id=$2 AND deleted_at IS NULL AND name=$5 RETURNING *',
+            [storyId, actor.spaceId, name, actor.userId, previousName],
+          )
+        ).rows[0];
+        if (!row)
+          throw new StorypaneError(
+            'stale_revision',
+            'The story name changed. Reload and try again.',
+          );
+        return storyRow(row);
+      },
+      'content:edit',
+    );
+  }
   async updateStoryLocation(actor: Actor, storyId: string, raw: unknown): Promise<Story> {
     parseInput(z.uuid(), storyId);
     const input = parseInput(storyLocationSchema, raw);
@@ -3911,6 +3942,7 @@ export class StorypaneStore {
       '/' || concat_ws('/',nullif(base.slug,''),base.url_slug) AS path,
       EXISTS(SELECT 1 FROM story_pins pin WHERE pin.story_id=s.id AND pin.user_id=$2) AS pinned,
       coalesce((SELECT jsonb_agg(to_jsonb(job)) FROM (SELECT sch.*,cp.revision AS checkpoint_revision,r.name AS release_name,r.revision AS release_revision,r.status AS release_status FROM publication_schedules sch JOIN checkpoints cp ON cp.id=sch.checkpoint_id JOIN content_releases r ON r.id=sch.release_id WHERE sch.story_id=s.id AND sch.locale_id=ANY($3::uuid[]) AND sch.status IN ('pending','failed') ORDER BY sch.created_at DESC) job),'[]') AS schedules,
+      jsonb_agg(jsonb_build_object('id',l.id,'spaceLocaleId',l.space_locale_id,'name',l.name,'slug',l.slug,'path','/' || concat_ws('/',nullif(l.slug,''),l.url_slug),'status',CASE WHEN p.id IS NULL THEN 'draft' WHEN ${pendingLocaleSql} THEN 'changed' ELSE 'published' END) ORDER BY l.name) AS versions,
       count(l.id)::integer AS locale_count,count(p.id)::integer AS published_count,
       (count(l.id) FILTER (WHERE ${pendingLocaleSql}))::integer AS pending_count,
       coalesce(jsonb_agg(jsonb_build_object('id',l.id,'name',l.name,'slug',l.slug) ORDER BY (l.slug='') DESC,l.name) FILTER (WHERE l.id IS NOT NULL AND (${pendingLocaleSql})),'[]'::jsonb) AS pending_locales
@@ -3926,6 +3958,7 @@ export class StorypaneStore {
       ).rows.map((row) => ({
         ...storyRow(row),
         path: row.path,
+        versions: row.versions,
         pinned: row.pinned,
         schedules: row.schedules.map(scheduleRow),
         localeCount: row.locale_count,
@@ -4010,16 +4043,18 @@ export class StorypaneStore {
       );
       const rootId = randomUUID();
       const configured = (
-        await client.query('SELECT id FROM space_locales WHERE space_id=$1 AND is_default', [
-          actor.spaceId,
-        ])
+        await client.query(
+          'SELECT id FROM space_locales WHERE space_id=$1 AND (CASE WHEN $2::uuid IS NULL THEN is_default ELSE id=$2 END)',
+          [actor.spaceId, input.spaceLocaleId ?? null],
+        )
       ).rows[0];
+      if (!configured) throw new StorypaneError('not_found', 'Locale not found in this space');
       const localePath = joinPath(folderPath(folders, input.folderId, configured.id), input.slug);
       if (localePath.length > 2048)
         throw new StorypaneError('invalid', 'Page paths cannot exceed 2,048 characters');
       const locale = await client.query(
-        'INSERT INTO story_locales(story_id,slug,name,url_slug,slug_segment,root_block_id,space_locale_id) SELECT $1,c.slug,c.name,$2,$5,$3,c.id FROM space_locales c WHERE c.space_id=$4 AND c.is_default RETURNING id',
-        [story.rows[0].id, localePath, rootId, actor.spaceId, input.slug],
+        'INSERT INTO story_locales(story_id,slug,name,url_slug,slug_segment,root_block_id,space_locale_id) SELECT $1,c.slug,c.name,$2,$5,$3,c.id FROM space_locales c WHERE c.space_id=$4 AND c.id=$6 RETURNING id',
+        [story.rows[0].id, localePath, rootId, actor.spaceId, input.slug, configured.id],
       );
       await client.query(
         'INSERT INTO block_drafts(id,locale_id,schema_version_id,fields) VALUES($1,$2,$3,$4)',
@@ -4057,6 +4092,43 @@ export class StorypaneStore {
       ).rows.map(localeRow);
     });
   }
+  async excludeStoryLocale(actor: Actor, storyId: string, localeId: string): Promise<void> {
+    return this.tx(
+      actor,
+      async (client) => {
+        await this.lockPaths(client, actor.spaceId);
+        await this.lockLocale(client, actor, storyId, localeId);
+        const snapshot = await this.snapshot(client, actor, storyId, localeId);
+        assertSnapshotAccess(await this.contentAccess(client, actor), snapshot, 'content:edit');
+        if (snapshot.locale.publishedVersionId)
+          throw new StorypaneError('invalid', 'Unpublish this version before excluding it.');
+        if (
+          !(
+            await client.query(
+              'SELECT 1 FROM included_story_locales WHERE story_id=$1 AND id<>$2 LIMIT 1',
+              [storyId, localeId],
+            )
+          ).rowCount
+        )
+          throw new StorypaneError('invalid', 'Keep at least one locale on this story.');
+        if (
+          (
+            await client.query(
+              "SELECT 1 FROM publication_schedules WHERE locale_id=$1 AND status='pending'",
+              [localeId],
+            )
+          ).rowCount
+        )
+          throw new StorypaneError(
+            'invalid',
+            'Cancel the scheduled publication before excluding this version.',
+          );
+        await client.query('UPDATE story_locales SET excluded=true WHERE id=$1', [localeId]);
+        await client.query('DELETE FROM edit_leases WHERE locale_id=$1', [localeId]);
+      },
+      'content:edit',
+    );
+  }
   async createLocale(actor: Actor, storyId: string, value: unknown): Promise<LocaleSnapshot> {
     const input = parseInput(localeInputSchema, value);
     return this.tx(actor, async (client) => {
@@ -4078,15 +4150,26 @@ export class StorypaneStore {
       )
         throw new StorypaneError('not_found', 'Story not found');
       const existing = await client.query(
-        'SELECT id FROM story_locales WHERE story_id=$1 AND space_locale_id=$2',
+        'SELECT id,excluded FROM story_locales WHERE story_id=$1 AND space_locale_id=$2 FOR UPDATE',
         [storyId, input.spaceLocaleId],
       );
       if (existing.rows[0]) {
+        if (existing.rows[0].excluded) {
+          await this.requireStoryAccess(client, actor, storyId);
+          await client.query('UPDATE story_locales SET excluded=false WHERE id=$1', [
+            existing.rows[0].id,
+          ]);
+          assertSnapshotAccess(
+            await this.contentAccess(client, actor),
+            await this.snapshot(client, actor, storyId, existing.rows[0].id),
+            'content:edit',
+          );
+        }
         await this.lockLocale(client, actor, storyId, existing.rows[0].id);
         return this.snapshot(client, actor, storyId, existing.rows[0].id);
       }
       const original = await client.query(
-        'SELECT l.*,s.folder_id,b.schema_version_id FROM story_locales l JOIN space_locales c ON c.id=l.space_locale_id JOIN stories s ON s.id=l.story_id JOIN block_drafts b ON b.id=l.root_block_id AND b.locale_id=l.id WHERE s.id=$1 AND s.space_id=$2 AND s.deleted_at IS NULL ORDER BY c.is_default DESC,l.id LIMIT 1',
+        'SELECT l.*,s.folder_id,b.schema_version_id FROM included_story_locales l JOIN space_locales c ON c.id=l.space_locale_id JOIN stories s ON s.id=l.story_id JOIN block_drafts b ON b.id=l.root_block_id AND b.locale_id=l.id WHERE s.id=$1 AND s.space_id=$2 AND s.deleted_at IS NULL ORDER BY c.is_default DESC,l.id LIMIT 1',
         [storyId, actor.spaceId],
       );
       if (!original.rowCount) throw new StorypaneError('not_found', 'Story not found');
@@ -4156,7 +4239,7 @@ export class StorypaneStore {
   ) {
     const defaultLocale = (
       await client.query(
-        'SELECT l.id FROM story_locales l JOIN space_locales c ON c.id=l.space_locale_id WHERE l.story_id=$1 AND c.space_id=$2 AND c.is_default',
+        'SELECT l.id FROM included_story_locales l JOIN space_locales c ON c.id=l.space_locale_id WHERE l.story_id=$1 AND c.space_id=$2 AND c.is_default',
         [storyId, actor.spaceId],
       )
     ).rows[0];
@@ -5207,7 +5290,7 @@ export class StorypaneStore {
   ): Promise<LifecycleReview['incomingReferences']> {
     const rows = (
       await client.query(
-        `SELECT s.id,s.name,s.folder_id,l.id AS locale_id,c.snapshot AS draft,p.snapshot AS published FROM stories s JOIN story_locales l ON l.story_id=s.id LEFT JOIN checkpoints c ON c.id=l.checkpoint_id LEFT JOIN publications p ON p.id=l.published_version_id WHERE s.space_id=$1 AND s.id<>$2 AND s.deleted_at IS NULL`,
+        `SELECT s.id,s.name,s.folder_id,l.id AS locale_id,c.snapshot AS draft,p.snapshot AS published FROM stories s JOIN included_story_locales l ON l.story_id=s.id LEFT JOIN checkpoints c ON c.id=l.checkpoint_id LEFT JOIN publications p ON p.id=l.published_version_id WHERE s.space_id=$1 AND s.id<>$2 AND s.deleted_at IS NULL`,
         [actor.spaceId, storyId],
       )
     ).rows;
@@ -5268,7 +5351,7 @@ export class StorypaneStore {
         throw new StorypaneError('not_found', 'Story not found');
       const rows = (
         await client.query(
-          "SELECT l.*,p.snapshot->'locale'->>'urlSlug' AS published_url_slug FROM story_locales l LEFT JOIN publications p ON p.id=l.published_version_id WHERE l.story_id=$1 ORDER BY l.id",
+          "SELECT l.*,p.snapshot->'locale'->>'urlSlug' AS published_url_slug FROM included_story_locales l LEFT JOIN publications p ON p.id=l.published_version_id WHERE l.story_id=$1 ORDER BY l.id",
           [storyId],
         )
       ).rows;
@@ -5383,7 +5466,7 @@ export class StorypaneStore {
             const locales = (
               await client.query(
                 `SELECT l.*,s.name AS story_name,s.folder_id,c.id AS checkpoint_id,p.checkpoint_id AS published_checkpoint_id,p.content AS published_content,(${pendingLocaleSql}) AS pending
-               FROM story_locales l JOIN stories s ON s.id=l.story_id
+               FROM included_story_locales l JOIN stories s ON s.id=l.story_id
                JOIN checkpoints c ON c.id=l.checkpoint_id
                LEFT JOIN publications p ON p.id=l.published_version_id
                WHERE s.id=$1 AND s.space_id=$2 AND s.deleted_at IS NULL AND l.slug IN ($3,(SELECT slug FROM space_locales WHERE space_id=$2 AND is_default))
@@ -5694,7 +5777,7 @@ export class StorypaneStore {
         if (!source) throw new StorypaneError('not_found', 'Story not found');
         const locales = (
           await client.query(
-            'SELECT * FROM story_locales WHERE story_id=$1 ORDER BY id FOR UPDATE',
+            'SELECT * FROM included_story_locales WHERE story_id=$1 ORDER BY id FOR UPDATE',
             [storyId],
           )
         ).rows;
@@ -6938,7 +7021,7 @@ export class StorypaneStore {
       if (input.source.type === 'stories') {
         const access = await this.contentAccess(client, actor);
         const result = await client.query(
-          `SELECT s.id AS value,s.name AS label,'/' || s.slug AS description FROM stories s WHERE s.space_id=$1 AND s.deleted_at IS NULL AND ($7::uuid[] IS NULL OR s.id=ANY($7)) AND ($2='' OR s.name ILIKE '%' || $2 || '%' OR ('/' || s.slug) ILIKE '%' || $2 || '%' OR s.id::text=$2) AND ($5::text[] IS NULL OR s.id::text=ANY($5)) AND ($3::uuid IS NULL OR EXISTS(SELECT 1 FROM story_locales l JOIN block_drafts b ON b.id=l.root_block_id AND b.locale_id=l.id JOIN definition_versions v ON v.id=b.schema_version_id WHERE l.story_id=s.id AND v.definition_id=$3)) ORDER BY s.name,s.id LIMIT $6 OFFSET $4`,
+          `SELECT s.id AS value,s.name AS label,'/' || s.slug AS description FROM stories s WHERE s.space_id=$1 AND s.deleted_at IS NULL AND ($7::uuid[] IS NULL OR s.id=ANY($7)) AND ($2='' OR s.name ILIKE '%' || $2 || '%' OR ('/' || s.slug) ILIKE '%' || $2 || '%' OR s.id::text=$2) AND ($5::text[] IS NULL OR s.id::text=ANY($5)) AND ($3::uuid IS NULL OR EXISTS(SELECT 1 FROM included_story_locales l JOIN block_drafts b ON b.id=l.root_block_id AND b.locale_id=l.id JOIN definition_versions v ON v.id=b.schema_version_id WHERE l.story_id=s.id AND v.definition_id=$3)) ORDER BY s.name,s.id LIMIT $6 OFFSET $4`,
           [
             actor.spaceId,
             search,
@@ -6957,7 +7040,7 @@ export class StorypaneStore {
             CASE WHEN l.id=ANY($3::uuid[]) THEN jsonb_build_object(
               'status',CASE WHEN p.id IS NULL THEN 'draft' WHEN ${pendingLocaleSql} THEN 'changed' ELSE 'published' END,
               'localeName',l.name,'localeSlug',l.slug) END AS publication
-           FROM story_locales l LEFT JOIN checkpoints c ON c.id=l.checkpoint_id
+           FROM included_story_locales l LEFT JOIN checkpoints c ON c.id=l.checkpoint_id
            LEFT JOIN publications p ON p.id=l.published_version_id
            WHERE l.story_id=ANY($1::uuid[]) AND l.slug IN (coalesce($2,(SELECT slug FROM space_locales WHERE space_id=$4 AND is_default)),(SELECT slug FROM space_locales WHERE space_id=$4 AND is_default))
            ORDER BY l.story_id,(p.id IS NOT NULL) DESC,(l.slug=coalesce($2,(SELECT slug FROM space_locales WHERE space_id=$4 AND is_default))) DESC`,

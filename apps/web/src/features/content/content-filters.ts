@@ -1,6 +1,7 @@
 import type { PublicationStatus, StorySummary } from '@storypane/core';
 
 export type ContentFilters = {
+  locale: string;
   query: string;
   status: PublicationStatus | '';
   modifiedBy: string;
@@ -11,6 +12,7 @@ export type ContentFilters = {
   sort: 'newest' | 'oldest' | 'name';
 };
 export const defaultFilters: ContentFilters = {
+  locale: '',
   query: '',
   status: '',
   modifiedBy: '',
@@ -21,6 +23,7 @@ export const defaultFilters: ContentFilters = {
   sort: 'newest',
 };
 const keys: Record<keyof ContentFilters, string> = {
+  locale: 'filterLocale',
   query: 'q',
   status: 'filterStatus',
   modifiedBy: 'filterEditor',
@@ -90,11 +93,29 @@ export function filterStories(
     to = new Date(now);
     to.setHours(24, 0, 0, 0);
   }
-  return stories
+  const localized = !filters.locale
+    ? stories
+    : stories.flatMap((story) => {
+        const version = story.versions?.find((item) => item.spaceLocaleId === filters.locale);
+        if (!version) return [];
+        return [
+          {
+            ...story,
+            path: version.path,
+            publicationStatus: version.status,
+            versions: [version],
+            localeCount: 1,
+            pendingLocaleCount: Number(version.status !== 'published'),
+            pendingLocales: [],
+            schedules: story.schedules?.filter((item) => item.localeId === version.id),
+          },
+        ];
+      });
+  return localized
     .filter((story) => {
       const modified = Date.parse(story.updatedAt);
       return (
-        `${story.name} /${story.slug} ${story.path ?? ''} ${story.id}`
+        `${story.name} /${story.slug} ${story.path ?? ''} ${story.versions?.map((v) => v.path).join(' ') ?? ''} ${story.id}`
           .toLowerCase()
           .includes(query) &&
         (!filters.status || story.publicationStatus === filters.status) &&

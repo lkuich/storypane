@@ -133,6 +133,7 @@ export function ContentList({
   const [name, setName] = useState('');
   const [slug, setSlug] = useState('');
   const [definitionId, setDefinitionId] = useState('');
+  const [initialLocale, setInitialLocale] = useState('');
   const [createError, setCreateError] = useState<string | null>(null);
   const load = useCallback(
     async (quiet = false) => {
@@ -202,6 +203,7 @@ export function ContentList({
   );
   const hasFilters = !!(
     filters.query.trim() ||
+    filters.locale ||
     filters.status ||
     filters.modified ||
     filters.modifiedBy ||
@@ -209,7 +211,7 @@ export function ContentList({
     scheduleFilter
   );
   function changeFilters(next: ContentFilters) {
-    if (!!next.query.trim() !== searching) setSelectedIds([]);
+    if (next.locale !== filters.locale || !!next.query.trim() !== searching) setSelectedIds([]);
     setFilters(next);
     const url = new URL(window.location.href);
     writeContentFilters(url.searchParams, next);
@@ -266,6 +268,7 @@ export function ContentList({
   }
   function openCreate() {
     if (!canCreate) return;
+    setInitialLocale(filters.locale || locales.find((item) => item.isDefault)?.id || '');
     setName('');
     setSlug('');
     setCreateFolderId(currentFolder?.id ?? null);
@@ -289,10 +292,16 @@ export function ContentList({
     try {
       const story = await api<Story>(
         '/stories',
-        jsonRequest('POST', { name, slug, definitionId, folderId: createFolderId }),
+        jsonRequest('POST', {
+          name,
+          slug,
+          definitionId,
+          folderId: createFolderId,
+          spaceLocaleId: initialLocale || undefined,
+        }),
       );
       setCreating(false);
-      onOpen(story);
+      onOpen(story, locales.find((item) => item.id === initialLocale)?.slug);
     } catch (error) {
       setCreateError(errorMessage(error));
     } finally {
@@ -366,6 +375,7 @@ export function ContentList({
       <ContentFilterBar
         filters={filters}
         onChange={changeFilters}
+        locales={locales}
         stories={scopedStories}
         count={filtered.length}
         loading={loading}
@@ -523,7 +533,12 @@ export function ContentList({
                               <button
                                 disabled={deleted}
                                 className="entity-title"
-                                onClick={() => onOpen(story)}
+                                onClick={() =>
+                                  onOpen(
+                                    story,
+                                    filters.locale ? story.versions?.[0]?.slug : undefined,
+                                  )
+                                }
                               >
                                 {story.name}
                               </button>
@@ -555,11 +570,23 @@ export function ContentList({
                             </div>
                           ))}
                         <div className="entity-subtitle">
-                          {story.publicationStatus === 'draft'
-                            ? 'Not published'
-                            : story.publicationStatus === 'changed'
-                              ? `${story.pendingLocaleCount} of ${story.localeCount} locales pending`
-                              : 'All locales published'}
+                          {story.versions && story.versions.length > 1
+                            ? (['published', 'changed', 'draft'] as const)
+                                .map((status) => {
+                                  const count = story.versions!.filter(
+                                    (version) => version.status === status,
+                                  ).length;
+                                  return count
+                                    ? count + ' ' + (status === 'changed' ? 'with changes' : status)
+                                    : '';
+                                })
+                                .filter(Boolean)
+                                .join(' · ')
+                            : story.publicationStatus === 'draft'
+                              ? 'Not published'
+                              : story.publicationStatus === 'changed'
+                                ? `${story.pendingLocaleCount} of ${story.localeCount} locales pending`
+                                : 'All locales published'}
                         </div>
                         {!!story.pendingLocales?.length && (
                           <div
@@ -580,18 +607,40 @@ export function ContentList({
                         )}
                       </td>
                       <td className="table-mobile-hide">
-                        <CopyableValue
-                          key={story.path ?? story.slug}
-                          label="Path"
-                          value={story.path ?? `/${story.slug}`}
-                          name={story.name}
-                          showLabel={false}
-                          href={
-                            deleted
-                              ? undefined
-                              : storyPageUrl(deliverySettings, story.path ?? `/${story.slug}`)
-                          }
-                        />
+                        {(story.versions?.length ?? 0) > 1 ? (
+                          <details>
+                            <summary>{story.versions!.length} locale paths</summary>
+                            {story.versions!.map((version) => (
+                              <div key={version.id}>
+                                <small>{version.name}</small>
+                                <CopyableValue
+                                  label="Path"
+                                  value={version.path}
+                                  name={story.name}
+                                  showLabel={false}
+                                  href={
+                                    deleted
+                                      ? undefined
+                                      : storyPageUrl(deliverySettings, version.path)
+                                  }
+                                />
+                              </div>
+                            ))}
+                          </details>
+                        ) : (
+                          <CopyableValue
+                            key={story.path ?? story.slug}
+                            label="Path"
+                            value={story.path ?? `/${story.slug}`}
+                            name={story.name}
+                            showLabel={false}
+                            href={
+                              deleted
+                                ? undefined
+                                : storyPageUrl(deliverySettings, story.path ?? `/${story.slug}`)
+                            }
+                          />
+                        )}
                       </td>
                       <td>
                         <CopyableValue
@@ -625,7 +674,9 @@ export function ContentList({
                             className="icon-button"
                             disabled={deleted}
                             aria-label={`Open ${story.name}`}
-                            onClick={() => onOpen(story)}
+                            onClick={() =>
+                              onOpen(story, filters.locale ? story.versions?.[0]?.slug : undefined)
+                            }
                           >
                             <ArrowUpRight />
                           </Button>
@@ -674,6 +725,7 @@ export function ContentList({
       {action && (
         <StoryActionsDialog
           stories={actionStories.current}
+          spaceLocaleId={filters.locale || undefined}
           action={action}
           onClose={() => setAction(null)}
           onComplete={(ids) => {
@@ -745,6 +797,20 @@ export function ContentList({
                 }}
               />
             </Field>
+            <Field label="Starting locale" htmlFor="story-starting-locale">
+              <select
+                id="story-starting-locale"
+                value={initialLocale}
+                onChange={(event) => setInitialLocale(event.target.value)}
+                required
+              >
+                {locales.map((locale) => (
+                  <option key={locale.id} value={locale.id}>
+                    {locale.name}
+                  </option>
+                ))}
+              </select>
+            </Field>
             <Field label="Name" htmlFor="story-name">
               <input
                 id="story-name"
@@ -763,7 +829,7 @@ export function ContentList({
             <Field
               label="URL slug"
               htmlFor="story-slug"
-              description={`Draft path: /${[folderPath(folders, createFolderId), slug || '…'].filter(Boolean).join('/')}`}
+              description={`Draft path: /${[locales.find((item) => item.id === initialLocale)?.slug, folderPath(folders, createFolderId, initialLocale), slug || '…'].filter(Boolean).join('/')}`}
             >
               <input
                 id="story-slug"

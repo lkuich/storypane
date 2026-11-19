@@ -57,7 +57,7 @@ export async function readPageMap(
       `
     SELECT DISTINCT ON (s.id) s.id,l.id AS locale_id,l.space_locale_id,s.folder_id,l.slug,l.name,i.metadata,
       CASE WHEN p.locale_id IS NULL THEN 'draft' WHEN d.metadata->>'digest'=p.metadata->>'digest' AND d.metadata->>'url'=p.metadata->>'url' THEN 'published' ELSE 'changed' END AS status
-    FROM stories s JOIN story_locales l ON l.story_id=s.id
+    FROM stories s JOIN included_story_locales l ON l.story_id=s.id
     JOIN page_connections i ON i.locale_id=l.id AND i.mode=$2
     LEFT JOIN page_connections p ON p.locale_id=l.id AND p.mode='published'
     LEFT JOIN page_connections d ON d.locale_id=l.id AND d.mode='draft'

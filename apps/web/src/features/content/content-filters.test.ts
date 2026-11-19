@@ -38,6 +38,38 @@ const stories = [
 const ids = (items: StorySummary[]) => items.map((item) => item.id);
 
 describe('content filters', () => {
+  it('filters path and status by the selected version and omits absent versions', () => {
+    const shared = story('courses', {
+      publicationStatus: 'changed',
+      versions: [
+        {
+          id: '1',
+          spaceLocaleId: 'canada',
+          name: 'Canada',
+          slug: 'ca',
+          path: '/ca/regional-courses',
+          status: 'draft',
+        },
+        {
+          id: '2',
+          spaceLocaleId: 'uk',
+          name: 'UK',
+          slug: 'uk',
+          path: '/uk/courses',
+          status: 'published',
+        },
+      ],
+    });
+    const filtered = filterStories([...stories, shared], {
+      ...defaultFilters,
+      locale: 'uk',
+      status: 'published',
+    });
+    expect(filtered).toMatchObject([
+      { id: 'courses', path: '/uk/courses', publicationStatus: 'published', localeCount: 1 },
+    ]);
+    expect(filterStories([shared], { ...defaultFilters, locale: 'asia' })).toEqual([]);
+  });
   it('finds complete localized paths and preserves long slug searches in the URL', () => {
     const path = `/ca/blog/${'long-slug-'.repeat(30)}`;
     const filters = { ...defaultFilters, query: path };

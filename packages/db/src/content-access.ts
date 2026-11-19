@@ -57,7 +57,7 @@ export async function loadContentAccess(
   const locales = (
     await client.query(
       `SELECT l.id,l.story_id AS "storyId",s.folder_id AS "folderId",l.space_locale_id AS "spaceLocaleId",l.name,l.slug,l.url_slug AS "urlSlug"
-    FROM story_locales l JOIN stories s ON s.id=l.story_id WHERE s.space_id=$1 AND ($5 OR s.deleted_at IS NULL) AND ($4 OR ($2::uuid[] IS NULL AND $3::text[] IS NULL) OR EXISTS(
+    FROM included_story_locales l JOIN stories s ON s.id=l.story_id WHERE s.space_id=$1 AND ($5 OR s.deleted_at IS NULL) AND ($4 OR ($2::uuid[] IS NULL AND $3::text[] IS NULL) OR EXISTS(
       SELECT 1 FROM block_drafts b JOIN definition_versions v ON v.id=b.schema_version_id WHERE b.locale_id=l.id
       AND ($2::uuid[] IS NULL OR v.definition_id=ANY($2))
       AND ($3::text[] IS NULL OR EXISTS(SELECT 1 FROM jsonb_array_elements(v.schema->'fields') f WHERE f->>'id'=ANY($3)))))`,

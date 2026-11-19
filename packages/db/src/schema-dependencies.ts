@@ -134,7 +134,7 @@ export async function collectSchemaDependencies(
       if (!row) throw new StorypaneError('invalid', 'A required story is unavailable');
       const locales = (
         await client.query(
-          'SELECT l.id,p.snapshot FROM story_locales l LEFT JOIN publications p ON p.id=l.published_version_id WHERE l.story_id=$1 ORDER BY l.id',
+          'SELECT l.id,p.snapshot FROM included_story_locales l LEFT JOIN publications p ON p.id=l.published_version_id WHERE l.story_id=$1 ORDER BY l.id',
           [id],
         )
       ).rows;

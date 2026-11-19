@@ -466,6 +466,8 @@ async function handle(request: Request, route: { params: Promise<{ path: string[
         return jsonResponse(result);
       }
 
+      if (id && !child && method === 'PATCH')
+        return jsonResponse(await store.renameStory(actor, id, await readJson(request)));
       if (id && child === 'location' && !localeId && method === 'PUT')
         return jsonResponse(await store.updateStoryLocation(actor, id, await readJson(request)));
       if (id && child === 'pin' && !localeId && (method === 'PUT' || method === 'DELETE')) {
@@ -491,6 +493,11 @@ async function handle(request: Request, route: { params: Promise<{ path: string[
             201,
           );
         if (localeId) {
+          if (!action && method === 'DELETE') {
+            await store.excludeStoryLocale(actor, id, localeId);
+            await invalidate(id, [localeId]);
+            return jsonResponse({ excluded: true });
+          }
           if (action === 'locale-source' && method === 'GET')
             return jsonResponse(
               await store.reviewLocaleSource(

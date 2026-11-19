@@ -224,7 +224,7 @@ test('space locales appear on stories and rename without replacing their content
       .getByRole('button', { name: 'Content', exact: true })
       .click();
     await page.getByRole('button', { name: 'Home', exact: true }).click();
-    await page.getByRole('tab', { name: 'French fr', exact: true }).click();
+    await page.getByLabel('Add locale to story').selectOption(configured.id);
     await expect(
       page.getByRole('region', { name: 'Block editor' }).locator('.block-list-item'),
     ).toHaveCount(0);

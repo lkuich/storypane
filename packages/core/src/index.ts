@@ -685,6 +685,14 @@ export type PublicationStatus = 'draft' | 'changed' | 'published';
 export type StorySummary = Story & {
   /** URL path in the default locale, falling back to an accessible existing locale. */
   path?: string;
+  versions?: {
+    id: string;
+    spaceLocaleId: string;
+    name: string;
+    slug: string;
+    path: string;
+    status: PublicationStatus;
+  }[];
   pinned: boolean;
   publicationStatus: PublicationStatus;
   localeCount: number;
@@ -1026,6 +1034,7 @@ export const storyInputSchema = z
   .object({
     name: z.string().trim().min(1).max(200),
     slug: pathSlugSchema,
+    spaceLocaleId: id.optional(),
     definitionId: id,
     folderId: id.nullable().default(null),
   })

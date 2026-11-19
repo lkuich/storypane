@@ -240,3 +240,76 @@ test('links a pre-existing locale from a child block without changing translated
     await installation.close();
   }
 });
+
+test('filter, create and manage a market-only story without creating versions on visit', async ({
+  browser,
+}) => {
+  const installation = await reviewInstallation();
+  const context = await browser.newContext({
+    baseURL: installation.origin,
+    viewport: { width: 390, height: 844 },
+  });
+  try {
+    const headers = { origin: installation.origin, 'x-storypane-space-id': installation.spaceId };
+    const login = await context.request.post('/api/auth/sign-in/email', {
+      headers,
+      data: { email: installation.people.admin.email, password: installation.password },
+    });
+    expect(login.ok()).toBe(true);
+    const result = await context.request.post('/api/cms/locales', {
+      headers,
+      data: { name: 'Asia', slug: 'asia' },
+    });
+    expect(result.ok()).toBe(true);
+    const asia: SpaceLocale = await result.json();
+    const page = await context.newPage();
+    await dismissRecommendedSetup(page);
+    await page.goto('/?space=' + installation.spaceId);
+    const filter = page.getByLabel('Filter by locale');
+    await filter.focus();
+    await filter.press('End');
+    await filter.selectOption(asia.id);
+    await page.getByRole('button', { name: 'New story', exact: true }).click();
+    await expect(page.getByLabel('Starting locale')).toHaveValue(asia.id);
+    await page.getByLabel('Name', { exact: true }).fill('Asia booking');
+    await page.getByRole('button', { name: 'Create story', exact: true }).click();
+    await expect(page.getByRole('tab', { name: 'Asia asia' })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    );
+    const storyId = new URL(page.url()).searchParams.get('story')!;
+    const base = '/api/cms/stories/' + storyId + '/locales';
+    await page.goto('/?space=' + installation.spaceId + '&story=' + storyId + '&locale=');
+    await expect(page.getByText('This locale is not included on this story.')).toBeVisible();
+    expect(await (await context.request.get(base, { headers })).json()).toHaveLength(1);
+    await page.goto('/?space=' + installation.spaceId + '&story=' + storyId);
+    await page.getByLabel('Add locale to story').selectOption({ label: 'Default' });
+    await expect(page.getByRole('tab', { name: 'Default', exact: true })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    );
+    const exclude = page.getByRole('button', { name: 'Exclude Default', exact: true });
+    await exclude.focus();
+    await exclude.press('Enter');
+    await expect(page.getByRole('tab', { name: 'Asia asia' })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    );
+    await expect(page.getByRole('tab', { name: 'Default', exact: true })).toHaveCount(0);
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto('/?space=' + installation.spaceId + '&filterLocale=' + asia.id);
+    const row = page
+      .getByRole('row')
+      .filter({ has: page.getByRole('button', { name: 'Asia booking', exact: true }) });
+    await expect(row).toContainText('/asia/asia-booking');
+    await expect(row).toContainText('Draft');
+    await row.getByRole('button', { name: 'Asia booking', exact: true }).click();
+    await expect(page.getByRole('tab', { name: 'Asia asia' })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    );
+  } finally {
+    await context.close();
+    await installation.close();
+  }
+});

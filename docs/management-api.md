@@ -132,6 +132,8 @@ live snapshot, or `null` for an unpublished locale. Both snapshots respect the
 caller's content access. Compare component values and positions to show changes;
 revision numbers alone can change without changing live content.
 
+Story creation accepts an optional `spaceLocaleId` for the starting version. To rename the editorial title, PATCH `stories/{id}` with `name` and `previousName`. DELETE `stories/{id}/locales/{localeId}` to exclude an unpublished version. POST `stories/{id}/locales` with its `spaceLocaleId` to restore the draft and its history.
+
 ### Other operations
 
 `management.request<T>(path, { method, body })` exposes the remaining HTTP
@@ -312,26 +314,26 @@ Prefix every path below with `/api/management/v1/spaces/{spaceId}`. JSON writes
 use `Content-Type: application/json` and the same validated input contracts as the
 editor. The source of these contracts is [`packages/core`](../packages/core/src/index.ts).
 
-| Resource           | Methods / paths                                                                                                                                                                         |
-| ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Space              | GET, PUT `/space`                                                                                                                                                                       |
-| Stories            | GET, POST `/stories`; GET, DELETE `/stories/{id}`; GET `/{id}/review`; POST `/{id}/duplicate`, `/{id}/restore`; PUT `/{id}/location`; PUT, DELETE `/{id}/pin`; POST `/stories/bulk`     |
-| Story locales      | GET, POST `/stories/{id}/locales`; GET `/stories/{id}/locales/{localeId}`                                                                                                               |
-| Content commands   | POST `/stories/{id}/locales/{localeId}/commands`                                                                                                                                        |
-| History            | GET `/stories/{id}/locales/{localeId}/checkpoints[/{checkpointId}]`                                                                                                                     |
-| Content releases   | GET, POST `/releases`; PUT, DELETE `/releases/{id}`                                                                                                                                     |
-| Scheduling         | GET, POST `/stories/{id}/locales/{localeId}/schedules`; DELETE `.../schedules/{scheduleId}`                                                                                             |
-| Folders            | GET, POST `/folders`; PUT, DELETE `/folders/{id}`                                                                                                                                       |
-| Space locales      | GET, POST `/locales`; PUT, DELETE `/locales/{id}`; PUT `/locales/{id}/default`                                                                                                          |
-| Definitions        | GET, POST `/definitions`; POST `/definitions/{id}/versions`; PUT `/{id}/parent`; GET `/{id}/references`; DELETE `/definitions/{id}`                                                     |
-| Datasources        | GET, POST `/datasources`; PUT `/datasources/{id}`; POST `/options`                                                                                                                      |
-| Migrations         | GET, POST `/migrations`; GET `/migrations/{id}/review`; POST `/migrations/{id}/deploy`; GET `/migrations/environment`; POST `/migrations/transfer-review`, `/migrations/transfer-apply` |
-| Assets             | GET `/assets`; GET, PATCH, DELETE `/assets/{id}`; GET, HEAD `/assets/{id}/content`; GET `/assets/{id}/usage`; existing asset folder and upload routes                                   |
-| Uploads            | POST `/assets/uploads`; GET, DELETE `/assets/uploads/{id}`; PUT `.../parts/{partNumber}` (binary with Content-Length); POST `.../complete`                                              |
-| Delivery / preview | GET, PUT `/delivery-settings`; GET, POST `/delivery-tokens`; DELETE `/delivery-tokens/{id}`; GET, PUT `/public-media`                                                                   |
-| Roles / members    | GET, POST `/roles`; PUT, DELETE `/roles/{id}`; PUT, DELETE `/members/{userId}`                                                                                                          |
-| Invitations        | GET, POST `/invitations`; DELETE `/invitations/{id}`                                                                                                                                    |
-| Webhooks           | GET, POST `/webhooks`; PUT, DELETE `/webhooks/{id}`; POST `/{id}/rotate-secret`, `/{id}/test`; GET `/{id}/deliveries`; POST `/{id}/deliveries/{deliveryId}/retry`                       |
+| Resource           | Methods / paths                                                                                                                                                                            |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Space              | GET, PUT `/space`                                                                                                                                                                          |
+| Stories            | GET, POST `/stories`; GET, PATCH, DELETE `/stories/{id}`; GET `/{id}/review`; POST `/{id}/duplicate`, `/{id}/restore`; PUT `/{id}/location`; PUT, DELETE `/{id}/pin`; POST `/stories/bulk` |
+| Story locales      | GET, POST `/stories/{id}/locales`; GET `/stories/{id}/locales/{localeId}`                                                                                                                  |
+| Content commands   | POST `/stories/{id}/locales/{localeId}/commands`                                                                                                                                           |
+| History            | GET `/stories/{id}/locales/{localeId}/checkpoints[/{checkpointId}]`                                                                                                                        |
+| Content releases   | GET, POST `/releases`; PUT, DELETE `/releases/{id}`                                                                                                                                        |
+| Scheduling         | GET, POST `/stories/{id}/locales/{localeId}/schedules`; DELETE `.../schedules/{scheduleId}`                                                                                                |
+| Folders            | GET, POST `/folders`; PUT, DELETE `/folders/{id}`                                                                                                                                          |
+| Space locales      | GET, POST `/locales`; PUT, DELETE `/locales/{id}`; PUT `/locales/{id}/default`                                                                                                             |
+| Definitions        | GET, POST `/definitions`; POST `/definitions/{id}/versions`; PUT `/{id}/parent`; GET `/{id}/references`; DELETE `/definitions/{id}`                                                        |
+| Datasources        | GET, POST `/datasources`; PUT `/datasources/{id}`; POST `/options`                                                                                                                         |
+| Migrations         | GET, POST `/migrations`; GET `/migrations/{id}/review`; POST `/migrations/{id}/deploy`; GET `/migrations/environment`; POST `/migrations/transfer-review`, `/migrations/transfer-apply`    |
+| Assets             | GET `/assets`; GET, PATCH, DELETE `/assets/{id}`; GET, HEAD `/assets/{id}/content`; GET `/assets/{id}/usage`; existing asset folder and upload routes                                      |
+| Uploads            | POST `/assets/uploads`; GET, DELETE `/assets/uploads/{id}`; PUT `.../parts/{partNumber}` (binary with Content-Length); POST `.../complete`                                                 |
+| Delivery / preview | GET, PUT `/delivery-settings`; GET, POST `/delivery-tokens`; DELETE `/delivery-tokens/{id}`; GET, PUT `/public-media`                                                                      |
+| Roles / members    | GET, POST `/roles`; PUT, DELETE `/roles/{id}`; PUT, DELETE `/members/{userId}`                                                                                                             |
+| Invitations        | GET, POST `/invitations`; DELETE `/invitations/{id}`                                                                                                                                       |
+| Webhooks           | GET, POST `/webhooks`; PUT, DELETE `/webhooks/{id}`; POST `/{id}/rotate-secret`, `/{id}/test`; GET `/{id}/deliveries`; POST `/{id}/deliveries/{deliveryId}/retry`                          |
 
 Array-valued GET responses use `{ items, total, nextOffset }`; default limit 100,
 maximum 1000, offset 0. Object responses are unchanged. Asset lists keep their

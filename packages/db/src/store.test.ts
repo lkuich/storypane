@@ -3218,6 +3218,44 @@ describe('Publication status', () => {
     expect(reverted.snapshot.publicationStatus).toBe('published');
     expect((await store.listStories(alice))[0].publicationStatus).toBe('published');
   });
+  it('starts in one market and restores excluded drafts with their original history', async () => {
+    const french = await store.createSpaceLocale(alice, { name: 'French', slug: 'fr' });
+    const page = await store.createStory(alice, {
+      name: 'Booking',
+      slug: 'book',
+      definitionId: snapshot.definitions.find((d) => d.name === 'page')!.id,
+      spaceLocaleId: french.id,
+    });
+    const id = page.story.id;
+    expect((await store.listLocales(alice, id)).map((l) => l.slug)).toEqual(['fr']);
+    await expect(store.excludeStoryLocale(alice, id, page.locale.id)).rejects.toThrow(
+      /at least one locale/,
+    );
+    const added = await store.createLocale(alice, id, {
+      spaceLocaleId: snapshot.locale.spaceLocaleId,
+    });
+    await store.excludeStoryLocale(alice, id, added.locale.id);
+    await expect(store.getSnapshot(alice, id, added.locale.id)).rejects.toMatchObject({
+      code: 'not_found',
+    });
+    expect((await store.listStories(alice)).find((s) => s.id === id)).toMatchObject({
+      path: '/fr/book',
+      localeCount: 1,
+      versions: [{ path: '/fr/book', status: 'draft' }],
+    });
+    const restored = await store.createLocale(alice, id, {
+      spaceLocaleId: snapshot.locale.spaceLocaleId,
+    });
+    expect(restored.locale.id).toBe(added.locale.id);
+    expect(restored.locale.checkpointId).toBe(added.locale.checkpointId);
+    expect(
+      (await store.renameStory(alice, id, { previousName: 'Booking', name: 'Regional booking' }))
+        .slug,
+    ).toBe('book');
+    await expect(
+      store.renameStory(alice, id, { previousName: 'Booking', name: 'Stale' }),
+    ).rejects.toMatchObject({ code: 'stale_revision' });
+  });
   it('keeps locale statuses independent and surfaces unpublished locales in Content', async () => {
     const published = await publish(snapshot);
     const configured = await store.createSpaceLocale(alice, { name: 'French', slug: 'fr' });
@@ -3236,6 +3274,9 @@ describe('Publication status', () => {
       pendingLocales: [{ id: french.locale.id, name: 'French', slug: 'fr' }],
     });
     const liveFrench = await publish(french);
+    await expect(
+      store.excludeStoryLocale(alice, snapshot.story.id, french.locale.id),
+    ).rejects.toThrow(/Unpublish/);
     expect((await store.listStories(alice))[0]).toMatchObject({
       publicationStatus: 'published',
       pendingLocales: [],

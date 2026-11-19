@@ -6,7 +6,9 @@ There are no runtime fallbacks, regional controllers or field override settings.
 
 ## Start a locale
 
-Configure the locale in **Settings → Locales**, then open its tab in a story.
+Configure available locales in **Settings → Locales**. When creating a story, choose its **Starting locale**. Only that version is created. In an existing story, **Add locale** adds or restores a version. Opening a link to a missing version never creates one.
+
+Use **Filter by locale** in Content to see that version’s path and publication status. **All locales** shows the status counts and expandable paths for multilingual stories. **Exclude** removes an unpublished version from the editor and preview while preserving its draft and history. First unpublish live versions and cancel pending publications. Keep at least one version on each story.
 Choose **Updates from Default**. For an empty locale, the dialog offers **Create
 from Default** with all top-level sections and page fields selected.
 

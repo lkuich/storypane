@@ -74,12 +74,14 @@ export function StoryActionsDialog({
   stories,
   action,
   localeId,
+  spaceLocaleId,
   onClose,
   onComplete,
 }: {
   stories: Story[];
   action: StoryActionKind;
   localeId?: string;
+  spaceLocaleId?: string;
   onClose: () => void;
   onComplete: (ids: string[]) => void;
 }) {
@@ -139,7 +141,11 @@ export function StoryActionsDialog({
         setSelected(
           next.flatMap((review) =>
             review.locales
-              .filter((locale) => !localeId || locale.id === localeId)
+              .filter(
+                (locale) =>
+                  (!localeId || locale.id === localeId) &&
+                  (!spaceLocaleId || locale.spaceLocaleId === spaceLocaleId),
+              )
               .map((locale) => locale.id),
           ),
         );
@@ -150,7 +156,7 @@ export function StoryActionsDialog({
     return () => {
       stopped = true;
     };
-  }, [stories, localeId, action]);
+  }, [stories, localeId, spaceLocaleId, action]);
   async function reviewFailures() {
     setBusy(true);
     setError(null);

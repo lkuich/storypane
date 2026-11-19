@@ -27,6 +27,7 @@ export function ContentFilterBar({
   loading,
   deleted,
   onToggleDeleted,
+  locales,
   scheduleFilter,
   onScheduleChange,
 }: {
@@ -37,6 +38,7 @@ export function ContentFilterBar({
   loading: boolean;
   deleted: boolean;
   onToggleDeleted: () => void;
+  locales: { id: string; name: string }[];
   scheduleFilter: string;
   onScheduleChange: (value: string) => void;
 }) {
@@ -102,6 +104,18 @@ export function ContentFilterBar({
             onChange={(event) => onChange({ ...filters, query: event.target.value })}
           />
         </div>
+        <select
+          aria-label="Filter by locale"
+          value={filters.locale}
+          onChange={(event) => onChange({ ...filters, locale: event.target.value })}
+        >
+          <option value="">All locales</option>
+          {locales.map((locale) => (
+            <option key={locale.id} value={locale.id}>
+              {locale.name}
+            </option>
+          ))}
+        </select>
         <Button
           aria-expanded={open}
           aria-controls="content-filters"

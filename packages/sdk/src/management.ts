@@ -182,6 +182,7 @@ export function createManagementClient(options: ManagementClientOptions) {
         slug: string;
         definitionId: string;
         folderId?: string | null;
+        spaceLocaleId?: string;
       }) => request<ManagementStory>('/stories', { method: 'POST', body: input }),
       locales: (id: string) =>
         request<ManagementPage<ManagementLocale>>(`/stories/${segment(id)}/locales`),
