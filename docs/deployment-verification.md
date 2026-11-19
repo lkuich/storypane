@@ -803,3 +803,18 @@ browser that had not loaded the new page during the observation window. Reload
 existing editor tabs to pick up the client fix.
 
 </details>
+
+### rc.13 locale availability — 2026-11-19
+
+The Railway editor and Delivery service both served the tagged commit `6083107`.
+Migration `037_story_locale_availability` was present in both hosted space
+databases. Each service passed its readiness check and served the expected
+original image bytes for both sites. Delivery returned the published home story
+for each of the six requested locales.
+
+An authenticated browser opened the paths for a shared story, filtered to the
+United Kingdom, and followed the edit link into that version. The UK path was
+also visible at 390 px. After the seven editorial title changes, a comparison
+across 19 stories and 65 locale versions confirmed that story and locale IDs,
+paths, checkpoints and publication IDs matched the pre-deploy snapshot. Local
+browser tests exercised adding and excluding a version using disposable content.
