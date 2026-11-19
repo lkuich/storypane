@@ -582,6 +582,9 @@ function LocaleEditor({
     editor.connection !== 'connected';
   const ownsLease = editor.canEdit;
   const disabled = !can(session.space, 'content:edit') || !ownsLease || busy;
+  const availableLocales = configuredLocales.filter(
+    (option) => !locales.some((item) => item.spaceLocaleId === option.id),
+  );
   const defaultLocale = locales.find((locale) =>
     configuredLocales.some(
       (configured) => configured.id === locale.spaceLocaleId && configured.isDefault,
@@ -1307,63 +1310,54 @@ function LocaleEditor({
               </button>
             ))}
         </div>
-        <div className="button-group">
-          {can(session.space, 'content:edit') && !viewRelease && (
-            <>
-              {configuredLocales.some(
-                (option) => !locales.some((item) => item.spaceLocaleId === option.id),
-              ) && (
-                <select
-                  aria-label="Add locale to story"
-                  value=""
-                  disabled={switchingLocale}
-                  onChange={(event) => {
-                    if (event.target.value) onLocale(event.target.value);
-                  }}
-                >
-                  <option value="">Add locale…</option>
-                  {configuredLocales
-                    .filter((option) => !locales.some((item) => item.spaceLocaleId === option.id))
-                    .map((option) => (
-                      <option key={option.id} value={option.id}>
-                        {option.name}
-                      </option>
-                    ))}
-                </select>
-              )}
-              {locales.length > 1 && (
-                <Button
-                  variant="ghost"
-                  onClick={onExclude}
-                  disabled={switchingLocale || busy || !!snapshot.locale.publishedVersionId}
-                  title={
-                    snapshot.locale.publishedVersionId
-                      ? 'Unpublish this version before excluding it'
-                      : 'Keep its draft and history for later'
-                  }
-                >
-                  Exclude {snapshot.locale.name}
-                </Button>
-              )}
-            </>
-          )}
-          <Button
-            variant="ghost"
-            onClick={onManageLocales}
-            disabled={switchingLocale || viewRelease}
-          >
-            <Globe2 /> Manage locales
-          </Button>
-          {snapshot.locale.publishedVersionId && (
-            <a
-              className="button button--ghost"
-              target="_blank"
-              rel="noreferrer"
-              href={spaceUrl(`/api/cms${editor.base}/published`)}
+        <div className="locale-actions">
+          {can(session.space, 'content:edit') && !viewRelease && availableLocales.length > 0 && (
+            <ActionDropdown
+              label="Add locale to story"
+              icon={<Plus />}
+              text="Add locale"
+              disabled={switchingLocale}
             >
-              <FileJson size={15} /> Published JSON
-            </a>
+              {availableLocales.map((locale) => (
+                <Button variant="ghost" key={locale.id} onClick={() => onLocale(locale.id)}>
+                  {locale.name}
+                </Button>
+              ))}
+            </ActionDropdown>
           )}
+          <ActionDropdown
+            label="Locale actions"
+            icon={<MoreHorizontal />}
+            disabled={switchingLocale}
+          >
+            {can(session.space, 'content:edit') && !viewRelease && locales.length > 1 && (
+              <Button
+                variant="ghost"
+                onClick={onExclude}
+                disabled={busy || !!snapshot.locale.publishedVersionId}
+                title={
+                  snapshot.locale.publishedVersionId
+                    ? 'Unpublish this version before excluding it'
+                    : 'Keep its draft and history for later'
+                }
+              >
+                Exclude {snapshot.locale.name}
+              </Button>
+            )}
+            <Button variant="ghost" onClick={onManageLocales} disabled={viewRelease}>
+              <Globe2 /> Manage locales
+            </Button>
+            {snapshot.locale.publishedVersionId && (
+              <a
+                className="button button--ghost"
+                target="_blank"
+                rel="noreferrer"
+                href={spaceUrl(`/api/cms${editor.base}/published`)}
+              >
+                <FileJson size={15} /> Published JSON
+              </a>
+            )}
+          </ActionDropdown>
         </div>
       </div>
       <ErrorNotice message={editor.error} retry={() => void editor.retry()} />

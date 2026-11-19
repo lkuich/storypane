@@ -224,7 +224,11 @@ test('space locales appear on stories and rename without replacing their content
       .getByRole('button', { name: 'Content', exact: true })
       .click();
     await page.getByRole('button', { name: 'Home', exact: true }).click();
-    await page.getByLabel('Add locale to story').selectOption(configured.id);
+    await page.getByRole('button', { name: 'Add locale to story' }).click();
+    await page
+      .getByRole('group', { name: 'Add locale to story' })
+      .getByRole('button', { name: 'French', exact: true })
+      .click();
     await expect(
       page.getByRole('region', { name: 'Block editor' }).locator('.block-list-item'),
     ).toHaveCount(0);
@@ -240,6 +244,7 @@ test('space locales appear on stories and rename without replacing their content
     ).find((locale) => locale.spaceLocaleId === configured.id)!;
     const base = `/api/cms/stories/${story!.id}/locales/${locale.id}`;
     const before = (await (await page.request.get(base, { headers })).json()) as LocaleSnapshot;
+    await page.getByRole('button', { name: 'Locale actions', exact: true }).click();
     await page.getByRole('button', { name: 'Manage locales', exact: true }).click();
     await section.getByRole('button', { name: 'Edit French', exact: true }).click();
     const edit = page.getByRole('dialog', { name: 'Edit locale' });
@@ -274,6 +279,7 @@ test('space locales appear on stories and rename without replacing their content
         await page.request.get(`/api/cms/stories/${story!.id}/locales`, { headers })
       ).json()) as StoryLocale[],
     ).toHaveLength(2);
+    await page.getByRole('button', { name: 'Locale actions', exact: true }).click();
     await page.getByRole('button', { name: 'Manage locales', exact: true }).click();
     await section.getByRole('button', { name: 'Add locale', exact: true }).click();
     await add.getByLabel('Locale name', { exact: true }).fill('Unused');

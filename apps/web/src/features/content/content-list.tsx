@@ -203,7 +203,7 @@ export function ContentList({
   );
   const hasFilters = !!(
     filters.query.trim() ||
-    filters.locale ||
+    filters.locales.length ||
     filters.status ||
     filters.modified ||
     filters.modifiedBy ||
@@ -211,7 +211,7 @@ export function ContentList({
     scheduleFilter
   );
   function changeFilters(next: ContentFilters) {
-    if (next.locale !== filters.locale || !!next.query.trim() !== searching) setSelectedIds([]);
+    if (next.locales !== filters.locales || !!next.query.trim() !== searching) setSelectedIds([]);
     setFilters(next);
     const url = new URL(window.location.href);
     writeContentFilters(url.searchParams, next);
@@ -268,7 +268,11 @@ export function ContentList({
   }
   function openCreate() {
     if (!canCreate) return;
-    setInitialLocale(filters.locale || locales.find((item) => item.isDefault)?.id || '');
+    setInitialLocale(
+      (filters.locales.length === 1 ? filters.locales[0] : undefined) ??
+        locales.find((item) => item.isDefault)?.id ??
+        '',
+    );
     setName('');
     setSlug('');
     setCreateFolderId(currentFolder?.id ?? null);
@@ -536,7 +540,7 @@ export function ContentList({
                                 onClick={() =>
                                   onOpen(
                                     story,
-                                    filters.locale ? story.versions?.[0]?.slug : undefined,
+                                    filters.locales.length ? story.versions?.[0]?.slug : undefined,
                                   )
                                 }
                               >
@@ -675,7 +679,10 @@ export function ContentList({
                             disabled={deleted}
                             aria-label={`Open ${story.name}`}
                             onClick={() =>
-                              onOpen(story, filters.locale ? story.versions?.[0]?.slug : undefined)
+                              onOpen(
+                                story,
+                                filters.locales.length ? story.versions?.[0]?.slug : undefined,
+                              )
                             }
                           >
                             <ArrowUpRight />
@@ -725,7 +732,7 @@ export function ContentList({
       {action && (
         <StoryActionsDialog
           stories={actionStories.current}
-          spaceLocaleId={filters.locale || undefined}
+          spaceLocaleIds={filters.locales}
           action={action}
           onClose={() => setAction(null)}
           onComplete={(ids) => {

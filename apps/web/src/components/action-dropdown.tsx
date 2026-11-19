@@ -5,12 +5,14 @@ import type { ReactNode } from 'react';
 export function ActionDropdown({
   label,
   icon,
+  text,
   children,
   disabled = false,
   primary = false,
 }: {
   label: string;
   icon: ReactNode;
+  text?: string;
   children: ReactNode;
   disabled?: boolean;
   primary?: boolean;
@@ -38,7 +40,7 @@ export function ActionDropdown({
     >
       <summary
         role="button"
-        className={`button button--${primary ? 'primary' : 'ghost'} icon-button`}
+        className={`button button--${primary ? 'primary' : 'ghost'} ${text ? 'action-dropdown-text' : 'icon-button'}`}
         aria-label={label}
         aria-disabled={disabled || undefined}
         title={label}
@@ -48,6 +50,7 @@ export function ActionDropdown({
         }}
       >
         {icon}
+        {text}
       </summary>
       <div className="action-dropdown-menu" role="group" aria-label={label}>
         {children}

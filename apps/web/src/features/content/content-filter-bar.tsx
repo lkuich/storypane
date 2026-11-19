@@ -1,9 +1,18 @@
 'use client';
 
 import { useState } from 'react';
-import { ArrowDownWideNarrow, Search, SlidersHorizontal, Trash2, Undo2, X } from 'lucide-react';
+import {
+  ArrowDownWideNarrow,
+  Globe2,
+  Search,
+  SlidersHorizontal,
+  Trash2,
+  Undo2,
+  X,
+} from 'lucide-react';
 import type { OptionItem, StorySummary } from '@storypane/core';
 import { Button, Field } from '@storypane/ui';
+import { ActionDropdown } from '../../components/action-dropdown';
 import { OptionInput } from '../editor/option-input';
 import { defaultFilters, type ContentFilters } from './content-filters';
 
@@ -38,7 +47,7 @@ export function ContentFilterBar({
   loading: boolean;
   deleted: boolean;
   onToggleDeleted: () => void;
-  locales: { id: string; name: string }[];
+  locales: { id: string; name: string; slug: string }[];
   scheduleFilter: string;
   onScheduleChange: (value: string) => void;
 }) {
@@ -82,6 +91,15 @@ export function ContentFilterBar({
     { key: 'modifiedBy', label: 'Modified by', placeholder: 'Anyone', items: authors },
     { key: 'contentType', label: 'Content type', placeholder: 'All content types', items: types },
   ];
+  const singleLocale =
+    filters.locales.length === 1
+      ? locales.find((item) => item.id === filters.locales[0])
+      : undefined;
+  const localeLabel = singleLocale
+    ? singleLocale.slug.toUpperCase() || singleLocale.name
+    : filters.locales.length
+      ? `${filters.locales.length} locales`
+      : 'All locales';
   const active = groups.filter((group) => filters[group.key]);
   const activeCount = active.length + Number(!!scheduleFilter);
   const hasSearch = !!filters.query.trim();
@@ -104,26 +122,46 @@ export function ContentFilterBar({
             onChange={(event) => onChange({ ...filters, query: event.target.value })}
           />
         </div>
-        <select
-          aria-label="Filter by locale"
-          value={filters.locale}
-          onChange={(event) => onChange({ ...filters, locale: event.target.value })}
-        >
-          <option value="">All locales</option>
-          {locales.map((locale) => (
-            <option key={locale.id} value={locale.id}>
-              {locale.name}
-            </option>
-          ))}
-        </select>
-        <Button
-          aria-expanded={open}
-          aria-controls="content-filters"
-          onClick={() => setOpen((value) => !value)}
-        >
-          <SlidersHorizontal aria-hidden="true" /> Filters
-          {activeCount > 0 && <span className="filter-count">{activeCount}</span>}
-        </Button>
+        <div className="content-filter-actions">
+          <ActionDropdown
+            label="Filter by locale"
+            icon={<Globe2 aria-hidden="true" />}
+            text={localeLabel}
+          >
+            <Button
+              variant="ghost"
+              aria-pressed={!filters.locales.length}
+              onClick={() => onChange({ ...filters, locales: [] })}
+            >
+              All locales
+            </Button>
+            {locales.map((locale) => (
+              <label className="locale-filter-option" key={locale.id}>
+                <input
+                  type="checkbox"
+                  checked={filters.locales.includes(locale.id)}
+                  onChange={(event) =>
+                    onChange({
+                      ...filters,
+                      locales: event.target.checked
+                        ? [...filters.locales, locale.id]
+                        : filters.locales.filter((id) => id !== locale.id),
+                    })
+                  }
+                />
+                {locale.name}
+              </label>
+            ))}
+          </ActionDropdown>
+          <Button
+            aria-expanded={open}
+            aria-controls="content-filters"
+            onClick={() => setOpen((value) => !value)}
+          >
+            <SlidersHorizontal aria-hidden="true" /> Filters
+            {activeCount > 0 && <span className="filter-count">{activeCount}</span>}
+          </Button>
+        </div>
         <label className="content-sort">
           <ArrowDownWideNarrow aria-hidden="true" />
           <select
@@ -206,7 +244,7 @@ export function ContentFilterBar({
             ? 'Loading stories…'
             : `${count} of ${stories.length} ${deleted ? 'deleted ' : ''}${stories.length === 1 ? 'story' : 'stories'}${hasSearch ? ' across all folders' : ''}`}
         </span>
-        {(activeCount > 0 || hasSearch) && (
+        {(activeCount > 0 || hasSearch || filters.locales.length > 0) && (
           <div className="content-filter-chips">
             {hasSearch && (
               <button

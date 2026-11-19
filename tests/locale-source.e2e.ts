@@ -265,10 +265,17 @@ test('filter, create and manage a market-only story without creating versions on
     const page = await context.newPage();
     await dismissRecommendedSetup(page);
     await page.goto('/?space=' + installation.spaceId);
-    const filter = page.getByLabel('Filter by locale');
+    const filter = page.getByRole('button', { name: 'Filter by locale' });
     await filter.focus();
-    await filter.press('End');
-    await filter.selectOption(asia.id);
+    await filter.press('Enter');
+    await page.getByRole('checkbox', { name: 'Asia', exact: true }).check();
+    await page.getByRole('checkbox', { name: 'Default', exact: true }).check();
+    expect(new URL(page.url()).searchParams.getAll('filterLocale')).toHaveLength(2);
+    await page.getByRole('checkbox', { name: 'Default', exact: true }).uncheck();
+    await page.keyboard.press('Escape');
+    await expect(filter).toBeFocused();
+    const filtersButton = page.getByRole('button', { name: 'Filters', exact: true });
+    expect((await filtersButton.boundingBox())!.y).toBeCloseTo((await filter.boundingBox())!.y, 0);
     await page.getByRole('button', { name: 'New story', exact: true }).click();
     await expect(page.getByLabel('Starting locale')).toHaveValue(asia.id);
     await page.getByLabel('Name', { exact: true }).fill('Asia booking');
@@ -283,11 +290,16 @@ test('filter, create and manage a market-only story without creating versions on
     await expect(page.getByText('This locale is not included on this story.')).toBeVisible();
     expect(await (await context.request.get(base, { headers })).json()).toHaveLength(1);
     await page.goto('/?space=' + installation.spaceId + '&story=' + storyId);
-    await page.getByLabel('Add locale to story').selectOption({ label: 'Default' });
+    await page.getByRole('button', { name: 'Add locale to story' }).click();
+    await page
+      .getByRole('group', { name: 'Add locale to story' })
+      .getByRole('button', { name: 'Default', exact: true })
+      .click();
     await expect(page.getByRole('tab', { name: 'Default', exact: true })).toHaveAttribute(
       'aria-selected',
       'true',
     );
+    await page.getByRole('button', { name: 'Locale actions' }).click();
     const exclude = page.getByRole('button', { name: 'Exclude Default', exact: true });
     await exclude.focus();
     await exclude.press('Enter');

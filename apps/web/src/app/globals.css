@@ -1784,7 +1784,47 @@ hr {
   margin-bottom: 24px;
   gap: 12px;
 }
+.locale-actions,
+.content-filter-actions {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  gap: 6px;
+}
+.locale-actions .action-dropdown-text,
+.content-filter-actions .action-dropdown-text {
+  white-space: nowrap;
+}
+.content-filter-actions .action-dropdown-text {
+  border: 1px solid var(--line);
+  min-height: 42px;
+}
+.content-filter-actions .action-dropdown-menu {
+  right: auto;
+  left: 0;
+}
+.locale-filter-option {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 36px;
+  padding: 6px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.locale-filter-option:hover,
+.locale-filter-option:focus-within {
+  background: var(--accent-soft);
+}
+.locale-filter-option input[type='checkbox'] {
+  width: 16px;
+  min-height: 0;
+  height: 16px;
+  margin: 0;
+}
 .locale-tabs {
+  min-width: 0;
   display: flex;
   gap: 24px;
   overflow: auto;
@@ -3209,8 +3249,9 @@ main.login-form-wrap {
     width: 100%;
     gap: 20px;
   }
-  .locale-bar > .button-group {
-    padding: 8px 0;
+  .locale-actions {
+    margin-left: auto;
+    padding: 4px 0;
   }
   .block-list-item {
     flex-wrap: wrap;
@@ -4768,6 +4809,9 @@ main.login-form-wrap {
   }
 }
 @media (max-width: 640px) {
+  .locale-actions .action-dropdown-menu {
+    right: 0;
+  }
   .content-toolbar > .search-input {
     flex-basis: 100%;
     min-width: 0;

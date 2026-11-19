@@ -1,7 +1,7 @@
 import type { PublicationStatus, StorySummary } from '@storypane/core';
 
 export type ContentFilters = {
-  locale: string;
+  locales: string[];
   query: string;
   status: PublicationStatus | '';
   modifiedBy: string;
@@ -12,7 +12,7 @@ export type ContentFilters = {
   sort: 'newest' | 'oldest' | 'name';
 };
 export const defaultFilters: ContentFilters = {
-  locale: '',
+  locales: [],
   query: '',
   status: '',
   modifiedBy: '',
@@ -22,8 +22,7 @@ export const defaultFilters: ContentFilters = {
   to: '',
   sort: 'newest',
 };
-const keys: Record<keyof ContentFilters, string> = {
-  locale: 'filterLocale',
+const keys: Record<Exclude<keyof ContentFilters, 'locales'>, string> = {
   query: 'q',
   status: 'filterStatus',
   modifiedBy: 'filterEditor',
@@ -42,8 +41,11 @@ function date(value: string): Date | null {
     : null;
 }
 export function readContentFilters(params: URLSearchParams): ContentFilters {
-  const filters = { ...defaultFilters };
-  for (const key of Object.keys(keys) as (keyof ContentFilters)[]) {
+  const filters = {
+    ...defaultFilters,
+    locales: [...new Set(params.getAll('filterLocale').filter(Boolean))],
+  };
+  for (const key of Object.keys(keys) as (keyof typeof keys)[]) {
     const value = params.get(keys[key]) ?? '';
     if (key === 'status')
       filters.status = ['draft', 'changed', 'published'].includes(value)
@@ -63,7 +65,9 @@ export function readContentFilters(params: URLSearchParams): ContentFilters {
   return filters;
 }
 export function writeContentFilters(params: URLSearchParams, filters: ContentFilters) {
-  for (const key of Object.keys(keys) as (keyof ContentFilters)[]) {
+  params.delete('filterLocale');
+  for (const locale of filters.locales) params.append('filterLocale', locale);
+  for (const key of Object.keys(keys) as (keyof typeof keys)[]) {
     if (
       filters[key] === defaultFilters[key] ||
       ((key === 'from' || key === 'to') && filters.modified !== 'custom')
@@ -93,21 +97,27 @@ export function filterStories(
     to = new Date(now);
     to.setHours(24, 0, 0, 0);
   }
-  const localized = !filters.locale
+  const localized = !filters.locales.length
     ? stories
-    : stories.flatMap((story) => {
-        const version = story.versions?.find((item) => item.spaceLocaleId === filters.locale);
-        if (!version) return [];
+    : stories.flatMap((story): StorySummary[] => {
+        const versions = story.versions?.filter((v) => filters.locales.includes(v.spaceLocaleId));
+        if (!versions?.length) return [];
+        const pending = versions.filter((v) => v.status !== 'published');
+        const publicationStatus = !pending.length
+          ? 'published'
+          : versions.every((v) => v.status === 'draft')
+            ? 'draft'
+            : 'changed';
         return [
           {
             ...story,
-            path: version.path,
-            publicationStatus: version.status,
-            versions: [version],
-            localeCount: 1,
-            pendingLocaleCount: Number(version.status !== 'published'),
-            pendingLocales: [],
-            schedules: story.schedules?.filter((item) => item.localeId === version.id),
+            versions,
+            path: versions[0]!.path,
+            publicationStatus,
+            localeCount: versions.length,
+            pendingLocaleCount: pending.length,
+            pendingLocales: versions.length > 1 ? pending : [],
+            schedules: story.schedules?.filter((s) => versions.some((v) => v.id === s.localeId)),
           },
         ];
       });

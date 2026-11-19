@@ -62,13 +62,28 @@ describe('content filters', () => {
     });
     const filtered = filterStories([...stories, shared], {
       ...defaultFilters,
-      locale: 'uk',
+      locales: ['uk'],
       status: 'published',
     });
     expect(filtered).toMatchObject([
       { id: 'courses', path: '/uk/courses', publicationStatus: 'published', localeCount: 1 },
     ]);
-    expect(filterStories([shared], { ...defaultFilters, locale: 'asia' })).toEqual([]);
+    expect(filterStories([shared], { ...defaultFilters, locales: ['asia'] })).toEqual([]);
+    const multi = { ...defaultFilters, locales: ['uk', 'canada', 'asia'] };
+    expect(filterStories([shared], multi)).toMatchObject([
+      {
+        localeCount: 2,
+        pendingLocaleCount: 1,
+        publicationStatus: 'changed',
+        versions: [{ slug: 'ca' }, { slug: 'uk' }],
+      },
+    ]);
+    const params = new URLSearchParams('filterLocale=canada');
+    expect(readContentFilters(params).locales).toEqual(['canada']);
+    writeContentFilters(params, multi);
+    expect(readContentFilters(params).locales).toEqual(multi.locales);
+    writeContentFilters(params, defaultFilters);
+    expect(params.has('filterLocale')).toBe(false);
   });
   it('finds complete localized paths and preserves long slug searches in the URL', () => {
     const path = `/ca/blog/${'long-slug-'.repeat(30)}`;
