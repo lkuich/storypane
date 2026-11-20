@@ -25,41 +25,41 @@ import { Button, ErrorNotice, Field, Loading, Modal } from '@storypane/ui';
 import { api, errorMessage, jsonRequest } from '../editor/api';
 import { PublicationReferences, publicationSelection } from '../editor/publication-references';
 import { spaceUrl } from '../../lib/space-url';
+import { reviewInBatches } from './review-batches';
 
 async function publicationReviewsFor(reviews: LifecycleReview[]) {
-  const entries = await Promise.all(
+  const entries = await reviewInBatches(
     reviews.flatMap((review) =>
       review.locales
         .filter((locale) => locale.checkpointId)
-        .map(async (locale) => {
-          try {
-            const [publication, schedules] = await Promise.all([
-              api<PublicationReview>(
-                `/stories/${review.story.id}/locales/${locale.id}/publication-review/${locale.checkpointId}`,
-              ),
-              api<PublicationSchedule[]>(
-                `/stories/${review.story.id}/locales/${locale.id}/schedules`,
-              ),
-            ]);
-            const active = schedules.find((item) => item.active);
-            if (active)
-              return {
-                id: locale.id,
-                publication: null,
-                error: `This page belongs to ${active.releaseName}. Open its editor to update the release or publish now and remove it.`,
-              };
-            if (publication.snapshot.access?.publish === false)
-              return {
-                id: locale.id,
-                publication: null,
-                error: 'You do not have permission to publish this locale.',
-              };
-            return { id: locale.id, publication, error: null };
-          } catch (error) {
-            return { id: locale.id, publication: null, error: errorMessage(error) };
-          }
-        }),
+        .map((locale) => ({ storyId: review.story.id, locale })),
     ),
+    async ({ storyId, locale }) => {
+      try {
+        const [publication, schedules] = await Promise.all([
+          api<PublicationReview>(
+            `/stories/${storyId}/locales/${locale.id}/publication-review/${locale.checkpointId}`,
+          ),
+          api<PublicationSchedule[]>(`/stories/${storyId}/locales/${locale.id}/schedules`),
+        ]);
+        const active = schedules.find((item) => item.active);
+        if (active)
+          return {
+            id: locale.id,
+            publication: null,
+            error: `This page belongs to ${active.releaseName}. Open its editor to update the release or publish now and remove it.`,
+          };
+        if (publication.snapshot.access?.publish === false)
+          return {
+            id: locale.id,
+            publication: null,
+            error: 'You do not have permission to publish this locale.',
+          };
+        return { id: locale.id, publication, error: null };
+      } catch (error) {
+        return { id: locale.id, publication: null, error: errorMessage(error) };
+      }
+    },
   );
   return {
     reviews: Object.fromEntries(
@@ -127,10 +127,11 @@ export function StoryActionsDialog({
   useEffect(() => {
     let stopped = false;
     Promise.all([
-      Promise.all(stories.map((story) => api<LifecycleReview>(`/stories/${story.id}/review`))),
+      reviewInBatches(stories, (story) => api<LifecycleReview>(`/stories/${story.id}/review`)),
       api<ContentFolder[]>('/folders'),
     ])
       .then(async ([next, available]) => {
+        if (stopped) return;
         const publications =
           action === 'publish' ? await publicationReviewsFor(next) : { reviews: {}, errors: {} };
         if (stopped) return;
@@ -162,8 +163,8 @@ export function StoryActionsDialog({
     setError(null);
     try {
       const failed = results.filter((result) => result.error);
-      const next = await Promise.all(
-        failed.map((result) => api<LifecycleReview>(`/stories/${result.storyId}/review`)),
+      const next = await reviewInBatches(failed, (result) =>
+        api<LifecycleReview>(`/stories/${result.storyId}/review`),
       );
       const publications =
         action === 'publish' ? await publicationReviewsFor(next) : { reviews: {}, errors: {} };
