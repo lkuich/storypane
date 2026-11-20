@@ -233,81 +233,89 @@ export function FolderDialog({
             <span>Example page URL</span>
             <code>/{preview}</code>
           </p>
-          <fieldset className="folder-type-settings">
-            <legend>Content types</legend>
-            <div className="folder-radio-group">
-              <label>
-                <input
-                  type="radio"
-                  name="folder-restrictions"
-                  checked={!restricted}
-                  onChange={() => setRestricted(false)}
-                />{' '}
-                All content types
-              </label>
-              <label>
-                <input
-                  type="radio"
-                  name="folder-restrictions"
-                  checked={restricted}
-                  onChange={() => {
-                    setRestricted(true);
-                    if (defaultType && !allowed.includes(defaultType)) setDefaultType('');
+          <details className="folder-options" open={folder ? true : undefined}>
+            <summary>Content and preview settings</summary>
+            <fieldset className="folder-type-settings">
+              <legend>Content types</legend>
+              <div className="folder-radio-group">
+                <label>
+                  <input
+                    type="radio"
+                    name="folder-restrictions"
+                    checked={!restricted}
+                    onChange={() => setRestricted(false)}
+                  />{' '}
+                  All content types
+                </label>
+                <label>
+                  <input
+                    type="radio"
+                    name="folder-restrictions"
+                    checked={restricted}
+                    onChange={() => {
+                      setRestricted(true);
+                      if (defaultType && !allowed.includes(defaultType)) setDefaultType('');
+                    }}
+                  />{' '}
+                  Specific content types
+                </label>
+              </div>
+              {restricted && (
+                <OptionInput
+                  label="Allowed content types"
+                  source={{
+                    type: 'inline',
+                    items: contentTypes.map((item) => ({
+                      value: item.id,
+                      label: item.displayName,
+                    })),
                   }}
-                />{' '}
-                Specific content types
-              </label>
-            </div>
-            {restricted && (
+                  value={allowed}
+                  multiple
+                  disabled={busy}
+                  placeholder="Choose allowed content types…"
+                  onChange={(value) => {
+                    const next = Array.isArray(value)
+                      ? value.filter((item): item is string => typeof item === 'string')
+                      : [];
+                    setAllowed(next);
+                    if (!next.includes(defaultType)) setDefaultType('');
+                  }}
+                />
+              )}
+            </fieldset>
+            <Field label="Default content type" htmlFor="folder-default">
               <OptionInput
-                label="Allowed content types"
+                id="folder-default"
+                label="Default content type"
+                placeholder="No default"
                 source={{
                   type: 'inline',
-                  items: contentTypes.map((item) => ({ value: item.id, label: item.displayName })),
+                  items: contentTypes
+                    .filter((item) => !restricted || allowed.includes(item.id))
+                    .map((item) => ({ value: item.id, label: item.displayName })),
                 }}
-                value={allowed}
-                multiple
+                value={defaultType}
                 disabled={busy}
-                placeholder="Choose allowed content types…"
-                onChange={(value) => {
-                  const next = Array.isArray(value)
-                    ? value.filter((item): item is string => typeof item === 'string')
-                    : [];
-                  setAllowed(next);
-                  if (!next.includes(defaultType)) setDefaultType('');
-                }}
+                onChange={(value) => setDefaultType(typeof value === 'string' ? value : '')}
               />
-            )}
-          </fieldset>
-          <Field label="Default content type" htmlFor="folder-default">
-            <OptionInput
-              id="folder-default"
-              label="Default content type"
-              placeholder="No default"
-              source={{
-                type: 'inline',
-                items: contentTypes
-                  .filter((item) => !restricted || allowed.includes(item.id))
-                  .map((item) => ({ value: item.id, label: item.displayName })),
-              }}
-              value={defaultType}
-              disabled={busy}
-              onChange={(value) => setDefaultType(typeof value === 'string' ? value : '')}
-            />
-          </Field>
-          <label className="folder-checkbox">
-            <input
-              type="checkbox"
-              checked={formOnly}
-              onChange={(event) => setFormOnly(event.target.checked)}
-            />{' '}
-            Form only — disable visual preview for pages in this folder
-          </label>
+            </Field>
+            <label className="folder-checkbox">
+              <input
+                type="checkbox"
+                checked={formOnly}
+                onChange={(event) => setFormOnly(event.target.checked)}
+              />{' '}
+              Form only — disable visual preview for pages in this folder
+            </label>
+          </details>
         </fieldset>
-        <p className="field-hint">
-          Moving a folder or changing its slugs updates draft URLs. Publish affected pages to update
-          their public URLs.
-        </p>
+        {folder && (
+          <p className="field-hint">
+            Moving a folder or changing its slugs updates draft URLs. Publish affected pages to
+            update their public URLs.
+          </p>
+        )}
         <div className="dialog-actions">
           {folder && (
             <Button variant="danger" disabled={busy} onClick={() => void remove()}>

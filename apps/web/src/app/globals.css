@@ -4714,6 +4714,21 @@ main.login-form-wrap {
   border-radius: 8px;
   cursor: pointer;
 }
+.folder-behavior label:last-child {
+  border-style: dashed;
+}
+.folder-options {
+  margin-bottom: 16px;
+}
+.folder-options summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 600;
+}
+.folder-options[open] summary {
+  margin-bottom: 16px;
+}
 .folder-behavior label:has(:checked) {
   border-color: var(--accent);
   background: var(--surface-subtle);

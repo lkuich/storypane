@@ -424,4 +424,4 @@ accessible name still describes the full action.
 
 ## Creating a content folder
 
-In **Content → New folder**, choose **URL folder** to add a path segment, or **Organizational folder** to group stories in the editor. Enter a name and check **Example page URL**. Organizational folders use a dashed outline, a sectioned folder icon, and the label **Editor only**. A URL folder nested inside one still adds its own segment. Content restrictions apply to either type.
+In **Content → New folder**, choose **URL folder** to add a path segment, or **Organizational folder** to group stories in the editor. Enter a name and check **Example page URL**. Organizational folders use a dashed outline, a sectioned folder icon, and the label **Editor only**. A URL folder nested inside one still adds its own segment. Open **Content and preview settings** for type restrictions, a default content type, or form-only editing.
