@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { signInPage } from './auth';
+import { cmsSpace, signInPage } from './auth';
 import type { StoryAction, PublicationReference } from '@storypane/core';
 
 const names = [
@@ -35,13 +35,32 @@ const localesFor = (index: number) =>
 
 async function fixture(
   page: Page,
-  mode: 'partial' | 'partial-unavailable' | 'network' | 'reference' | 'changed-reference',
+  mode:
+    'partial' | 'partial-unavailable' | 'network' | 'reference' | 'changed-reference' | 'capacity',
   action: 'publish' | 'delete' = 'publish',
+  selectedStories = stories,
 ) {
   const requests: { items: { storyId: string; input: StoryAction }[] }[] = [];
+  let active = 0;
+  let peak = 0;
   await page.route('**/api/cms/**', async (route) => {
     const path = new URL(route.request().url()).pathname;
-    if (path === '/api/cms/stories') return route.fulfill({ json: stories });
+    if (mode === 'capacity' && /\/(review|schedules)$|\/publication-review\//.test(path)) {
+      active++;
+      peak = Math.max(peak, active);
+      await new Promise((resolve) => setTimeout(resolve, 40));
+      const overloaded = active > 16;
+      active--;
+      if (overloaded)
+        return route.fulfill({
+          status: 503,
+          json: {
+            error: { code: 'unavailable', message: 'Database capacity is busy. Please retry.' },
+          },
+        });
+    }
+    if (path.endsWith('/schedules')) return route.fulfill({ json: [] });
+    if (path === '/api/cms/stories') return route.fulfill({ json: selectedStories });
     if (path === '/api/cms/folders') return route.fulfill({ json: [] });
     if (path === '/api/cms/stories/bulk') {
       const request = route.request().postDataJSON();
@@ -58,7 +77,9 @@ async function fixture(
         });
       return route.fulfill({
         json: request.items.map((item: { storyId: string }) =>
-          mode.startsWith('partial') && requests.length === 1 && item.storyId === stories[5].id
+          mode.startsWith('partial') &&
+          requests.length === 1 &&
+          item.storyId === selectedStories[5].id
             ? {
                 storyId: item.storyId,
                 error: {
@@ -69,17 +90,17 @@ async function fixture(
             : {
                 storyId: item.storyId,
                 result: {
-                  story: stories.find((story) => story.id === item.storyId),
+                  story: selectedStories.find((story) => story.id === item.storyId),
                   localeIds: [],
                 },
               },
         ),
       });
     }
-    const index = stories.findIndex((story) => path.includes(story.id));
+    const index = selectedStories.findIndex((story) => path.includes(story.id));
     if (index !== -1 && path.endsWith('/review'))
       return route.fulfill({
-        json: { story: stories[index], locales: localesFor(index), incomingReferences: [] },
+        json: { story: selectedStories[index], locales: localesFor(index), incomingReferences: [] },
       });
     if (index !== -1 && (path.includes('/publication-review/') || path.includes('/checkpoints/'))) {
       const locale = localesFor(index).find((locale) => path.endsWith(locale.checkpointId))!;
@@ -87,7 +108,7 @@ async function fixture(
         (mode === 'reference' || mode === 'changed-reference') && index === 0 && !locale.slug
           ? [
               {
-                storyId: stories[5].id,
+                storyId: selectedStories[5].id,
                 storyName: mode === 'changed-reference' ? 'Changed footer' : 'Draft footer',
                 localeId: localesFor(5)[0].id,
                 localeName: 'Default',
@@ -107,7 +128,7 @@ async function fixture(
           id: locale.checkpointId,
           revision: 2,
           content: { title: names[index] },
-          snapshot: { story: stories[index], locale, access: { publish: true } },
+          snapshot: { story: selectedStories[index], locale, access: { publish: true } },
           references,
         },
       });
@@ -121,11 +142,11 @@ async function fixture(
     .getByRole('button', { name: action === 'publish' ? 'Publish' : 'Delete', exact: true })
     .click();
   const dialog = page.getByRole('dialog', {
-    name: action === 'publish' ? 'Publish 6 stories' : 'Delete 6 stories',
+    name: `${action === 'publish' ? 'Publish' : 'Delete'} ${selectedStories.length} stories`,
     exact: true,
   });
-  await expect(dialog.locator('.story-action-review')).toHaveCount(6);
-  return { dialog, requests };
+  await expect(dialog.locator('.story-action-review')).toHaveCount(selectedStories.length);
+  return { dialog, requests, peak: () => peak };
 }
 
 test('bulk publishing groups successes, shows actionable failures, and reviews only failed stories', async ({
@@ -156,10 +177,7 @@ test('bulk publishing groups successes, shows actionable failures, and reviews o
   ).toBeVisible();
   await expect(
     dialog.getByRole('link', { name: 'Open Kerri Bogle in English (Canada) (new tab)' }),
-  ).toHaveAttribute(
-    'href',
-    `/?story=${stories[5].id}&locale=ca&space=11111111-1111-4111-8111-111111111111`,
-  );
+  ).toHaveAttribute('href', `/?story=${stories[5].id}&locale=ca&space=${cmsSpace}`);
   await expect(
     dialog.getByRole('button', { name: 'Retry same selections', exact: true }),
   ).toHaveCount(0);
@@ -275,3 +293,26 @@ for (const action of ['publish', 'omit'] as const) {
       ]);
   });
 }
+
+test('large bulk reviews stay below database capacity on desktop and mobile', async ({ page }) => {
+  const selectedStories = Array.from({ length: 21 }, (_, index) => ({
+    ...stories[0],
+    id: `30000000-0000-4000-8000-${String(index).padStart(12, '0')}`,
+    name: `Capacity story ${index}`,
+  }));
+  const { dialog, peak } = await fixture(page, 'capacity', 'publish', selectedStories);
+  await expect(dialog.getByRole('status')).toContainText('42 locales selected');
+  await expect(dialog.getByRole('alert')).toHaveCount(0);
+  expect(peak()).toBeLessThanOrEqual(8);
+  const publish = dialog.getByRole('button', { name: 'Publish 21 stories', exact: true });
+  await expect(publish).toBeEnabled();
+  for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: 900 });
+    expect(await dialog.evaluate((element) => element.scrollWidth <= element.clientWidth + 1)).toBe(
+      true,
+    );
+    await dialog.getByRole('button', { name: 'Cancel', exact: true }).focus();
+    await page.keyboard.press('Tab');
+    await expect(publish).toBeFocused();
+  }
+});

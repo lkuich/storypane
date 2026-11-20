@@ -223,6 +223,13 @@ its handle to reorder sections.
 
 ## 8. Review and publish
 
+In Content, select up to 50 visible stories and choose **Publish** to review their
+saved revisions and locales together. Reviews load in small batches so large
+selections do not exhaust database capacity. The same limit applies when reviewing
+failed stories again. Publication permissions, linked-story choices and release
+checks still apply to each locale. Select only the editions you intend to make live;
+shared source drafts and retired pages can remain unpublished.
+
 ![Editing autosaves a draft; reviewing selects a saved revision; publishing exposes that fixed snapshot; your frontend then rebuilds or revalidates.](images/publication-flow.svg)
 
 1. Wait until all changes are saved, then choose **Review & publish**.
