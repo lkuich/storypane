@@ -194,9 +194,27 @@ export function ContentList({
     item = folders.find((parent) => parent.id === item?.parentId)
   )
     trail.unshift(item);
+  const selectedLocale =
+    filters.locales.length === 1 && locales.find((l) => l.id === filters.locales[0]);
+  const localeViews =
+    !currentFolder && !searching && !filters.locales.length && locales.length > 1 ? locales : [];
+  const localeLabel = (l: SpaceLocale) => (l.isDefault && !l.slug ? 'Shared' : l.name);
+  const visibleFolders = new Set<string>();
+  if (filters.locales.length) {
+    const parents = new Map(folders.map((f) => [f.id, f.parentId]));
+    for (const story of stories) {
+      if (!story.versions?.some((v) => filters.locales.includes(v.spaceLocaleId))) continue;
+      let id = story.folderId;
+      while (id && !visibleFolders.has(id)) {
+        visibleFolders.add(id);
+        id = parents.get(id) ?? null;
+      }
+    }
+  }
   const children = folders.filter(
     (item) =>
       item.parentId === (currentFolder?.id ?? null) &&
+      (!filters.locales.length || visibleFolders.has(item.id)) &&
       `${item.name} ${folderPath(folders, item.id)}`
         .toLowerCase()
         .includes(filters.query.trim().toLowerCase()),
@@ -217,18 +235,23 @@ export function ContentList({
     writeContentFilters(url.searchParams, next);
     window.history.replaceState(window.history.state, '', url);
   }
-  function openFolder(id: string | null, index?: number) {
-    if (id === folderId) return;
+  function openFolder(id: string | null, index?: number, scope = filters.locales) {
     if (index !== undefined) {
       window.history.go(index - folderHistory.index);
       return;
     }
+    if (id === folderId && scope === filters.locales) return;
     setSelectedIds([]);
     const next = {
       entries: [...folderHistory.entries.slice(0, folderHistory.index + 1), id],
       index: folderHistory.index + 1,
     };
     const url = new URL(window.location.href);
+    if (scope !== filters.locales) {
+      const nextFilters = { ...filters, locales: scope };
+      writeContentFilters(url.searchParams, nextFilters);
+      setFilters(nextFilters);
+    }
     if (id) url.searchParams.set('folder', id);
     else url.searchParams.delete('folder');
     window.history.pushState(
@@ -352,9 +375,23 @@ export function ContentList({
             <span>Forward</span> <ArrowRight aria-hidden="true" />
           </Button>
         </div>
-        <button onClick={() => openFolder(null)} aria-current={!currentFolder ? 'page' : undefined}>
+        <button
+          onClick={() => openFolder(null, undefined, selectedLocale ? [] : filters.locales)}
+          aria-current={!currentFolder && !selectedLocale ? 'page' : undefined}
+        >
           Root
         </button>
+        {selectedLocale && (
+          <span>
+            <ChevronRight aria-hidden="true" />
+            <button
+              onClick={() => openFolder(null)}
+              aria-current={!currentFolder ? 'page' : undefined}
+            >
+              {localeLabel(selectedLocale)}
+            </button>
+          </span>
+        )}
         {trail.map((item) => (
           <span key={item.id}>
             <ChevronRight aria-hidden="true" />
@@ -434,6 +471,28 @@ export function ContentList({
             <X aria-hidden="true" /> Clear selection
           </Button>
         </div>
+      )}
+      {!!localeViews.length && (
+        <section className="content-folders" aria-label="Locale folders">
+          {localeViews.map((locale) => (
+            <div className="content-folder-card" key={locale.id}>
+              <button
+                className="content-folder-open"
+                onClick={() => openFolder(null, undefined, [locale.id])}
+              >
+                <Folder aria-hidden="true" />
+                <span>
+                  <strong>{localeLabel(locale)}</strong>
+                  <small>
+                    /{locale.slug}
+                    {locale.slug && '/'}
+                  </small>
+                </span>
+                <ChevronRight aria-hidden="true" />
+              </button>
+            </div>
+          ))}
+        </section>
       )}
       {!!children.length && (
         <section className="content-folders" aria-label="Folders">

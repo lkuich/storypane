@@ -96,3 +96,5 @@ advisory and do not grant approval or publish anything.
 Upgrades add space migration **033_locale_sources** through the transactional
 migration runner. Existing locales are not linked or rewritten by the migration.
 Source links and baselines are retained when splitting a legacy multi-space database.
+
+In a multilingual space, the Content root has a folder shortcut for each locale. The unprefixed default appears as **Shared**. Opening a shortcut filters stories and folders to that locale. Shared stories appear in each edition that includes them. A locale shortcut adds no URL segment.

@@ -265,6 +265,18 @@ test('filter, create and manage a market-only story without creating versions on
     const page = await context.newPage();
     await dismissRecommendedSetup(page);
     await page.goto('/?space=' + installation.spaceId);
+    const folders = page.getByRole('region', { name: 'Locale folders' });
+    const asiaFolder = folders.getByRole('button', { name: /Asia/ });
+    await asiaFolder.focus();
+    await asiaFolder.press('Enter');
+    await expect(
+      page
+        .getByRole('navigation', { name: 'Content folders' })
+        .getByRole('button', { name: 'Asia' }),
+    ).toHaveAttribute('aria-current', 'page');
+    expect(new URL(page.url()).searchParams.getAll('filterLocale')).toEqual([asia.id]);
+    await page.getByRole('button', { name: 'Back', exact: true }).first().click();
+    await expect(folders.getByRole('button', { name: /Shared/ })).toBeVisible();
     const filter = page.getByRole('button', { name: 'Filter by locale' });
     await filter.focus();
     await filter.press('Enter');
