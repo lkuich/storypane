@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { folderInputSchema, folderPath, pathSlugSchema, type ContentFolder } from './index';
+import {
+  folderInputSchema,
+  folderLabel,
+  folderPath,
+  pathSlugSchema,
+  type ContentFolder,
+} from './index';
 
 const folder = (
   id: string,
@@ -25,6 +31,24 @@ describe('folder paths', () => {
     expect(folderPath(folders, 'intro')).toBe('courses/workshops/intro');
     expect(folderPath(folders, 'intro', 'fr')).toBe('cours/workshops/présentation');
     expect(folderPath(folders, null, 'fr')).toBe('');
+  });
+  it('keeps organizational names in editor paths and skips them in every locale URL', () => {
+    const grouping = { ...folder('Regional', 'courses'), slug: '' };
+    const folders = [
+      folder('courses', null, { fr: 'cours' }),
+      grouping,
+      folder('book', 'Regional'),
+    ];
+    expect(folderInputSchema.parse({ name: 'Regional', slug: '' }).slug).toBe('');
+    expect(
+      folderInputSchema.safeParse({
+        name: 'Regional',
+        slug: '',
+        localeSlugs: { '00000000-0000-4000-8000-000000000001': 'region' },
+      }).success,
+    ).toBe(false);
+    expect(folderLabel(folders, 'book')).toBe('courses / Regional / book');
+    expect(folderPath(folders, 'book', 'fr')).toBe('cours/book');
   });
   it('rejects invalid paths while supporting normalized translated slugs', () => {
     expect(pathSlugSchema.parse(' pre\u0301sentation/details ')).toBe('présentation/details');

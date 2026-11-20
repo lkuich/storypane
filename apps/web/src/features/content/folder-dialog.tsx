@@ -1,9 +1,11 @@
 'use client';
 
 import { useState, type FormEvent } from 'react';
-import { Globe2, Trash2 } from 'lucide-react';
+import { Folder, FolderKanban, Globe2, Trash2 } from 'lucide-react';
 import {
   folderPath,
+  folderLabel,
+  folderTrail,
   type BlockDefinition,
   type ContentFolder,
   type SpaceLocale,
@@ -31,6 +33,7 @@ export function FolderDialog({
 }) {
   const [name, setName] = useState(folder?.name ?? ''),
     [slug, setSlug] = useState(folder?.slug ?? '');
+  const [organizational, setOrganizational] = useState(folder?.slug === '');
   const [parent, setParent] = useState(folder ? folder.parentId : parentId);
   const [translations, setTranslations] = useState(folder?.localeSlugs ?? {});
   const [language, setLanguage] = useState('');
@@ -41,16 +44,15 @@ export function FolderDialog({
   const [busy, setBusy] = useState(false),
     [error, setError] = useState<string | null>(null);
   const contentTypes = definitions.filter((item) => item.kind !== 'nestable');
-  const currentPath =
-    folder && folders.some((item) => item.id === folder.id) ? folderPath(folders, folder.id) : null;
   const parents = folders.filter(
     (item) =>
-      !currentPath ||
-      (item.id !== folder?.id && !folderPath(folders, item.id).startsWith(currentPath + '/')),
+      !folder || !folderTrail(folders, item.id).some((ancestor) => ancestor.id === folder.id),
   );
   const preview = [
+    locales.find((l) => l.id === language)?.slug,
     folderPath(folders, parent, language || undefined),
-    (language ? translations[language] : slug) || slug,
+    organizational ? '' : (language ? translations[language] : slug) || slug || 'folder',
+    'example-page',
   ]
     .filter(Boolean)
     .join('/');
@@ -67,11 +69,11 @@ export function FolderDialog({
         folder ? `/folders/${folder.id}` : '/folders',
         jsonRequest(folder ? 'PUT' : 'POST', {
           name,
-          slug,
+          slug: organizational ? '' : slug,
           parentId: parent,
-          localeSlugs: Object.fromEntries(
-            Object.entries(translations).filter(([, value]) => value.trim()),
-          ),
+          localeSlugs: organizational
+            ? {}
+            : Object.fromEntries(Object.entries(translations).filter(([, value]) => value.trim())),
           allowedDefinitionIds: restricted ? allowed : [],
           defaultDefinitionId: defaultType || null,
           formOnly,
@@ -105,12 +107,52 @@ export function FolderDialog({
       onClose={() => !busy && onClose()}
       closeOnBackdrop
       title={folder ? 'Folder settings' : 'New folder'}
-      description="Organize pages and define their URL prefix."
       className="content-folder-dialog"
     >
       <form onSubmit={submit}>
         <ErrorNotice message={error} />
         <fieldset disabled={busy} className="content-folder-fields">
+          {!folder && (
+            <fieldset className="folder-behavior">
+              <legend>Folder type</legend>
+              <div>
+                <label>
+                  <input
+                    type="radio"
+                    name="folder-kind"
+                    checked={!organizational}
+                    onChange={() => setOrganizational(false)}
+                  />
+                  <Folder aria-hidden="true" />
+                  <span>
+                    <strong>URL folder</strong>
+                    <small>Adds a segment to page URLs.</small>
+                  </span>
+                </label>
+                <label>
+                  <input
+                    type="radio"
+                    name="folder-kind"
+                    checked={organizational}
+                    onChange={() => {
+                      setOrganizational(true);
+                      setLanguage('');
+                    }}
+                  />
+                  <FolderKanban aria-hidden="true" />
+                  <span>
+                    <strong>Organizational folder</strong>
+                    <small>Groups pages in the editor only.</small>
+                  </span>
+                </label>
+              </div>
+            </fieldset>
+          )}
+          {folder && (
+            <p className="field-hint">
+              {organizational ? 'Organizational folder · Editor only' : 'URL folder'}
+            </p>
+          )}
           <Field label="Name" htmlFor="folder-name">
             <input
               id="folder-name"
@@ -125,45 +167,47 @@ export function FolderDialog({
               }}
             />
           </Field>
-          <div className="field">
-            <div className="slug-language">
-              <label htmlFor="folder-slug">Slug{!language && ' *'}</label>
-              <label>
-                <Globe2 aria-hidden="true" />
-                <select
-                  aria-label="Folder slug language"
-                  value={language}
-                  onChange={(event) => setLanguage(event.target.value)}
-                >
-                  <option value="">Base path</option>
-                  {locales
-                    .filter((item) => item.slug)
-                    .map((item) => (
-                      <option key={item.id} value={item.id}>
-                        {item.name}
-                      </option>
-                    ))}
-                </select>
-              </label>
+          {!organizational && (
+            <div className="field">
+              <div className="slug-language">
+                <label htmlFor="folder-slug">Slug{!language && ' *'}</label>
+                <label>
+                  <Globe2 aria-hidden="true" />
+                  <select
+                    aria-label="Folder slug language"
+                    value={language}
+                    onChange={(event) => setLanguage(event.target.value)}
+                  >
+                    <option value="">Base path</option>
+                    {locales
+                      .filter((item) => item.slug)
+                      .map((item) => (
+                        <option key={item.id} value={item.id}>
+                          {item.name}
+                        </option>
+                      ))}
+                  </select>
+                </label>
+              </div>
+              <input
+                id="folder-slug"
+                required={!language}
+                maxLength={200}
+                placeholder={language ? slug : 'courses'}
+                value={language ? (translations[language] ?? '') : slug}
+                onChange={(event) =>
+                  language
+                    ? setTranslations((current) => ({ ...current, [language]: event.target.value }))
+                    : setSlug(event.target.value)
+                }
+              />
+              <p className="field-hint">
+                {language
+                  ? 'Leave blank to use the base slug.'
+                  : 'One URL segment. The parent folder adds its own prefix.'}
+              </p>
             </div>
-            <input
-              id="folder-slug"
-              required={!language}
-              maxLength={200}
-              placeholder={language ? slug : 'courses'}
-              value={language ? (translations[language] ?? '') : slug}
-              onChange={(event) =>
-                language
-                  ? setTranslations((current) => ({ ...current, [language]: event.target.value }))
-                  : setSlug(event.target.value)
-              }
-            />
-            <p className="field-hint">
-              {language
-                ? 'Leave blank to use the base slug.'
-                : 'One URL segment. The parent folder adds its own prefix.'}
-            </p>
-          </div>
+          )}
           <Field label="Parent folder" htmlFor="folder-parent">
             <OptionInput
               id="folder-parent"
@@ -174,7 +218,7 @@ export function FolderDialog({
                   { value: 'root', label: 'Root' },
                   ...parents.map((item) => ({
                     value: item.id,
-                    label: folderPath(folders, item.id),
+                    label: folderLabel(folders, item.id),
                   })),
                 ],
               }}
@@ -185,9 +229,9 @@ export function FolderDialog({
               }
             />
           </Field>
-          <p className="content-path-preview">
-            <span>Folder path</span>
-            <code>/{preview || '…'}/</code>
+          <p className="content-path-preview" aria-live="polite">
+            <span>Example page URL</span>
+            <code>/{preview}</code>
           </p>
           <fieldset className="folder-type-settings">
             <legend>Content types</legend>

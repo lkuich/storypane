@@ -421,3 +421,7 @@ is hidden on phones so it cannot cover story content.
 The phone editor toolbar keeps History, preview, comments, and story actions as
 labeled icon controls. The primary action shows **Publish** or **Review**; its
 accessible name still describes the full action.
+
+## Creating a content folder
+
+In **Content → New folder**, choose **URL folder** to add a path segment, or **Organizational folder** to group stories in the editor. Enter a name and check **Example page URL**. Organizational folders use a dashed outline, a sectioned folder icon, and the label **Editor only**. A URL folder nested inside one still adds its own segment. Content restrictions apply to either type.

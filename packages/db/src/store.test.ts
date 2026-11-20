@@ -428,6 +428,21 @@ describe('Postgres collaboration and immutable history', () => {
       store.authorizePublishedAsset(key.token, alice.spaceId, draftAssetId),
     ).rejects.toMatchObject({ code: 'unauthenticated' });
   });
+  it('keeps organizational branches separate while enforcing unique story URLs', async () => {
+    const asia = await store.saveFolder(alice, { name: 'Asia', slug: '' });
+    const europe = await store.saveFolder(alice, { name: 'Europe', slug: '' });
+    const a = await store.saveFolder(alice, { name: 'Book', slug: 'book', parentId: asia.id });
+    const b = await store.saveFolder(alice, { name: 'Book', slug: 'book', parentId: europe.id });
+    const input = {
+      name: 'Booking',
+      slug: 'intro',
+      definitionId: blockNamed(snapshot, 'page').definitionId,
+    };
+    const story = await store.createStory(alice, { ...input, folderId: a.id });
+    expect(story.locale.urlSlug).toBe('book/intro');
+    await expect(store.createStory(alice, { ...input, folderId: b.id })).rejects.toThrow();
+    await expect(store.saveFolder(alice, { ...asia, parentId: a.id })).rejects.toThrow();
+  });
   it('creates nested folders, translated paths, type restrictions, and form-only pages', async () => {
     const type = blockNamed(snapshot, 'page').definitionId;
     const french = await store.createSpaceLocale(alice, { name: 'French', slug: 'fr' });

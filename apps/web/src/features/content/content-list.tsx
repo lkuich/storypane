@@ -7,6 +7,8 @@ import {
   ArrowUpRight,
   Folder,
   FolderPlus,
+  FolderKanban,
+  Languages,
   FolderInput,
   ChevronRight,
   Settings2,
@@ -33,6 +35,7 @@ import {
 } from './content-filters';
 import {
   folderPath,
+  folderLabel,
   type BlockDefinition,
   type ContentFolder,
   type UserDeliverySettings,
@@ -480,7 +483,7 @@ export function ContentList({
                 className="content-folder-open"
                 onClick={() => openFolder(null, undefined, [locale.id])}
               >
-                <Folder aria-hidden="true" />
+                <Languages aria-hidden="true" />
                 <span>
                   <strong>{localeLabel(locale)}</strong>
                   <small>
@@ -497,12 +500,17 @@ export function ContentList({
       {!!children.length && (
         <section className="content-folders" aria-label="Folders">
           {children.map((item) => (
-            <div className="content-folder-card" key={item.id}>
+            <div
+              className={
+                item.slug ? 'content-folder-card' : 'content-folder-card folder-organizational'
+              }
+              key={item.id}
+            >
               <button className="content-folder-open" onClick={() => openFolder(item.id)}>
-                <Folder aria-hidden="true" />
+                {item.slug ? <Folder aria-hidden="true" /> : <FolderKanban aria-hidden="true" />}
                 <span>
                   <strong>{item.name}</strong>
-                  <small>/{folderPath(folders, item.id)}/</small>
+                  <small>{item.slug ? `/${folderPath(folders, item.id)}/` : 'Editor only'}</small>
                 </span>
                 <ChevronRight aria-hidden="true" />
               </button>
@@ -840,7 +848,7 @@ export function ContentList({
                     { value: 'root', label: 'Root' },
                     ...folders.map((item) => ({
                       value: item.id,
-                      label: folderPath(folders, item.id),
+                      label: folderLabel(folders, item.id),
                     })),
                   ],
                 }}

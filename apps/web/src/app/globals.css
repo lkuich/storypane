@@ -4681,6 +4681,84 @@ main.login-form-wrap {
   border-radius: 10px;
   min-width: 0;
 }
+.content-folder-card.folder-organizational {
+  border-style: dashed;
+}
+.folder-organizational .content-folder-open > svg:first-child {
+  color: var(--muted);
+}
+.folder-behavior {
+  border: 0;
+  padding: 0;
+  margin: 0 0 20px;
+  min-width: 0;
+}
+.folder-behavior legend {
+  padding: 0;
+  margin-bottom: 8px;
+  font-size: 13px;
+  font-weight: 600;
+}
+.folder-behavior > div {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+.folder-behavior label {
+  position: relative;
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  cursor: pointer;
+}
+.folder-behavior label:has(:checked) {
+  border-color: var(--accent);
+  background: var(--surface-subtle);
+}
+.folder-behavior label:focus-within {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.folder-behavior input[type='radio'] {
+  position: absolute;
+  right: 10px;
+  top: 10px;
+  width: 16px;
+  height: 16px;
+  min-height: 0;
+  margin: 0;
+  accent-color: var(--accent);
+}
+.folder-behavior svg {
+  width: 20px;
+  height: 20px;
+  color: var(--accent);
+}
+.folder-behavior strong,
+.folder-behavior small {
+  display: block;
+}
+.folder-behavior strong {
+  font-size: 13px;
+}
+.folder-behavior small {
+  color: var(--muted);
+  margin-top: 3px;
+  line-height: 1.45;
+}
+@media (max-width: 480px) {
+  .folder-behavior > div {
+    grid-template-columns: 1fr;
+  }
+  .folder-behavior label {
+    grid-template-columns: auto 1fr;
+    align-items: center;
+    padding-right: 38px;
+  }
+}
 .content-folder-card:hover {
   border-color: var(--accent-border);
   background: var(--surface-subtle);

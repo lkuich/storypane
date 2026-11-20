@@ -3,6 +3,7 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import {
   folderPath,
+  folderLabel,
   type ContentFolder,
   type StorySummary,
   type StoryLocale,
@@ -113,7 +114,7 @@ export function StoryLocationDialog({
                     { value: 'root', label: 'Root' },
                     ...available.map((folder) => ({
                       value: folder.id,
-                      label: folderPath(folders, folder.id),
+                      label: folderLabel(folders, folder.id),
                     })),
                   ],
                 }}

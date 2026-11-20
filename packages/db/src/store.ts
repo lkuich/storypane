@@ -98,6 +98,7 @@ import { isPublishedAsset } from './media.js';
 import type { AssetUsage, AssetUsagePage } from '@storypane/core';
 import {
   folderPath,
+  folderTrail,
   folderInputSchema,
   storyLocationSchema,
   type ContentFolder,
@@ -3670,12 +3671,17 @@ export class StorypaneStore {
       const paths = new Set<string>();
       for (const folder of folders) {
         const path = folderPath(folders, folder.id, locale.id);
-        if (path.length > 1800 || paths.has(path))
+        if (!folder.slug) continue;
+        // Each organizational branch may contain a Book folder. Stories still own unique URLs.
+        const group =
+          folderTrail(folders, folder.id).findLast((ancestor) => !ancestor.slug)?.id ?? '';
+        const key = group + ':' + path;
+        if (path.length > 1800 || paths.has(key))
           throw new StorypaneError(
             'invalid',
             'Folder paths must be unique in each locale and shorter than 1,800 characters',
           );
-        paths.add(path);
+        paths.add(key);
       }
     }
   }

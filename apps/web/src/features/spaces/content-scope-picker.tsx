@@ -8,7 +8,7 @@ import {
   type ContentScopes,
   type SpaceLocale,
   type Story,
-  folderPath,
+  folderLabel,
 } from '@storypane/core';
 
 type Choice = { value: string; label: string };
@@ -126,7 +126,7 @@ export function ContentScopePicker({
           { value: 'folder:root', label: 'Space root and all descendants' },
           ...folders.map((folder) => ({
             value: `folder:${folder.id}`,
-            label: `Folder: /${folderPath(folders, folder.id)}`,
+            label: `Folder: ${folderLabel(folders, folder.id)}`,
           })),
           ...stories.map((story) => ({
             value: `story:${story.id}`,

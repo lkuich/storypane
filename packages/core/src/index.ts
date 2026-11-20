@@ -997,17 +997,21 @@ export const folderSlugSchema = pathSlugSchema.refine(
 export const folderInputSchema = z
   .object({
     name: z.string().trim().min(1).max(200),
-    slug: folderSlugSchema,
+    slug: z.union([z.literal(''), folderSlugSchema]),
     parentId: id.nullable().default(null),
     localeSlugs: z.record(id, folderSlugSchema).default({}),
     allowedDefinitionIds: z.array(id).max(500).default([]),
     defaultDefinitionId: id.nullable().default(null),
     formOnly: z.boolean().default(false),
   })
-  .strict();
+  .strict()
+  .refine((input) => input.slug !== '' || !Object.keys(input.localeSlugs).length, {
+    message: 'Organizational folders cannot have translated URL segments',
+    path: ['localeSlugs'],
+  });
 export type ContentFolder = z.infer<typeof folderInputSchema> & { id: string };
-export function folderPath(folders: ContentFolder[], id: string | null, localeId?: string): string {
-  const parts: string[] = [],
+export function folderTrail(folders: ContentFolder[], id: string | null): ContentFolder[] {
+  const parts: ContentFolder[] = [],
     seen = new Set<string>();
   while (id) {
     if (seen.has(id) || seen.size >= 20)
@@ -1018,10 +1022,21 @@ export function folderPath(folders: ContentFolder[], id: string | null, localeId
     seen.add(id);
     const folder = folders.find((item) => item.id === id);
     if (!folder) throw new StorypaneError('not_found', 'Parent folder not found');
-    parts.unshift((localeId && folder.localeSlugs[localeId]) || folder.slug);
+    parts.unshift(folder);
     id = folder.parentId;
   }
-  return parts.join('/');
+  return parts;
+}
+export function folderPath(folders: ContentFolder[], id: string | null, localeId?: string): string {
+  return folderTrail(folders, id)
+    .map((f) => (localeId && f.localeSlugs[localeId]) || f.slug)
+    .filter(Boolean)
+    .join('/');
+}
+export function folderLabel(folders: ContentFolder[], id: string): string {
+  return folderTrail(folders, id)
+    .map((f) => f.name)
+    .join(' / ');
 }
 export const storyLocationSchema = z
   .object({
