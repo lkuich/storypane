@@ -262,6 +262,8 @@ connections; reconnecting must authenticate again.
 
 ## Troubleshooting
 
+- **Clerk asks you to verify a new device:** complete the challenge in the sign-in form. Storypane keeps the form available while Clerk updates the session, then returns to the workspace without the verification fragment. Invitation links keep their query parameters.
+
 - **Sign-in or auth writes return 403:** compare the browser origin, reverse proxy,
   and `STORYPANE_APP_URL`, including HTTP/HTTPS and port. Use the configured URL.
 - **Invitation already used or expired:** revoke/reissue it; for an existing account,

@@ -176,7 +176,8 @@ export function AuthenticatedApp({
     }
     return visiblePoll(loadSession, 20_000).stop;
   }, [isLoaded, isSignedIn, loadSession]);
-  if (!isLoaded || (isSignedIn && loading)) return <WorkspaceLoading />;
+  // Keep the sign-in form mounted while Clerk updates its auth state during verification.
+  if ((!isLoaded && session) || (isSignedIn && loading)) return <WorkspaceLoading />;
   if (sessionError)
     return (
       <WorkspaceError

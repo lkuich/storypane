@@ -13,6 +13,8 @@ function ClerkSession() {
   const { isLoaded, isSignedIn, getToken } = useAuth();
   const url = new URL(typeof window === 'undefined' ? 'http://localhost/' : window.location.href);
   const signingUp = url.searchParams.has('sign-up');
+  // Clerk owns the hash during sign-in; completion must return to the workspace URL.
+  url.hash = '';
   url.searchParams.delete('sign-up');
   const signInURL = url.href;
   url.searchParams.set('sign-up', '1');
