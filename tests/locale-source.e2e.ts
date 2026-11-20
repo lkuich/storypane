@@ -272,7 +272,10 @@ test('filter, create and manage a market-only story without creating versions on
     await dialog.getByRole('radio', { name: /URL folder/ }).focus();
     await page.keyboard.press('ArrowRight');
     await expect(dialog.getByRole('radio', { name: /Organizational folder/ })).toBeChecked();
-    await expect(dialog.getByText('/example-page')).toBeVisible();
+    await expect(dialog.getByText('Example page URL', { exact: true })).toHaveCount(0);
+    await page.keyboard.press('ArrowLeft');
+    await expect(dialog.getByText('/regional-pages/example-page')).toBeVisible();
+    await page.keyboard.press('ArrowRight');
     await expect(dialog.locator('#folder-slug')).toHaveCount(0);
     await dialog.getByRole('button', { name: 'Create folder' }).click();
     await expect(page.getByRole('button', { name: 'Regional pages Editor only' })).toBeVisible();

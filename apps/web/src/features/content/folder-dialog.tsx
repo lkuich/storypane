@@ -51,7 +51,7 @@ export function FolderDialog({
   const preview = [
     locales.find((l) => l.id === language)?.slug,
     folderPath(folders, parent, language || undefined),
-    organizational ? '' : (language ? translations[language] : slug) || slug || 'folder',
+    (language ? translations[language] : slug) || slug || 'folder',
     'example-page',
   ]
     .filter(Boolean)
@@ -229,10 +229,12 @@ export function FolderDialog({
               }
             />
           </Field>
-          <p className="content-path-preview" aria-live="polite">
-            <span>Example page URL</span>
-            <code>/{preview}</code>
-          </p>
+          {!organizational && (
+            <p className="content-path-preview" aria-live="polite">
+              <span>Example page URL</span>
+              <code>/{preview}</code>
+            </p>
+          )}
           <details className="folder-options" open={folder ? true : undefined}>
             <summary>Content and preview settings</summary>
             <fieldset className="folder-type-settings">

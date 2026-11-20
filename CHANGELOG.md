@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.0-rc.15 — 2026-11-19
+
+- Show **Example page URL** only for URL folders. Switching folder types updates the dialog immediately.
+
 ## 0.1.0-rc.14 — 2026-11-19
 
 - Choose **Organizational folder** in **Content → New folder** to group pages without adding a URL segment. The dialog previews a page URL for either folder type.
