@@ -279,18 +279,7 @@ test('filter, create and manage a market-only story without creating versions on
     await expect(dialog.locator('#folder-slug')).toHaveCount(0);
     await dialog.getByRole('button', { name: 'Create folder' }).click();
     await expect(page.getByRole('button', { name: 'Regional pages Editor only' })).toBeVisible();
-    const folders = page.getByRole('region', { name: 'Locale folders' });
-    const asiaFolder = folders.getByRole('button', { name: /Asia/ });
-    await asiaFolder.focus();
-    await asiaFolder.press('Enter');
-    await expect(
-      page
-        .getByRole('navigation', { name: 'Content folders' })
-        .getByRole('button', { name: 'Asia' }),
-    ).toHaveAttribute('aria-current', 'page');
-    expect(new URL(page.url()).searchParams.getAll('filterLocale')).toEqual([asia.id]);
-    await page.getByRole('button', { name: 'Back', exact: true }).first().click();
-    await expect(folders.getByRole('button', { name: /Shared/ })).toBeVisible();
+    await expect(page.getByRole('region', { name: 'Locale folders' })).toHaveCount(0);
     const filter = page.getByRole('button', { name: 'Filter by locale' });
     await filter.focus();
     await filter.press('Enter');
@@ -300,6 +289,11 @@ test('filter, create and manage a market-only story without creating versions on
     await page.getByRole('checkbox', { name: 'Default', exact: true }).uncheck();
     await page.keyboard.press('Escape');
     await expect(filter).toBeFocused();
+    expect(new URL(page.url()).searchParams.getAll('filterLocale')).toEqual([asia.id]);
+    const breadcrumbs = page.getByRole('navigation', { name: 'Content folders' });
+    await expect(breadcrumbs.getByRole('button', { name: 'Asia' })).toHaveCount(0);
+    await breadcrumbs.getByRole('button', { name: 'Root', exact: true }).click();
+    expect(new URL(page.url()).searchParams.getAll('filterLocale')).toEqual([asia.id]);
     const filtersButton = page.getByRole('button', { name: 'Filters', exact: true });
     expect((await filtersButton.boundingBox())!.y).toBeCloseTo((await filter.boundingBox())!.y, 0);
     await page.getByRole('button', { name: 'New story', exact: true }).click();

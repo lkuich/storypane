@@ -97,4 +97,10 @@ Upgrades add space migration **033_locale_sources** through the transactional
 migration runner. Existing locales are not linked or rewritten by the migration.
 Source links and baselines are retained when splitting a legacy multi-space database.
 
-In a multilingual space, the Content root has a folder shortcut for each locale. The unprefixed default appears as **Shared**. Opening a shortcut filters stories and folders to that locale. Shared stories appear in each edition that includes them. A locale shortcut adds no URL segment.
+Use **Filter by locale** above the content list to select one or more editions.
+Choose **All locales** to reset the locale filter, or **Default** (the configured
+default locale's name) to see the common source versions. Default does not mean
+all locales. The folder cards and breadcrumb show only actual content folders;
+locale filters stay selected as you navigate folders or return to Root. A story
+appears once in the list, with paths and publication status for the selected
+locales. Filtering never moves stories or creates locale versions.
