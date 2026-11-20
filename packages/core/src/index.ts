@@ -56,6 +56,13 @@ export type SpaceInvitation = {
   createdAt: string;
   expiresAt: string;
 };
+export type AccountInvitation = {
+  id: string;
+  spaceId: string;
+  spaceName: string;
+  roleName: string;
+  expiresAt: string;
+};
 export const memberRoleSchema = z.object({ role: z.string().min(1).max(80) }).strict();
 export const spaceInvitationSchema = z
   .object({

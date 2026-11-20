@@ -84,11 +84,13 @@ _Local sign-in in a disposable installation. Use the CMS origin configured by yo
 
 1. Open the space's **Settings → Members & roles**. Choose the invited email and
    the appropriate role, then create the invitation.
-2. Share its single-use URL privately. Invitations expire after seven days. Add
-   `SMTP_URL` and `MAIL_FROM` if you want Storypane to attempt email delivery;
-   otherwise share the link yourself. A link is still available if email fails.
-3. A new local user enters their name and password, then signs in. An existing
-   user signs in with the matching invited account before accepting.
+2. People who sign in with a verified email matching the invitation can accept it
+   under **Pending invitations** on their **Spaces** dashboard. Storypane email
+   delivery is optional. The account must already be able to sign in to Storypane.
+3. For local accounts, share the single-use URL privately. A new local user can
+   create their account from the link. Existing local users sign in with the
+   invited email before accepting. Set `SMTP_URL` and `MAIL_FROM` to attempt
+   email delivery. Invitations expire after seven days.
 4. Repeat for other spaces. Access to one space does not grant membership in
    production, a developer's space, or another team's space.
 

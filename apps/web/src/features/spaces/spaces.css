@@ -42,6 +42,36 @@
 .spaces-main h1 {
   font-size: 34px;
 }
+.space-invitations {
+  margin-bottom: 24px;
+}
+.space-invitations h2 {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.space-invitations h2 svg {
+  width: 17px;
+  height: 17px;
+}
+.space-invitations ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.space-invitation {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 20px;
+  border-top: 1px solid var(--line);
+  overflow-wrap: anywhere;
+}
+.space-invitation p {
+  margin: 4px 0 0;
+}
 .spaces-toolbar {
   display: flex;
   align-items: center;

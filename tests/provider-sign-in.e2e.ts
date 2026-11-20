@@ -86,6 +86,7 @@ test('redirect-provider account control reports sign-out failures and returns to
     ),
   );
   await page.route('**/api/spaces', (route) => route.fulfill({ json: [] }));
+  await page.route('**/api/spaces/invitations', (route) => route.fulfill({ json: [] }));
   await page.route('**/api/auth/sign-out', async (route) => {
     expect(route.request().method()).toBe('POST');
     if (failSignOut) {

@@ -17,7 +17,11 @@ import {
   migrateLocalCredential,
 } from './local-auth.js';
 import { Room, type RoomSocket } from '../../../apps/realtime/src/room';
-import { acceptInvitation } from './accept-invitation.js';
+import {
+  acceptAccountInvitation,
+  acceptInvitation,
+  listAccountInvitations,
+} from './accept-invitation.js';
 import { resolveExternalIdentity, linkExternalIdentity } from './external-identity.js';
 import type { AuthenticationFactory } from './authentication.js';
 
@@ -380,6 +384,73 @@ describe.skipIf(!url)('installation and actual PostgreSQL space isolation', () =
       } finally {
         await second.close();
       }
+    } finally {
+      await selected.close();
+    }
+  });
+  it('lists and accepts only live invitations for the verified signed-in email', async () => {
+    const email = 'dashboard-invite@isolation.test';
+    const account = randomUUID();
+    const other = randomUUID();
+    await installation.pool.query(
+      `INSERT INTO "user"(id,name,email,"emailVerified")
+       VALUES($1,'Invitee',$2,false),($3,'Other','other-invite@isolation.test',true)`,
+      [account, email, other],
+    );
+    for (const [index, id] of spaces.entries()) {
+      const selected = await installation.acquire(id);
+      try {
+        await selected.store.inviteSpaceMember(
+          { ...actor, spaceId: id, role: 'admin' },
+          { email, role: 'viewer' },
+        );
+        if (index === 1)
+          await selected.db.query(
+            "UPDATE space_invitations SET expires_at=now()-interval '1 day' WHERE email=$1",
+            [email],
+          );
+      } finally {
+        await selected.close();
+      }
+    }
+
+    await expect(listAccountInvitations(installation, account)).resolves.toEqual([]);
+    await installation.pool.query('UPDATE "user" SET "emailVerified"=true WHERE id=$1', [account]);
+    const invites = await listAccountInvitations(installation, account);
+    expect(invites).toEqual([
+      {
+        id: expect.any(String),
+        spaceId: spaces[0],
+        spaceName: spaces[0],
+        roleName: 'Viewer',
+        expiresAt: expect.any(String),
+      },
+    ]);
+    const input = { spaceId: spaces[0], invitationId: invites[0].id };
+    await expect(listAccountInvitations(installation, other)).resolves.toEqual([]);
+    await expect(acceptAccountInvitation(installation, input, other)).rejects.toThrow(
+      'already used',
+    );
+    await installation.pool.query('UPDATE "user" SET "emailVerified"=false WHERE id=$1', [account]);
+    await expect(acceptAccountInvitation(installation, input, account)).rejects.toThrow(
+      'Verify your',
+    );
+    await installation.pool.query('UPDATE "user" SET "emailVerified"=true WHERE id=$1', [account]);
+
+    const concurrent = await Promise.allSettled([
+      acceptAccountInvitation(installation, input, account),
+      acceptAccountInvitation(installation, input, account),
+    ]);
+    expect(concurrent.map((result) => result.status).sort()).toEqual(['fulfilled', 'rejected']);
+    await expect(listAccountInvitations(installation, account)).resolves.toEqual([]);
+    const selected = await installation.acquire(spaces[0]);
+    try {
+      await expect(
+        selected.db.query('SELECT role FROM memberships WHERE space_id=$1 AND user_id=$2', [
+          spaces[0],
+          account,
+        ]),
+      ).resolves.toMatchObject({ rows: [{ role: 'viewer' }] });
     } finally {
       await selected.close();
     }

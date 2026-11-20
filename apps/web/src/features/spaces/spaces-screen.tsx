@@ -7,15 +7,16 @@ import {
   Boxes,
   Building2,
   FileText,
+  Mail,
   Plus,
   Search,
   Settings2,
   Users,
 } from 'lucide-react';
 import { DependencySummary } from '../schema/environment-panel';
-import type { Space, SchemaTransferReview } from '@storypane/core';
+import type { AccountInvitation, Space, SchemaTransferReview } from '@storypane/core';
 import { Button, EmptyState, ErrorNotice, Loading, Modal } from '@storypane/ui';
-import { errorMessage, jsonRequest, requestJson } from '../editor/api';
+import { dateLabel, errorMessage, jsonRequest, requestJson } from '../editor/api';
 import './spaces.css';
 import { ThemePicker } from '../../components/theme-picker';
 import { EnvironmentBadge } from '../../components/environment-badge';
@@ -28,6 +29,9 @@ export function SpacesScreen({ installationAdmin = false }: { installationAdmin?
   const [connectionString, setConnectionString] = useState('');
   const [operationId, setOperationId] = useState('');
   const [spaces, setSpaces] = useState<Space[]>([]);
+  const [invitations, setInvitations] = useState<AccountInvitation[]>([]);
+  const [accepting, setAccepting] = useState('');
+  const [invitationError, setInvitationError] = useState('');
   const [loading, setLoading] = useState(true),
     [error, setError] = useState('');
   const [search, setSearch] = useState(''),
@@ -47,8 +51,34 @@ export function SpacesScreen({ installationAdmin = false }: { installationAdmin?
       setLoading(false);
     }
   }
+  async function loadInvitations() {
+    setInvitationError('');
+    try {
+      setInvitations(await requestJson<AccountInvitation[]>('/api/spaces/invitations'));
+    } catch (cause) {
+      setInvitationError(errorMessage(cause));
+    }
+  }
+  async function accept({ id, spaceId }: AccountInvitation) {
+    setAccepting(id);
+    setInvitationError('');
+    try {
+      await requestJson(
+        '/api/spaces/invitations',
+        jsonRequest('POST', { spaceId, invitationId: id }),
+      );
+      setInvitations((pending) => pending.filter((invite) => invite.id !== id));
+      setSearch('');
+      await load();
+    } catch (cause) {
+      setInvitationError(errorMessage(cause));
+    } finally {
+      setAccepting('');
+    }
+  }
   useEffect(() => {
     void load();
+    void loadInvitations();
   }, []);
   const filtered = spaces.filter((space) =>
     `${space.name} ${space.description}`.toLowerCase().includes(search.toLowerCase()),
@@ -104,6 +134,39 @@ export function SpacesScreen({ installationAdmin = false }: { installationAdmin?
             </Button>
           )}
         </div>
+        {(invitations.length > 0 || invitationError) && (
+          <section className="panel space-invitations" aria-labelledby="space-invitations-heading">
+            <header className="panel-heading">
+              <h2 id="space-invitations-heading">
+                <Mail aria-hidden="true" />
+                Pending invitations
+              </h2>
+            </header>
+            <ErrorNotice message={invitationError} retry={loadInvitations} />
+            {invitations.length > 0 && (
+              <ul>
+                {invitations.map((invite) => (
+                  <li key={invite.id} className="space-invitation">
+                    <div>
+                      <strong>{invite.spaceName}</strong>
+                      <p className="small muted">
+                        {invite.roleName} · Expires {dateLabel(invite.expiresAt)}
+                      </p>
+                    </div>
+                    <Button
+                      variant="primary"
+                      disabled={Boolean(accepting)}
+                      aria-label={`Accept invitation to ${invite.spaceName}`}
+                      onClick={() => void accept(invite)}
+                    >
+                      {accepting === invite.id ? 'Accepting…' : 'Accept invitation'}
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+        )}
         <div className="spaces-toolbar">
           <label className="search-input">
             <Search aria-hidden="true" />
@@ -262,10 +325,20 @@ export function SpacesScreen({ installationAdmin = false }: { installationAdmin?
             </div>
           ) : (
             <div className="panel">
-              <EmptyState title={spaces.length ? 'No matching spaces' : 'Create your first space'}>
+              <EmptyState
+                title={
+                  spaces.length
+                    ? 'No matching spaces'
+                    : installationAdmin
+                      ? 'Create your first space'
+                      : 'No spaces yet'
+                }
+              >
                 {spaces.length
                   ? 'Try a different name or description.'
-                  : 'Bring a project’s content, blocks, and assets together in a dedicated workspace.'}
+                  : installationAdmin
+                    ? 'Bring a project’s content, blocks, and assets together in a dedicated workspace.'
+                    : 'Accept an invitation to join a space.'}
               </EmptyState>
             </div>
           ))
