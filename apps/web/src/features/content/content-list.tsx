@@ -537,21 +537,6 @@ export function ContentList({
                       </td>
                       <td>
                         <div className="entity-name">
-                          <button
-                            type="button"
-                            disabled={deleted}
-                            className="entity-icon story-pin"
-                            aria-label={`Pin ${story.name} for yourself`}
-                            aria-pressed={story.pinned}
-                            aria-busy={pinningId === story.id}
-                            aria-disabled={pinningId !== null}
-                            title={
-                              story.pinned ? 'Unpin from your list' : 'Pin to the top of your list'
-                            }
-                            onClick={(event) => void togglePin(story, event.currentTarget)}
-                          >
-                            <Pin aria-hidden="true" />
-                          </button>
                           <div>
                             <div className="content-story-title">
                               <button
@@ -706,6 +691,21 @@ export function ContentList({
                             }
                           >
                             <ArrowUpRight />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            disabled={deleted}
+                            className="icon-button story-pin"
+                            aria-label={`Pin ${story.name} for yourself`}
+                            aria-pressed={story.pinned}
+                            aria-busy={pinningId === story.id}
+                            aria-disabled={pinningId !== null}
+                            title={
+                              story.pinned ? 'Unpin from your list' : 'Pin to the top of your list'
+                            }
+                            onClick={(event) => void togglePin(story, event.currentTarget)}
+                          >
+                            <Pin aria-hidden="true" />
                           </Button>
                         </div>
                       </td>

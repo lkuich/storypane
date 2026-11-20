@@ -253,6 +253,9 @@ test('long mobile story titles retain readable width while secondary columns scr
     }),
   );
   await page.route('**/api/cms/folders', (route) => route.fulfill({ json: [] }));
+  await page.route('**/api/cms/stories/*/pin', (route) =>
+    route.fulfill({ json: { pinned: route.request().method() === 'PUT' } }),
+  );
   await signInPage(page, installation);
   for (const width of [320, 390, 1440]) {
     await page.setViewportSize({ width, height: 900 });
@@ -269,6 +272,18 @@ test('long mobile story titles retain readable width while secondary columns scr
     const copy = page.getByRole('button', { name: `Copy page id for ${names[1]}`, exact: true });
     await copy.focus();
     await expect(copy).toBeFocused();
+    const pin = page.getByRole('button', { name: `Pin ${names[1]} for yourself`, exact: true });
+    await expect(pin.locator('svg')).toHaveCSS('width', '16px');
+    await expect(pin.locator('xpath=..')).toHaveClass('content-row-actions');
+    await copy.focus();
+    await page.keyboard.press('Tab');
+    await page.keyboard.press('Tab');
+    await page.keyboard.press('Tab');
+    await expect(pin).toBeFocused();
+    await page.keyboard.press('Space');
+    await expect(pin).toHaveAttribute('aria-pressed', 'true');
+    await page.keyboard.press('Enter');
+    await expect(pin).toHaveAttribute('aria-pressed', 'false');
     await title.focus();
     await page
       .locator('.content-results')
