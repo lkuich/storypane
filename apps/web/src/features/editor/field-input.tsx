@@ -1,6 +1,6 @@
 'use client';
 
-import { lazy, Suspense, useEffect, useId, useState, type ReactNode } from 'react';
+import { lazy, Suspense, useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import type {
   AssetReference,
   FieldDefinition,
@@ -111,6 +111,9 @@ export function FieldInput({
   referenceRefreshKey,
   optionContext,
   labelAction,
+  previewSelected,
+  focusRequest,
+  onFieldFocus,
 }: {
   blockKey: string;
   field: Exclude<FieldDefinition, { type: 'blocks' }>;
@@ -121,8 +124,24 @@ export function FieldInput({
   referenceRefreshKey?: string;
   optionContext?: OptionRequestContext;
   labelAction?: ReactNode;
+  previewSelected?: boolean;
+  focusRequest?: object;
+  onFieldFocus?: () => void;
 }) {
   const id = useId();
+  const fieldElement = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!focusRequest) return;
+    const row = fieldElement.current;
+    row?.scrollIntoView({ block: 'nearest' });
+    if (!disabled) {
+      row
+        ?.querySelector<HTMLElement>(
+          'input:not([type="hidden"]):enabled, textarea:enabled, select:enabled, [contenteditable="true"]',
+        )
+        ?.focus({ preventScroll: true });
+    }
+  }, [disabled, focusRequest]);
   const common = {
     id,
     disabled,
@@ -268,7 +287,12 @@ export function FieldInput({
       break;
   }
   return (
-    <div className="field">
+    <div
+      className="field"
+      ref={fieldElement}
+      data-preview-selected={previewSelected || undefined}
+      onFocusCapture={onFieldFocus}
+    >
       <div className="field-heading">
         <label className="field-label" htmlFor={id}>
           {field.label}

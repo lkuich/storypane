@@ -27,6 +27,7 @@ export function PreviewPanel({
   snapshot,
   spaceId,
   selectedId,
+  selectedField,
   onSelect,
   component,
   schedule,
@@ -38,7 +39,8 @@ export function PreviewPanel({
   snapshot: LocaleSnapshot;
   spaceId: string;
   selectedId: string | null;
-  onSelect: (id: string) => Promise<void>;
+  selectedField?: string;
+  onSelect: (id: string, field?: string) => Promise<void>;
   component?: ComponentPreview;
   schedule?: { id: string; revision: number };
 }) {
@@ -50,12 +52,12 @@ export function PreviewPanel({
   const [viewportWidth, setViewportWidth] = useState(0);
   const viewport = useRef<HTMLDivElement>(null);
   const iframe = useRef<HTMLIFrameElement>(null),
-    selected = useRef(selectedId),
+    selected = useRef({ blockId: selectedId, field: selectedField }),
     snapshotRef = useRef(snapshot),
     selectRef = useRef(onSelect);
   const componentRef = useRef(component);
   componentRef.current = component;
-  selected.current = selectedId;
+  selected.current = { blockId: selectedId, field: selectedField };
   snapshotRef.current = snapshot;
   selectRef.current = onSelect;
   useEffect(() => {
@@ -142,7 +144,7 @@ export function PreviewPanel({
                 origin!,
               );
             iframe.current?.contentWindow?.postMessage(
-              { type: 'storypane:select', blockId: selected.current },
+              { type: 'storypane:select', ...selected.current },
               origin!,
             );
           }
@@ -178,7 +180,10 @@ export function PreviewPanel({
         current.blocks.some((block) => block.id === data.blockId)
       ) {
         try {
-          await selectRef.current(data.blockId);
+          await selectRef.current(
+            data.blockId,
+            typeof data.field === 'string' ? data.field : undefined,
+          );
           document
             .querySelector('[aria-label="Block editor"]')
             ?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
@@ -196,10 +201,10 @@ export function PreviewPanel({
   useEffect(() => {
     if (origin)
       iframe.current?.contentWindow?.postMessage(
-        { type: 'storypane:select', blockId: selectedId },
+        { type: 'storypane:select', blockId: selectedId, field: selectedField },
         origin,
       );
-  }, [selectedId, origin]);
+  }, [selectedId, selectedField, origin]);
   useEffect(() => {
     if (!component || !origin) return;
     setComponentReady(false);

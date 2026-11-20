@@ -136,7 +136,9 @@ textarea {
 }
 input:not([type='checkbox']):not([type='radio']):focus,
 select:focus,
-textarea:focus {
+textarea:focus,
+.field[data-preview-selected]
+  :is(input:not([type='hidden'], [type='checkbox'], [type='radio']), textarea, select) {
   border-color: var(--primary);
   outline: 0;
   box-shadow: 0 0 0 3px #22c3ee18;

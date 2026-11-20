@@ -413,8 +413,20 @@ test('a static app receives live drafts, selects blocks in the editor, and leave
       ((await (await page.request.get(base, { headers })).json()) as LocaleSnapshot).blocks,
     ).toHaveLength(snapshot.blocks.length);
     await page.setViewportSize({ width: 1280, height: 720 });
-    await editor.getByRole('button', { name: 'Hero', exact: true }).click();
-    await page.getByRole('textbox', { name: /^Title/ }).fill('Updated live without rebuilding');
+    const previewTitle = frame.getByRole('heading', { level: 1 });
+    await previewTitle.evaluate((heading, blockId) => {
+      heading.dataset.storypaneId = blockId;
+      heading.dataset.storypaneField = 'title';
+      window.addEventListener('message', (event) => {
+        if (event.source === window.parent && event.data?.type === 'storypane:select')
+          document.body.dataset.selectedField = event.data.field ?? '';
+      });
+    }, hero.id);
+    await previewTitle.click();
+    const titleInput = editor.getByRole('textbox', { name: /^Title/ });
+    await expect(titleInput).toBeFocused();
+    await expect(frame.locator('body')).toHaveAttribute('data-selected-field', 'title');
+    await titleInput.fill('Updated live without rebuilding');
     await expect(page.getByText('All changes saved', { exact: true })).toBeVisible();
     await expect(frame.getByRole('heading', { level: 1 })).toHaveText(
       'Updated live without rebuilding',

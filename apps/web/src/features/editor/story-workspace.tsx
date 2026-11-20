@@ -369,6 +369,18 @@ function LocaleEditor({
     spaceId: session.space.id,
     editable: !viewRelease && can(session.space, 'content:edit'),
   });
+  const [previewField, setPreviewField] = useState<{
+    blockId: string;
+    name: string;
+    focus: boolean;
+  }>();
+  const previewSelection = useRef(0);
+  async function selectFromPreview(blockId: string, name?: string) {
+    const request = ++previewSelection.current;
+    await editor.select(blockId);
+    if (request === previewSelection.current)
+      setPreviewField(name ? { blockId, name, focus: true } : undefined);
+  }
   const releaseId = scheduledRelease?.id;
   const releaseRevision = scheduledRelease?.revision;
   useEffect(() => {
@@ -538,6 +550,7 @@ function LocaleEditor({
   );
   const currentEditors = pageEditors[snapshot.story.id] ?? [];
   const block = editor.selected;
+  const selectedField = block?.id === previewField?.blockId ? previewField : undefined;
   const definition = snapshot && block ? definitionFor(snapshot, block) : null;
   const pending = Object.keys(editor.buffers).length + Number(editor.unconfirmedCommand);
   const currentBuffer = editor.selectedId ? editor.buffers[editor.selectedId] : undefined;
@@ -1472,7 +1485,8 @@ function LocaleEditor({
                   snapshot={snapshot}
                   spaceId={session.space.id}
                   selectedId={editor.selectedId}
-                  onSelect={editor.select}
+                  selectedField={selectedField?.name}
+                  onSelect={selectFromPreview}
                 />
               )}
             </div>
@@ -1870,6 +1884,16 @@ function LocaleEditor({
                           referenceRefreshKey={snapshot.locale.publishedVersionId ?? ''}
                           field={field}
                           labelAction={fieldSchemaAction(field)}
+                          previewSelected={selectedField?.name === field.name}
+                          focusRequest={
+                            selectedField?.name === field.name && selectedField.focus
+                              ? selectedField
+                              : undefined
+                          }
+                          onFieldFocus={() => {
+                            ++previewSelection.current;
+                            setPreviewField({ blockId: block.id, name: field.name, focus: false });
+                          }}
                           value={fields[field.name]}
                           disabled={
                             disabled ||

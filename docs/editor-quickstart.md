@@ -358,6 +358,11 @@ session. If you see **Enable component previews in your app’s Storypane SDK
 integration**, update the app's SDK and connect its `onComponent` callback as
 shown in the SDK guide. Both framework examples already include that integration.
 
+In a live preview, click an annotated field to open its block and focus the
+corresponding editor input. Integrations mark a field with
+`editable(block, fieldName)`. The editor includes the focused field when sending
+a selection back to preview integrations.
+
 ## Explore page connections
 
 Expand **Page map** below the editor and Live Preview columns, spanning the full page width. It starts collapsed and loads
