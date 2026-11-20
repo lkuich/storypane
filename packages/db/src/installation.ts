@@ -179,6 +179,7 @@ export async function migrateInstallation(pool: Pool, provider: Provider) {
 export class Installation {
   readonly pool: Pool;
   private active = 0;
+  private waiting: Array<() => void> = [];
   constructor(
     readonly options: {
       connectionString: string;
@@ -344,9 +345,7 @@ export class Installation {
   }
   async acquire(spaceId: string, authentication = this.authentication()) {
     parseInput(z.uuid(), spaceId);
-    if (this.active >= 16)
-      throw new StorypaneError('unavailable', 'Database capacity is busy. Please retry.');
-    this.active++;
+    await this.reserve();
     let db: Pool | undefined;
     try {
       const row = (
@@ -413,7 +412,7 @@ export class Installation {
             try {
               await pool.end();
             } finally {
-              this.active--;
+              this.release();
             }
           }
         },
@@ -422,10 +421,35 @@ export class Installation {
       try {
         await db?.end();
       } finally {
-        this.active--;
+        this.release();
       }
       throw error;
     }
+  }
+  private async reserve() {
+    if (this.active < 16) {
+      this.active++;
+      return;
+    }
+    const busy = () =>
+      new StorypaneError('unavailable', 'Database capacity is busy. Please retry.');
+    if (this.waiting.length >= 64) throw busy();
+    await new Promise<void>((resolve, reject) => {
+      const ready = () => {
+        clearTimeout(timeout);
+        resolve();
+      };
+      const timeout = setTimeout(() => {
+        this.waiting.splice(this.waiting.indexOf(ready), 1);
+        reject(busy());
+      }, 5000);
+      this.waiting.push(ready);
+    });
+  }
+  private release() {
+    const next = this.waiting.shift();
+    if (next) next();
+    else this.active--;
   }
   async syncProfile(db: Pool, userId: string) {
     const user = (

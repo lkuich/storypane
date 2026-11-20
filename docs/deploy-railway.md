@@ -371,8 +371,10 @@ responsive image URLs, and removal/purge checks.
 ### Editor reports “Database capacity is busy”
 
 The combined service limits concurrent scoped database operations within each
-process. A capacity response can occur during a brief request burst even when
-PostgreSQL has idle connections. Inspect Railway HTTP logs around the error and
+process to 16. Up to 64 additional requests wait in arrival order for at most
+five seconds, so page-sized media bursts can reuse capacity as requests finish.
+Requests beyond that queue or timeout still receive a capacity response; the
+active database limit is unchanged. Inspect Railway HTTP logs around the error and
 compare request times and paths with active queries in `pg_stat_activity`.
 Public media routed through the combined service also uses that process.
 
