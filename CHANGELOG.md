@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.0-rc.14 — 2026-11-19
+
+- Choose **Organizational folder** in **Content → New folder** to group pages without adding a URL segment. The dialog previews a page URL for either folder type.
+- Organizational folders have a dashed border and an **Editor only** label. URL folders inside them contribute their own segments. Story URLs remain unique per locale.
+- Browse stories by locale from the Content root, or select several locales beside Filters. The unprefixed default has a **Shared** shortcut.
+
 ## 0.1.0-rc.13 — 2026-11-19
 
 - Filter Content by locale to see its path and publication status. Shared stories list each available path.
