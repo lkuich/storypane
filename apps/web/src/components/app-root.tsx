@@ -176,8 +176,11 @@ export function AuthenticatedApp({
     }
     return visiblePoll(loadSession, 20_000).stop;
   }, [isLoaded, isSignedIn, loadSession]);
-  // Keep the sign-in form mounted while Clerk updates its auth state during verification.
-  if ((!isLoaded && session) || (isSignedIn && loading)) return <WorkspaceLoading />;
+  // Clerk can become temporarily unloaded during an existing sign-in or a verification deep link.
+  const signInInProgress =
+    !session &&
+    (!loading || (typeof window !== 'undefined' && window.location.hash.startsWith('#/')));
+  if ((!isLoaded && !signInInProgress) || (isSignedIn && loading)) return <WorkspaceLoading />;
   if (sessionError)
     return (
       <WorkspaceError

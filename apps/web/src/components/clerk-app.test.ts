@@ -28,6 +28,12 @@ function render(url: string) {
   return renderToStaticMarkup(createElement(ClerkApp, { publishableKey: 'pk_test_example' }));
 }
 
+it('shows the workspace loader while Clerk initializes after a space switch', () => {
+  const html = render('https://cms.test/?space=training&view=content');
+  expect(html).toContain('Opening your workspace');
+  expect(html).not.toContain('login-shell');
+});
+
 it('keeps the Clerk verification form in the shell while Clerk updates its auth state', () => {
   const html = render('https://cms.test/#/client-trust');
   expect(html).toContain('Verify this device');
