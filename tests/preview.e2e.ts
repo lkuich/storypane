@@ -426,6 +426,19 @@ test('a static app receives live drafts, selects blocks in the editor, and leave
     const titleInput = editor.getByRole('textbox', { name: /^Title/ });
     await expect(titleInput).toBeFocused();
     await expect(frame.locator('body')).toHaveAttribute('data-selected-field', 'title');
+    await previewTitle.evaluate((heading) => {
+      heading.dataset.storypaneField = 'description';
+    });
+    await previewTitle.click();
+    const descriptionInput = editor.getByRole('textbox', { name: /^Description/ });
+    await expect(descriptionInput).toBeFocused();
+    const descriptionEnd = (await descriptionInput.inputValue()).length;
+    expect(
+      await descriptionInput.evaluate((field: HTMLTextAreaElement) => [
+        field.selectionStart,
+        field.selectionEnd,
+      ]),
+    ).toEqual([descriptionEnd, descriptionEnd]);
     await titleInput.fill('Updated live without rebuilding');
     await expect(page.getByText('All changes saved', { exact: true })).toBeVisible();
     await expect(frame.getByRole('heading', { level: 1 })).toHaveText(

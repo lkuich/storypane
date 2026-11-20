@@ -2546,7 +2546,7 @@ hr {
   background: var(--surface-subtle);
   border-bottom: 1px solid var(--line);
 }
-.richtext-toolbar button {
+.richtext-toolbar button:not(.button) {
   font-size: 12px;
   padding: 4px 8px;
   min-height: 28px;
@@ -2561,6 +2561,13 @@ hr {
 }
 .richtext-background-toggle {
   margin-inline-start: auto;
+}
+.richtext-toolbar .richtext-background-toggle:hover:not([aria-pressed='true']) {
+  background: var(--surface-hover);
+}
+.richtext-toolbar .richtext-background-toggle[aria-pressed='true'] {
+  background: var(--accent-soft);
+  border-color: var(--accent);
 }
 .richtext-shell[data-dark-background] .tiptap {
   color-scheme: dark;

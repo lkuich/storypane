@@ -204,6 +204,10 @@ still apply. **Clear clipboard** in the editor header empties the clipboard and
 removes the paste options; if the browser refuses clipboard access, the copy is
 retained and an error is shown.
 
+Use **Dark background** in the rich-text toolbar to preview light-colored text.
+The button stays highlighted while the dark background is active. Storypane
+remembers the setting for that field in your browser.
+
 ## 7. Add an image
 
 1. In Hero's **Image** field, choose **Choose asset**.
@@ -359,7 +363,8 @@ integration**, update the app's SDK and connect its `onComponent` callback as
 shown in the SDK guide. Both framework examples already include that integration.
 
 In a live preview, click an annotated field to open its block and focus the
-corresponding editor input. Integrations mark a field with
+corresponding editor input. In a textarea, the caret starts at the end of the
+text. Integrations mark a field with
 `editable(block, fieldName)`. The editor includes the focused field when sending
 a selection back to preview integrations.
 

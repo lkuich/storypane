@@ -83,8 +83,13 @@ for (const colorScheme of ['light', 'dark'] as const) {
     const toggle = page
       .getByRole('toolbar', { name: 'Banner body formatting' })
       .getByRole('button', { name: 'Dark background' });
+    await expect(toggle).toHaveCSS('border-top-width', '1px');
     await toggle.press('Space');
     await expect(toggle).toHaveAttribute('aria-pressed', 'true');
+    await expect(toggle).toHaveCSS(
+      'background-color',
+      colorScheme === 'light' ? 'rgb(230, 248, 253)' : 'rgb(19, 56, 73)',
+    );
     await expect(banner).toHaveCSS('background-color', 'rgb(25, 31, 41)');
     await expect(banner.getByText('White lettering', { exact: true })).toHaveCSS(
       'color',

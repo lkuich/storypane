@@ -4,6 +4,8 @@ import { useEffect, useRef, useState } from 'react';
 import { EditorContent, Mark, Node, useEditor, type JSONContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import { isRichTextColor, type Json } from '@storypane/core';
+import { Button } from '@storypane/ui';
+import { Moon } from 'lucide-react';
 
 const TextStyle = Mark.create({
   name: 'textStyle',
@@ -179,15 +181,15 @@ export default function RichTextInput({
         >
           “ Quote
         </button>
-        <button
-          type="button"
-          className="richtext-background-toggle"
+        <Button
+          className="button--small richtext-background-toggle"
           aria-pressed={darkBackground}
           onMouseDown={(event) => event.preventDefault()}
           onClick={toggleBackground}
         >
+          <Moon aria-hidden="true" />
           Dark background
-        </button>
+        </Button>
       </div>
       <EditorContent editor={editor} />
     </div>

@@ -135,11 +135,14 @@ export function FieldInput({
     const row = fieldElement.current;
     row?.scrollIntoView({ block: 'nearest' });
     if (!disabled) {
-      row
-        ?.querySelector<HTMLElement>(
-          'input:not([type="hidden"]):enabled, textarea:enabled, select:enabled, [contenteditable="true"]',
-        )
-        ?.focus({ preventScroll: true });
+      const control = row?.querySelector<HTMLElement>(
+        'input:not([type="hidden"]):enabled, textarea:enabled, select:enabled, [contenteditable="true"]',
+      );
+      control?.focus({ preventScroll: true });
+      if (control instanceof HTMLTextAreaElement) {
+        const end = control.value.length;
+        control.setSelectionRange(end, end);
+      }
     }
   }, [disabled, focusRequest]);
   const common = {
