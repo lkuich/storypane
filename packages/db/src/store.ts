@@ -6264,6 +6264,7 @@ export class StorypaneStore {
       id: release.id,
       name: release.name,
       dueAt: iso(release.due_at),
+      immediate: release.immediate,
       timezone: release.timezone,
       status: release.status,
       revision: release.revision,
@@ -6323,7 +6324,16 @@ export class StorypaneStore {
   async saveRelease(actor: Actor, raw: unknown, id?: string): Promise<ContentRelease> {
     const input = parseInput(releaseInputSchema, raw);
     if (id) parseInput(z.uuid(), id);
-    validateReleaseTime(input);
+    const immediate = 'now' in input;
+    if (immediate) {
+      if (id) throw new StorypaneError('invalid', 'Now is only available for new releases.');
+      try {
+        new Intl.DateTimeFormat('en', { timeZone: input.timezone });
+      } catch {
+        throw new StorypaneError('invalid', 'Choose a valid release timezone.');
+      }
+    } else validateReleaseTime(input);
+    const dueAt = immediate ? null : input.dueAt;
     return this.tx(
       actor,
       async (client) => {
@@ -6335,15 +6345,13 @@ export class StorypaneStore {
           { releaseId: id ?? null, ...input },
           async () => {
             if (
-              !(
-                await client.query('SELECT $1::timestamptz>clock_timestamp() AS future', [
-                  input.dueAt,
-                ])
-              ).rows[0].future
+              !immediate &&
+              !(await client.query('SELECT $1::timestamptz>clock_timestamp() AS future', [dueAt]))
+                .rows[0].future
             )
               throw new StorypaneError('invalid', 'Choose a future release time.');
             let release: Row;
-            if (id) {
+            if (id && !immediate) {
               release = await this.editableRelease(client, actor, id, input.revision ?? 0);
               const items = await this.releaseItems(client, release);
               const deployed = await this.deployedMigration(client, actor.spaceId);
@@ -6368,7 +6376,7 @@ export class StorypaneStore {
                   );
               }
               await client.query(
-                "UPDATE content_releases SET name=$2,due_at=$3,timezone=$4,status='scheduled',error=NULL,revision=revision+1,updated_at=clock_timestamp() WHERE id=$1",
+                "UPDATE content_releases SET name=$2,due_at=$3,timezone=$4,immediate=false,status='scheduled',error=NULL,revision=revision+1,updated_at=clock_timestamp() WHERE id=$1",
                 [id, input.name, input.dueAt, input.timezone],
               );
               await client.query(
@@ -6378,8 +6386,8 @@ export class StorypaneStore {
             } else {
               release = (
                 await client.query(
-                  'INSERT INTO content_releases(space_id,name,creator_id,due_at,timezone) VALUES($1,$2,$3,$4,$5) RETURNING *',
-                  [actor.spaceId, input.name, actor.userId, input.dueAt, input.timezone],
+                  "INSERT INTO content_releases(space_id,name,creator_id,due_at,timezone,immediate) VALUES($1,$2,$3,coalesce($4::timestamptz,date_trunc('minute',clock_timestamp())),$5,$6) RETURNING *",
+                  [actor.spaceId, input.name, actor.userId, dueAt, input.timezone, immediate],
                 )
               ).rows[0];
             }
@@ -6530,6 +6538,7 @@ export class StorypaneStore {
                 )
               ).rows[0];
             if (
+              !release.immediate &&
               release.status !== 'held' &&
               !(
                 await client.query('SELECT $1::timestamptz>clock_timestamp() AS future', [

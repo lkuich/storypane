@@ -1608,6 +1608,57 @@ describe('Content releases', () => {
       [releaseId],
     );
   }
+  it('queues an immediate release only after a checkpoint is approved and replays creation safely', async () => {
+    const input = {
+      requestId: randomUUID(),
+      name: 'Release now',
+      now: true,
+      timezone: 'America/Vancouver',
+    };
+    const release = await store.saveRelease(alice, input);
+    expect(release).toMatchObject({ immediate: true, status: 'scheduled', items: [] });
+    expect(Date.parse(release.dueAt)).toBeLessThanOrEqual(Date.now());
+    expect(await store.saveRelease(alice, input)).toEqual(release);
+    expect(await store.runScheduledPublications()).toEqual([]);
+    await expect(
+      store.saveRelease(alice, { ...input, requestId: randomUUID() }, release.id),
+    ).rejects.toMatchObject({ code: 'invalid' });
+    await add(snapshot, release);
+    const hero = blockNamed(snapshot, 'hero');
+    await save(alice, snapshot, hero, { ...hero.fields, title: 'Later draft' });
+    await store.runScheduledPublications();
+    const [published] = await store.listReleases(alice);
+    expect(published).toMatchObject({
+      id: release.id,
+      status: 'published',
+      items: [{ checkpointId: snapshot.checkpointId, draftChanged: true }],
+    });
+  });
+  it('keeps future-time validation when rescheduling an immediate release', async () => {
+    const release = await store.saveRelease(alice, {
+      requestId: randomUUID(),
+      name: 'Launch',
+      now: true,
+      timezone: 'UTC',
+    });
+    const edit = {
+      ...timing(),
+      requestId: randomUUID(),
+      name: release.name,
+      revision: release.revision,
+    };
+    await expect(
+      store.saveRelease(
+        alice,
+        { ...edit, dueAt: '2020-01-01T00:00:00.000Z', localTime: '2020-01-01T00:00' },
+        release.id,
+      ),
+    ).rejects.toMatchObject({ code: 'invalid' });
+    const scheduled = await store.saveRelease(alice, edit, release.id);
+    expect(scheduled).toMatchObject({ immediate: false, dueAt: edit.dueAt });
+    await add(snapshot, scheduled);
+    expect(await store.runScheduledPublications()).toEqual([]);
+  });
   it('groups approved nested snapshots, keeps later drafts out, and publishes once across concurrent runners', async () => {
     const first = await add(snapshot);
     const other = await duplicatePage();

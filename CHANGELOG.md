@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.0-rc.16 — 2026-11-20
+
+- Click a locale name or checkbox to filter Content. This fixes a Chrome tab crash when clicking the name.
+- Switch rich-text fields between white and dark editing backgrounds. Each browser remembers the choice for each field.
+- Select **Now** in **New release** to queue approved pages for the next publication run as they are added. Choose **Schedule release** for a future date and time. Apply space migration `038_immediate_releases` before rolling out the editor.
+- Bulk publication reviews limit concurrent requests. Spaces shows pending invitations, Clerk sign-in keeps device verification visible, and the workspace loader stays on screen during initialization.
+
 ## 0.1.0-rc.15 — 2026-11-19
 
 - Show **Example page URL** only for URL folders. Switching folder types updates the dialog immediately.

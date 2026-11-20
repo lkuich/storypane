@@ -5,6 +5,7 @@ export type ContentRelease = {
   id: string;
   name: string;
   dueAt: string;
+  immediate: boolean;
   timezone: string;
   status: 'scheduled' | 'held' | 'published' | 'cancelled';
   revision: number;
@@ -21,7 +22,7 @@ export type ContentRelease = {
   >;
 };
 
-export const releaseInputSchema = z
+const scheduledReleaseInput = z
   .object({
     requestId: z.uuid(),
     name: z.string().trim().min(1).max(120),
@@ -31,3 +32,9 @@ export const releaseInputSchema = z
     revision: z.number().int().positive().optional(),
   })
   .strict();
+
+export const releaseInputSchema = scheduledReleaseInput.or(
+  scheduledReleaseInput.pick({ requestId: true, name: true, timezone: true }).extend({
+    now: z.literal(true),
+  }),
+);

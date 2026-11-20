@@ -102,6 +102,7 @@ function LinkInput({
 }
 
 export function FieldInput({
+  blockKey,
   field,
   value,
   onChange,
@@ -111,6 +112,7 @@ export function FieldInput({
   optionContext,
   labelAction,
 }: {
+  blockKey: string;
   field: Exclude<FieldDefinition, { type: 'blocks' }>;
   value: Json | undefined;
   onChange: (value: Json) => void;
@@ -140,6 +142,8 @@ export function FieldInput({
         field.format === 'richtext' ? (
           <Suspense fallback={<Loading label="Loading text editor…" />}>
             <RichTextInput
+              key={`${blockKey}:${field.name}`}
+              backgroundKey={`storypane:rich-text-background:${blockKey}:${field.name}`}
               value={value}
               onChange={onChange}
               disabled={disabled}

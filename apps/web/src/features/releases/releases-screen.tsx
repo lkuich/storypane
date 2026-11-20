@@ -194,28 +194,36 @@ export function ReleasesScreen({
                 onClick={() => choose(item)}
               >
                 <span className="release-calendar">
-                  <span>
-                    {new Date(item.dueAt).toLocaleDateString(undefined, {
-                      month: 'short',
-                      timeZone: item.timezone,
-                    })}
-                  </span>
-                  <strong>
-                    {new Date(item.dueAt).toLocaleDateString(undefined, {
-                      day: 'numeric',
-                      timeZone: item.timezone,
-                    })}
-                  </strong>
+                  {item.immediate ? (
+                    <strong>Now</strong>
+                  ) : (
+                    <>
+                      <span>
+                        {new Date(item.dueAt).toLocaleDateString(undefined, {
+                          month: 'short',
+                          timeZone: item.timezone,
+                        })}
+                      </span>
+                      <strong>
+                        {new Date(item.dueAt).toLocaleDateString(undefined, {
+                          day: 'numeric',
+                          timeZone: item.timezone,
+                        })}
+                      </strong>
+                    </>
+                  )}
                 </span>
                 <span className="release-card-copy">
                   <strong>{item.name}</strong>
                   <span>
                     {item.items.length} {item.items.length === 1 ? 'page' : 'pages'} ·{' '}
-                    {new Date(item.dueAt).toLocaleTimeString(undefined, {
-                      hour: 'numeric',
-                      minute: '2-digit',
-                      timeZone: item.timezone,
-                    })}
+                    {item.immediate
+                      ? 'On approval'
+                      : new Date(item.dueAt).toLocaleTimeString(undefined, {
+                          hour: 'numeric',
+                          minute: '2-digit',
+                          timeZone: item.timezone,
+                        })}
                   </span>
                   <span className="release-status" data-status={item.status}>
                     {item.status === 'held' ? (
@@ -248,7 +256,9 @@ export function ReleasesScreen({
                   </span>
                   <h2>{release.name}</h2>
                   <p>
-                    {dateLabel(release.dueAt, release.timezone)} · {release.timezone}
+                    {release.immediate
+                      ? 'Publication on approval'
+                      : `${dateLabel(release.dueAt, release.timezone)} · ${release.timezone}`}
                   </p>
                 </div>
               </div>
@@ -448,11 +458,12 @@ function ReleaseForm({
     nameInput.current?.focus();
   }, []);
   const [name, setName] = useState(release?.name ?? '');
+  const [now, setNow] = useState(false);
   const [timing, setTiming] = useState(() => releaseTime(release?.dueAt, release?.timezone));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const payload = useRef<unknown>(null);
-  const dueAt = releaseInstant(timing);
+  const dueAt = now ? undefined : releaseInstant(timing);
   async function save() {
     setBusy(true);
     setError(null);
@@ -460,9 +471,9 @@ function ReleaseForm({
       payload.current ??= {
         requestId: crypto.randomUUID(),
         name,
-        dueAt,
-        timezone: timing.timezone,
-        localTime: timing.localTime,
+        ...(now
+          ? { now: true, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone }
+          : { dueAt, timezone: timing.timezone, localTime: timing.localTime }),
         ...(release ? { revision: release.revision } : {}),
       };
       const saved = await api<ContentRelease>(
@@ -491,7 +502,28 @@ function ReleaseForm({
           onChange={(event) => setName(event.target.value)}
         />
       </Field>
-      <ReleaseTimeFields value={timing} onChange={setTiming} disabled={busy || !!payload.current} />
+      {!release && (
+        <label className="release-view-toggle">
+          <input
+            type="checkbox"
+            checked={now}
+            disabled={busy || !!payload.current}
+            onChange={(event) => setNow(event.target.checked)}
+          />
+          Now
+        </label>
+      )}
+      {now ? (
+        <p className="field-hint">
+          Approved pages will be queued for publication as soon as you add them.
+        </p>
+      ) : (
+        <ReleaseTimeFields
+          value={timing}
+          onChange={setTiming}
+          disabled={busy || !!payload.current}
+        />
+      )}
       <ErrorNotice message={error} />
       <div className="dialog-actions">
         <Button disabled={busy} onClick={onCancel}>
@@ -499,7 +531,7 @@ function ReleaseForm({
         </Button>
         <Button
           variant="primary"
-          disabled={busy || !name.trim() || !dueAt}
+          disabled={busy || !name.trim() || (!now && !dueAt)}
           onClick={() => void save()}
         >
           {busy
@@ -510,7 +542,9 @@ function ReleaseForm({
                 ? 'Resume release'
                 : release
                   ? 'Save release'
-                  : 'Create release'}
+                  : now
+                    ? 'Release now'
+                    : 'Schedule release'}
         </Button>
       </div>
     </div>

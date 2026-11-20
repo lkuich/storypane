@@ -86,9 +86,12 @@ are checked again when the release runs.
 
 ## Plan a release first
 
-Open **Releases** in the left menu and choose **New release**. Name it and set its
-time. Choose **Add content**, open a page, and follow the publishing review above.
-The selected release is offered in the page's release picker.
+Open **Releases** and choose **New release**. Enter a name. Set a date and time
+and choose **Schedule release**, or check **Now** and choose **Release now**.
+
+Choose **Add content**, open a page, and follow the publishing review above.
+For a **Now** release, adding approved content makes the release eligible for the
+next publication run. To assemble several pages before launch, use a future time.
 
 The **Upcoming** view shows scheduled releases and those needing attention.
 Select a release to see its approved pages, locales and revisions. **Newer draft

@@ -283,7 +283,12 @@ test('filter, create and manage a market-only story without creating versions on
     const filter = page.getByRole('button', { name: 'Filter by locale' });
     await filter.focus();
     await filter.press('Enter');
-    await page.getByRole('checkbox', { name: 'Asia', exact: true }).check();
+    await page
+      .getByRole('group', { name: 'Filter by locale' })
+      .getByText('Asia', { exact: true })
+      .click();
+    await expect(page.getByRole('checkbox', { name: 'Asia', exact: true })).toBeFocused();
+    await expect(page.getByRole('checkbox', { name: 'Asia', exact: true })).toBeChecked();
     await page.getByRole('checkbox', { name: 'Default', exact: true }).check();
     expect(new URL(page.url()).searchParams.getAll('filterLocale')).toHaveLength(2);
     await page.getByRole('checkbox', { name: 'Default', exact: true }).uncheck();

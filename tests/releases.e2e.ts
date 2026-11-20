@@ -1,12 +1,13 @@
+import { reviewInstallation } from './fixtures/review-installation';
 import { dismissRecommendedSetup } from './fixtures/recommended-setup';
 import { expect, test } from '@playwright/test';
 import type { ContentRelease, Story } from '@storypane/core';
 
 const origin = process.env.STORYPANE_RELEASE_TEST_URL;
-test.skip(!origin, 'Use a disposable release fixture with seeded pages and local authentication');
 test('release approvals, drafts, moving, publishing now and cancellation work across responsive keyboard layouts', async ({
   page,
 }) => {
+  test.skip(!origin, 'Use a disposable release fixture with seeded pages and local authentication');
   test.setTimeout(120000);
   if (!origin || !['localhost', '127.0.0.1'].includes(new URL(origin).hostname))
     throw new Error('Release acceptance requires a disposable local installation');
@@ -153,4 +154,48 @@ test('release approvals, drafts, moving, publishing now and cancellation work ac
 
 test.beforeEach(async ({ page }) => {
   await dismissRecommendedSetup(page);
+});
+
+test('new releases can publish on approval or use the entered schedule', async ({ page }) => {
+  const installation = await reviewInstallation();
+  try {
+    const login = await page.request.post(installation.origin + '/api/auth/sign-in/email', {
+      headers: { origin: installation.origin },
+      data: { email: installation.people.admin.email, password: installation.password },
+    });
+    expect(login.ok()).toBe(true);
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto(installation.origin + '/?view=releases&space=' + installation.spaceId);
+    const dialog = page.getByRole('dialog', { name: 'New release' });
+    for (const immediate of [true, false]) {
+      await page.getByRole('button', { name: 'New release', exact: true }).press('Enter');
+      const schedule = dialog.getByRole('button', { name: 'Schedule release' });
+      const now = dialog.getByRole('checkbox', { name: 'Now', exact: true });
+      const date = dialog.getByLabel('Release date and time');
+      const name = immediate ? 'On approval' : 'Planned launch';
+      await dialog.getByLabel('Release name').fill(name);
+      await expect(schedule).toBeDisabled();
+      if (!immediate) await date.fill('2099-03-15T09:00');
+      await now.press('Space');
+      await expect(date).toBeHidden();
+      const releaseNow = dialog.getByRole('button', { name: 'Release now' });
+      await expect(releaseNow).toBeEnabled();
+      if (immediate) await releaseNow.press('Enter');
+      else {
+        await now.press('Space');
+        await expect(date).toHaveValue('2099-03-15T09:00');
+        await schedule.press('Enter');
+      }
+      await expect(dialog).toBeHidden();
+      await expect(page.getByRole('region', { name, exact: true })).toContainText(
+        'No pages added yet',
+      );
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
+        true,
+      );
+      await page.setViewportSize({ width: 1440, height: 900 });
+    }
+  } finally {
+    await installation.close();
+  }
 });

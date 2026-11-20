@@ -230,7 +230,10 @@ export function ScheduleForm({
           <option value="new">Create a new release</option>
           {releases.map((release) => (
             <option key={release.id} value={release.id}>
-              {release.name} · {dateLabel(release.dueAt, release.timezone)}
+              {release.name} ·{' '}
+              {release.immediate && release.status === 'scheduled'
+                ? 'Now'
+                : dateLabel(release.dueAt, release.timezone)}
               {release.status === 'held' ? ' · Needs attention' : ''}
             </option>
           ))}
@@ -240,7 +243,11 @@ export function ScheduleForm({
         <div className="release-destination">
           <CalendarClock size={18} />
           <div>
-            <strong>{dateLabel(target.dueAt, target.timezone)}</strong>
+            <strong>
+              {target.immediate && target.status === 'scheduled'
+                ? 'Publish as soon as approved'
+                : dateLabel(target.dueAt, target.timezone)}
+            </strong>
             <p>
               {target.timezone} · {target.items.length} approved{' '}
               {target.items.length === 1 ? 'page' : 'pages'}

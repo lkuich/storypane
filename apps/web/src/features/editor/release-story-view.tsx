@@ -81,6 +81,7 @@ export function ReleaseStoryView({
                     </Field>
                   ) : (
                     <FieldInput
+                      blockKey={`${preview.spaceId}:${block.id}`}
                       key={`${block.id}:${field.name}`}
                       field={field}
                       value={block.fields[field.name]}

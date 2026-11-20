@@ -53,6 +53,7 @@ export async function migrate(
       '035_block_folders',
       '036_vercel_deploy_hooks',
       '037_story_locale_availability',
+      '038_immediate_releases',
     ]) {
       if (included && !included.has(name)) continue;
       if (

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { EditorContent, Mark, Node, useEditor, type JSONContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import { isRichTextColor, type Json } from '@storypane/core';
@@ -66,16 +66,34 @@ const RichTextImage = Node.create({
 });
 
 export default function RichTextInput({
+  backgroundKey,
   value,
   onChange,
   disabled,
   label,
 }: {
+  backgroundKey: string;
   value: Json | undefined;
   onChange: (value: Json) => void;
   disabled: boolean;
   label: string;
 }) {
+  const [darkBackground, setDarkBackground] = useState(() => {
+    try {
+      return localStorage.getItem(backgroundKey) === 'dark';
+    } catch {
+      return false;
+    }
+  });
+  function toggleBackground() {
+    setDarkBackground(!darkBackground);
+    try {
+      if (darkBackground) localStorage.removeItem(backgroundKey);
+      else localStorage.setItem(backgroundKey, 'dark');
+    } catch {
+      // The toggle still works for this visit when browser storage is unavailable.
+    }
+  }
   const changeRef = useRef(onChange);
   changeRef.current = onChange;
   const editor = useEditor({
@@ -105,7 +123,7 @@ export default function RichTextInput({
       editor.commands.setContent(value as JSONContent, { emitUpdate: false });
   }, [editor, value]);
   return (
-    <div className="richtext-shell">
+    <div className="richtext-shell" data-dark-background={darkBackground || undefined}>
       <div className="richtext-toolbar" role="toolbar" aria-label={`${label} formatting`}>
         <button
           type="button"
@@ -160,6 +178,15 @@ export default function RichTextInput({
           onClick={() => editor?.chain().focus().toggleBlockquote().run()}
         >
           “ Quote
+        </button>
+        <button
+          type="button"
+          className="richtext-background-toggle"
+          aria-pressed={darkBackground}
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={toggleBackground}
+        >
+          Dark background
         </button>
       </div>
       <EditorContent editor={editor} />

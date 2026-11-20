@@ -49,6 +49,7 @@ function Harness() {
   return (
     <>
       <FieldInput
+        blockKey="article"
         field={{ name: 'body', label: 'Body', type: 'text', format: 'richtext' }}
         value={value}
         onChange={(next) => {
@@ -68,6 +69,27 @@ function Harness() {
       >
         Restore saved version
       </button>
+      <FieldInput
+        blockKey="banner"
+        field={{ name: 'body', label: 'Banner body', type: 'text', format: 'richtext' }}
+        value={{
+          type: 'doc',
+          content: [
+            {
+              type: 'paragraph',
+              content: [
+                {
+                  type: 'text',
+                  text: 'White lettering',
+                  marks: [{ type: 'textStyle', attrs: { color: '#ffffff' } }],
+                },
+              ],
+            },
+          ],
+        }}
+        disabled
+        onChange={() => undefined}
+      />
     </>
   );
 }

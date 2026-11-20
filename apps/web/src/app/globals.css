@@ -2557,7 +2557,16 @@ hr {
   background: var(--accent-soft);
   color: var(--accent);
 }
+.richtext-background-toggle {
+  margin-inline-start: auto;
+}
+.richtext-shell[data-dark-background] .tiptap {
+  color-scheme: dark;
+}
 .tiptap {
+  color-scheme: light;
+  background: var(--surface);
+  color: var(--ink);
   min-height: 160px;
   padding: 15px 16px;
   outline: none;

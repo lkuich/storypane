@@ -27,6 +27,7 @@ function Harness() {
     <>
       <button onClick={() => setPublicationId(crypto.randomUUID())}>Apply publication</button>
       <FieldInput
+        blockKey="footer"
         field={field}
         value={value}
         onChange={setValue}

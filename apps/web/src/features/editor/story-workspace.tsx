@@ -1859,6 +1859,7 @@ function LocaleEditor({
                         </div>
                       ) : (
                         <FieldInput
+                          blockKey={`${session.space.id}:${block.id}`}
                           key={`${block.id}:${field.name}`}
                           optionContext={{
                             storyId: snapshot.story.id,

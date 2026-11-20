@@ -52,7 +52,8 @@ export function ActionDropdown({
         {icon}
         {text}
       </summary>
-      <div className="action-dropdown-menu" role="group" aria-label={label}>
+      {/* Keep focus inside on mouse-down until a clicked label activates its checkbox. */}
+      <div className="action-dropdown-menu" role="group" aria-label={label} tabIndex={-1}>
         {children}
       </div>
     </details>
