@@ -91,6 +91,7 @@ for (const colorScheme of ['light', 'dark'] as const) {
       colorScheme === 'light' ? 'rgb(230, 248, 253)' : 'rgb(19, 56, 73)',
     );
     await expect(banner).toHaveCSS('background-color', 'rgb(25, 31, 41)');
+    await expect(banner.locator('p')).toHaveCSS('color', 'rgb(233, 238, 245)');
     await expect(banner.getByText('White lettering', { exact: true })).toHaveCSS(
       'color',
       'rgb(255, 255, 255)',
@@ -98,7 +99,8 @@ for (const colorScheme of ['light', 'dark'] as const) {
     await page.reload();
     await expect(banner).toHaveCSS('background-color', 'rgb(25, 31, 41)');
     await expect(body).toHaveCSS('background-color', 'rgb(255, 255, 255)');
-    await toggle.press('Enter');
+    await expect(body.locator('p')).toHaveCSS('color', 'rgb(11, 18, 32)');
+    await toggle.click();
     await page.reload();
     await expect(toggle).toHaveAttribute('aria-pressed', 'false');
     await expect(banner).toHaveCSS('background-color', 'rgb(255, 255, 255)');

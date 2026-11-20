@@ -204,9 +204,10 @@ still apply. **Clear clipboard** in the editor header empties the clipboard and
 removes the paste options; if the browser refuses clipboard access, the copy is
 retained and an error is shown.
 
-Use **Dark background** in the rich-text toolbar to preview light-colored text.
-The button stays highlighted while the dark background is active. Storypane
-remembers the setting for that field in your browser.
+Use **Dark background** in the rich-text toolbar to switch the editing area
+between light and dark backgrounds. The setting only affects that field’s
+editing area. Storypane keeps the text’s assigned colors and remembers your
+choice for that field in your browser.
 
 ## 7. Add an image
 

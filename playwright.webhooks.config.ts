@@ -12,7 +12,9 @@ export default defineConfig({
   timeout: 30_000,
   use: { baseURL: 'http://127.0.0.1:3144', channel: 'chrome', trace: 'retain-on-failure' },
   webServer: {
-    command: 'pnpm --filter @storypane/web exec vite --config vite.webhooks-test.config.ts',
+    command:
+      'pnpm --filter @storypane/web exec vite build --config vite.webhooks-test.config.ts && ' +
+      'pnpm --filter @storypane/web exec vite preview --config vite.webhooks-test.config.ts',
     url: 'http://127.0.0.1:3144',
     reuseExistingServer: false,
   },

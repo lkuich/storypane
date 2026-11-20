@@ -10,16 +10,12 @@
 
 :root {
   --bg: light-dark(#f6f8fa, #11151c);
-  --surface: light-dark(#ffffff, #191f29);
   --surface-subtle: light-dark(#fcfcfd, #1d2531);
   --surface-hover: light-dark(#f2f4f7, #26303e);
-  --ink: light-dark(#0b1220, #e9eef5);
   --text-secondary: light-dark(#344054, #c2ccda);
-  --muted: light-dark(#667085, #a3afc2);
   --line: light-dark(#e4e7ec, #303b4b);
   --border: var(--line);
   --input: light-dark(#d0d5dd, #46546a);
-  --accent: light-dark(#0369a1, #66d4f4);
   --primary: #22c3ee;
   --on-primary: #0b1220;
   --accent-soft: light-dark(#e6f8fd, #133849);
@@ -42,6 +38,14 @@
   --radius: 14px;
   --font-sans: 'Plus Jakarta Sans', sans-serif;
   color-scheme: light dark;
+}
+/* Resolve these colors again wherever the editor sets its own color scheme. */
+:root,
+.tiptap {
+  --surface: light-dark(#ffffff, #191f29);
+  --ink: light-dark(#0b1220, #e9eef5);
+  --muted: light-dark(#667085, #a3afc2);
+  --accent: light-dark(#0369a1, #66d4f4);
 }
 :root[data-theme='light'] {
   color-scheme: light;
