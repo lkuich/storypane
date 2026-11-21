@@ -168,7 +168,7 @@ const scheduleRow = (row: Row): PublicationSchedule => ({
   checkpointId: row.checkpoint_id,
   checkpointRevision: Number(row.checkpoint_revision),
   creatorId: row.creator_id,
-  dueAt: iso(row.due_at),
+  dueAt: row.due_at ? iso(row.due_at) : null,
   timezone: row.timezone,
   status: row.release_status === 'held' && row.status === 'pending' ? 'failed' : row.status,
   revision: row.revision,
@@ -187,6 +187,14 @@ function validateReleaseTime(input: { localTime: string; timezone: string; dueAt
       'invalid',
       'Choose a valid local date/time and explicit UTC offset for this timezone.',
     );
+}
+
+function validateReleaseTimezone(timezone: string) {
+  try {
+    new Intl.DateTimeFormat('en', { timeZone: timezone });
+  } catch {
+    throw new StorypaneError('invalid', 'Choose a valid release timezone.');
+  }
 }
 
 type AccountActor = Pick<Actor, 'userId' | 'sessionId'>;
@@ -1708,12 +1716,12 @@ export class StorypaneStore {
        JOIN content_releases r ON r.id=p.release_id AND r.space_id=p.space_id
        JOIN stories st ON st.id=p.story_id AND st.space_id=p.space_id
        WHERE p.id=$1 AND p.space_id=$2 AND p.story_id=$3 AND p.locale_id=$4
-       AND p.status='pending' AND r.status IN ('scheduled','held') AND st.deleted_at IS NULL`,
+       AND p.status='pending' AND r.status IN ('draft','scheduled','held') AND st.deleted_at IS NULL`,
       [scheduleId, actor.spaceId, storyId, localeId],
     );
     const schedule = rows[0];
     if (!schedule)
-      throw new StorypaneError('not_found', 'This page is no longer in an upcoming release.');
+      throw new StorypaneError('not_found', 'This page is no longer in an active release.');
     if (Number(schedule.revision) !== revision)
       throw new StorypaneError(
         'stale_revision',
@@ -1919,7 +1927,7 @@ export class StorypaneStore {
       LEFT JOIN content_releases cr ON cr.id=ps.release_id AND cr.space_id=p.space_id
       JOIN checkpoints c ON c.id=coalesce(ps.checkpoint_id,l.checkpoint_id)
       WHERE p.id=$1 AND st.deleted_at IS NULL AND p.expires_at>clock_timestamp()
-      AND (p.publication_schedule_id IS NULL OR (ps.status='pending' AND ps.revision=p.schedule_revision AND cr.status IN ('scheduled','held') AND ps.approved_snapshot IS NOT NULL)) AND (
+      AND (p.publication_schedule_id IS NULL OR (ps.status='pending' AND ps.revision=p.schedule_revision AND cr.status IN ('draft','scheduled','held') AND ps.approved_snapshot IS NOT NULL)) AND (
         ${
           this.options.authorizeSession
             ? 'EXISTS(SELECT 1 FROM memberships m WHERE m.user_id=p.user_id AND m.space_id=p.space_id)'
@@ -6263,7 +6271,7 @@ export class StorypaneStore {
     return {
       id: release.id,
       name: release.name,
-      dueAt: iso(release.due_at),
+      dueAt: release.due_at ? iso(release.due_at) : null,
       immediate: release.immediate,
       timezone: release.timezone,
       status: release.status,
@@ -6297,7 +6305,7 @@ export class StorypaneStore {
         'forbidden',
         'Publishing access to every page in this release is required.',
       );
-    if (row.revision !== revision || !['scheduled', 'held'].includes(row.status))
+    if (row.revision !== revision || !['draft', 'scheduled', 'held'].includes(row.status))
       throw new StorypaneError(
         'stale_revision',
         'This release changed. Refresh and review it before continuing.',
@@ -6309,7 +6317,8 @@ export class StorypaneStore {
       const rows = (
         await client.query(
           `SELECT * FROM content_releases WHERE space_id=$1
-        ORDER BY CASE WHEN status IN ('scheduled','held') THEN 0 ELSE 1 END,due_at DESC`,
+        ORDER BY CASE WHEN status IN ('draft','scheduled','held') THEN 0 ELSE 1 END,
+        coalesce(due_at,updated_at) DESC`,
           [actor.spaceId],
         )
       ).rows;
@@ -6325,15 +6334,10 @@ export class StorypaneStore {
     const input = parseInput(releaseInputSchema, raw);
     if (id) parseInput(z.uuid(), id);
     const immediate = 'now' in input;
-    if (immediate) {
-      if (id) throw new StorypaneError('invalid', 'Now is only available for new releases.');
-      try {
-        new Intl.DateTimeFormat('en', { timeZone: input.timezone });
-      } catch {
-        throw new StorypaneError('invalid', 'Choose a valid release timezone.');
-      }
-    } else validateReleaseTime(input);
-    const dueAt = immediate ? null : input.dueAt;
+    const draft = 'draft' in input;
+    const status = draft ? 'draft' : 'scheduled';
+    if ('dueAt' in input) validateReleaseTime(input);
+    else validateReleaseTimezone(input.timezone);
     return this.tx(
       actor,
       async (client) => {
@@ -6344,50 +6348,72 @@ export class StorypaneStore {
           input.requestId,
           { releaseId: id ?? null, ...input },
           async () => {
+            const dueAt =
+              'dueAt' in input
+                ? input.dueAt
+                : immediate
+                  ? (await client.query("SELECT date_trunc('minute',clock_timestamp()) AS due_at"))
+                      .rows[0].due_at
+                  : null;
             if (
-              !immediate &&
+              'dueAt' in input &&
               !(await client.query('SELECT $1::timestamptz>clock_timestamp() AS future', [dueAt]))
                 .rows[0].future
             )
               throw new StorypaneError('invalid', 'Choose a future release time.');
             let release: Row;
-            if (id && !immediate) {
+            if (id) {
               release = await this.editableRelease(client, actor, id, input.revision ?? 0);
-              const items = await this.releaseItems(client, release);
-              const deployed = await this.deployedMigration(client, actor.spaceId);
-              for (const item of items) {
-                if ((item.approved.migrationVersion ?? 0) !== deployed.version)
-                  throw new StorypaneError(
-                    'invalid',
-                    'Update every page to the current schema before resuming this release.',
-                  );
-                await this.validateSnapshot(client, actor, item.approved, true);
-                if (
-                  (
-                    await client.query(
-                      "SELECT 1 FROM publication_schedules WHERE locale_id=$1 AND status='pending' AND release_id<>$2",
-                      [item.locale_id, id],
-                    )
-                  ).rowCount
-                )
-                  throw new StorypaneError(
-                    'stale_revision',
-                    'A page has moved to another release. Remove it before resuming this release.',
-                  );
+              if ((draft || immediate) && release.status !== 'draft')
+                throw new StorypaneError(
+                  'invalid',
+                  'Only draft releases can use this timing option.',
+                );
+              if (!draft) {
+                const items = await this.releaseItems(client, release);
+                const deployed = await this.deployedMigration(client, actor.spaceId);
+                for (const item of items) {
+                  if ((item.approved.migrationVersion ?? 0) !== deployed.version)
+                    throw new StorypaneError(
+                      'invalid',
+                      'Update every page to the current schema before scheduling this release.',
+                    );
+                  await this.validateSnapshot(client, actor, item.approved, true);
+                  if (
+                    (
+                      await client.query(
+                        "SELECT 1 FROM publication_schedules WHERE locale_id=$1 AND status='pending' AND release_id<>$2",
+                        [item.locale_id, id],
+                      )
+                    ).rowCount
+                  )
+                    throw new StorypaneError(
+                      'stale_revision',
+                      'A page has moved to another release. Remove it before scheduling this release.',
+                    );
+                }
+                await client.query(
+                  "UPDATE publication_schedules SET due_at=$2,timezone=$3,next_attempt_at=$2,status='pending',error=NULL,attempt_count=0,revision=revision+1,updated_at=clock_timestamp() WHERE release_id=$1 AND status IN ('pending','failed')",
+                  [id, dueAt, input.timezone],
+                );
               }
               await client.query(
-                "UPDATE content_releases SET name=$2,due_at=$3,timezone=$4,immediate=false,status='scheduled',error=NULL,revision=revision+1,updated_at=clock_timestamp() WHERE id=$1",
-                [id, input.name, input.dueAt, input.timezone],
-              );
-              await client.query(
-                "UPDATE publication_schedules SET due_at=$2,timezone=$3,next_attempt_at=$2,status='pending',error=NULL,attempt_count=0,revision=revision+1,updated_at=clock_timestamp() WHERE release_id=$1 AND status IN ('pending','failed')",
-                [id, input.dueAt, input.timezone],
+                'UPDATE content_releases SET name=$2,due_at=$3,timezone=$4,immediate=$5,status=$6,error=NULL,revision=revision+1,updated_at=clock_timestamp() WHERE id=$1',
+                [id, input.name, dueAt, input.timezone, immediate, status],
               );
             } else {
               release = (
                 await client.query(
-                  "INSERT INTO content_releases(space_id,name,creator_id,due_at,timezone,immediate) VALUES($1,$2,$3,coalesce($4::timestamptz,date_trunc('minute',clock_timestamp())),$5,$6) RETURNING *",
-                  [actor.spaceId, input.name, actor.userId, dueAt, input.timezone, immediate],
+                  'INSERT INTO content_releases(space_id,name,creator_id,due_at,timezone,immediate,status) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING *',
+                  [
+                    actor.spaceId,
+                    input.name,
+                    actor.userId,
+                    dueAt,
+                    input.timezone,
+                    immediate,
+                    status,
+                  ],
                 )
               ).rows[0];
             }
@@ -6476,7 +6502,9 @@ export class StorypaneStore {
     raw: unknown,
   ): Promise<PublicationSchedule> {
     const input = parseInput(scheduleInputSchema, raw);
-    validateReleaseTime(input);
+    const immediate = 'now' in input;
+    if ('dueAt' in input) validateReleaseTime(input);
+    if (immediate) validateReleaseTimezone(input.timezone);
     return this.tx(
       actor,
       async (client) => {
@@ -6517,29 +6545,33 @@ export class StorypaneStore {
                   'The release changed. Refresh and review it before moving or updating this page.',
                 );
             }
-            if (input.release)
+            if ('release' in input && input.release)
               release = await this.editableRelease(
                 client,
                 actor,
                 input.release.id,
                 input.release.revision,
               );
-            else
+            else if ('dueAt' in input || immediate)
               release = (
                 await client.query(
-                  'INSERT INTO content_releases(space_id,name,creator_id,due_at,timezone) VALUES($1,$2,$3,$4,$5) RETURNING *',
+                  `INSERT INTO content_releases(space_id,name,creator_id,due_at,timezone,immediate)
+                   VALUES($1,$2,$3,CASE WHEN $6 THEN date_trunc('minute',clock_timestamp()) ELSE $4::timestamptz END,$5,$6)
+                   RETURNING *`,
                   [
                     actor.spaceId,
                     input.releaseName ?? `${checkpoint.snapshot.story.name} release`.slice(0, 120),
                     actor.userId,
-                    input.dueAt,
+                    'dueAt' in input ? input.dueAt : null,
                     input.timezone,
+                    immediate,
                   ],
                 )
               ).rows[0];
+            else throw new StorypaneError('invalid', 'Choose a release or a publication time.');
             if (
               !release.immediate &&
-              release.status !== 'held' &&
+              release.status === 'scheduled' &&
               !(
                 await client.query('SELECT $1::timestamptz>clock_timestamp() AS future', [
                   release.due_at,

@@ -2379,7 +2379,8 @@ function LocaleEditor({
                 {reviewSchedule && (
                   <p className="notice notice--warning">
                     This page belongs to <strong>{reviewSchedule.releaseName}</strong>. Updating the
-                    release keeps its date. Publishing now removes this page from that release.
+                    release replaces the approved version. Publishing now removes this page from the
+                    release.
                   </p>
                 )}
                 <div className="dialog-actions publish-review-actions">

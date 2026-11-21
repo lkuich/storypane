@@ -1,7 +1,7 @@
 'use client';
 import { visiblePoll } from '../../lib/visible-poll';
 import { useEffect, useRef, useState } from 'react';
-import { ArrowUpRight, CalendarClock, CircleAlert, Layers } from 'lucide-react';
+import { ArrowUpRight, CalendarClock, CircleAlert, Layers, Zap } from 'lucide-react';
 import type {
   CheckpointDetail,
   ContentRelease,
@@ -11,7 +11,13 @@ import type {
 import { Button, ErrorNotice, Field } from '@storypane/ui';
 import { ApiError, api, dateLabel, errorMessage, jsonRequest } from './api';
 import { spaceUrl } from '../../lib/space-url';
-import { ReleaseTimeFields, releaseTime, releaseInstant } from '../releases/release-time';
+import {
+  ReleasePublicationOptions,
+  ReleaseTimeFields,
+  releaseTime,
+  releaseInstant,
+  type PublicationMode,
+} from '../releases/release-time';
 
 export function PublicationSchedules({
   base,
@@ -68,20 +74,31 @@ export function PublicationSchedules({
         <section
           className="release-banner"
           data-held={scheduled.releaseStatus === 'held' || undefined}
-          aria-label="Scheduled release"
+          aria-label={scheduled.releaseStatus === 'draft' ? 'Draft release' : 'Scheduled release'}
         >
           <span className="release-banner-icon">
-            {scheduled.releaseStatus === 'held' ? <CircleAlert /> : <CalendarClock />}
+            {scheduled.releaseStatus === 'draft' ? (
+              <Layers />
+            ) : scheduled.releaseStatus === 'held' ? (
+              <CircleAlert />
+            ) : (
+              <CalendarClock />
+            )}
           </span>
           <div className="release-banner-copy">
             <span className="release-eyebrow">
-              {scheduled.releaseStatus === 'held'
-                ? 'Release needs attention'
-                : 'In an upcoming release'}
+              {scheduled.releaseStatus === 'draft'
+                ? 'In a draft release'
+                : scheduled.releaseStatus === 'held'
+                  ? 'Release needs attention'
+                  : 'In an upcoming release'}
             </span>
             <strong>{scheduled.releaseName}</strong>
             <p>
-              {dateLabel(scheduled.dueAt, scheduled.timezone)} · {scheduled.timezone} ·{' '}
+              {scheduled.dueAt
+                ? `${dateLabel(scheduled.dueAt, scheduled.timezone)} · ${scheduled.timezone}`
+                : 'No publication time set'}{' '}
+              ·{' '}
               <button
                 disabled={readOnly}
                 className="release-text-button"
@@ -130,6 +147,7 @@ export function ScheduleForm({
   onCancel: () => void;
 }) {
   const [timing, setTiming] = useState(() => releaseTime());
+  const [mode, setMode] = useState<PublicationMode>('schedule');
   const [name, setName] = useState(`${checkpoint.snapshot.story.name} release`.slice(0, 120));
   const [releases, setReleases] = useState<ContentRelease[]>([]);
   const [selected, setSelected] = useState('new');
@@ -154,7 +172,7 @@ export function ScheduleForm({
         if (stopped) return;
         const current = items.find((item) => item.active) ?? null;
         const available = groups.filter(
-          (group) => group.canManage && ['scheduled', 'held'].includes(group.status),
+          (group) => group.canManage && ['draft', 'scheduled', 'held'].includes(group.status),
         );
         setExisting(current);
         setReleases(available);
@@ -176,27 +194,31 @@ export function ScheduleForm({
     };
   }, [base, loadVersion]);
   const target = releases.find((item) => item.id === selected);
-  const dueAt = target?.dueAt ?? releaseInstant(timing);
+  const immediate = !target && mode === 'now';
+  const dueAt = target || immediate ? null : releaseInstant(timing);
   const moving = !!existing && existing.releaseId !== selected;
   const updating = !!existing && existing.releaseId === selected;
+  const locked = !loaded || busy || !!payload.current;
+  const canSubmit = loaded && !busy && (!!target || (!!name.trim() && (immediate || !!dueAt)));
   async function schedule() {
     setBusy(true);
     setError(null);
     try {
-      const time = target ? releaseTime(target.dueAt, target.timezone) : timing;
       payload.current ??= {
         requestId: crypto.randomUUID(),
         checkpointId: checkpoint.id,
         referenceChoices,
-        dueAt,
-        timezone: time.timezone,
-        localTime: time.localTime,
         expectedScheduleId: existing?.id ?? null,
         expectedRevision: existing?.revision ?? null,
         expectedReleaseRevision: existing?.releaseRevision,
         ...(target
           ? { release: { id: target.id, revision: target.revision } }
-          : { releaseName: name }),
+          : {
+              releaseName: name,
+              ...(immediate
+                ? { now: true, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone }
+                : { dueAt, timezone: timing.timezone, localTime: timing.localTime }),
+            }),
       };
       await api(`${base}/schedules`, jsonRequest('POST', payload.current));
       onScheduled();
@@ -209,48 +231,73 @@ export function ScheduleForm({
     }
   }
   return (
-    <section className="schedule-form release-schedule-form" aria-label="Choose a release">
+    <form
+      className="schedule-form release-schedule-form"
+      aria-label="Choose a release"
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (canSubmit) void schedule();
+      }}
+    >
       <div className="release-approval">
-        <Layers size={19} />
+        <span className="release-detail-mark">
+          <Layers size={18} aria-hidden="true" />
+        </span>
         <div>
           <strong>Approve revision {checkpoint.revision}</strong>
-          <p>
-            Includes nested blocks and the linked pages you selected. Later edits stay in drafts.
-          </p>
+          <p>Later edits stay in drafts.</p>
         </div>
       </div>
-      <Field label="Release" htmlFor="release-choice">
-        <select
-          id="release-choice"
-          ref={releaseSelect}
-          value={selected}
-          disabled={!loaded || busy || !!payload.current}
-          onChange={(event) => setSelected(event.target.value)}
-        >
-          <option value="new">Create a new release</option>
-          {releases.map((release) => (
-            <option key={release.id} value={release.id}>
-              {release.name} ·{' '}
-              {release.immediate && release.status === 'scheduled'
-                ? 'Now'
-                : dateLabel(release.dueAt, release.timezone)}
-              {release.status === 'held' ? ' · Needs attention' : ''}
-            </option>
-          ))}
-        </select>
-      </Field>
+      <div className="release-schedule-fields" data-new={!target || undefined}>
+        <Field label="Release" htmlFor="release-choice">
+          <select
+            id="release-choice"
+            ref={releaseSelect}
+            value={selected}
+            disabled={locked}
+            onChange={(event) => setSelected(event.target.value)}
+          >
+            <option value="new">Create a new release</option>
+            {releases.map((release) => (
+              <option key={release.id} value={release.id}>
+                {release.name} ·{' '}
+                {!release.dueAt
+                  ? 'Draft'
+                  : release.immediate && release.status === 'scheduled'
+                    ? 'Now'
+                    : dateLabel(release.dueAt, release.timezone)}
+                {release.status === 'held' ? ' · Needs attention' : ''}
+              </option>
+            ))}
+          </select>
+        </Field>
+        {!target && (
+          <Field label="Release name" htmlFor="release-name">
+            <input
+              id="release-name"
+              value={name}
+              maxLength={120}
+              disabled={locked}
+              onChange={(event) => setName(event.target.value)}
+              placeholder="e.g. Summer launch"
+            />
+          </Field>
+        )}
+      </div>
       {target ? (
         <div className="release-destination">
-          <CalendarClock size={18} />
+          {target.status === 'draft' ? <Layers size={18} /> : <CalendarClock size={18} />}
           <div>
             <strong>
-              {target.immediate && target.status === 'scheduled'
-                ? 'Publish as soon as approved'
-                : dateLabel(target.dueAt, target.timezone)}
+              {!target.dueAt
+                ? 'Draft release'
+                : target.immediate && target.status === 'scheduled'
+                  ? 'Publish as soon as approved'
+                  : dateLabel(target.dueAt, target.timezone)}
             </strong>
             <p>
-              {target.timezone} · {target.items.length} approved{' '}
-              {target.items.length === 1 ? 'page' : 'pages'}
+              {target.dueAt ? target.timezone : 'No publication time set'} · {target.items.length}{' '}
+              approved {target.items.length === 1 ? 'page' : 'pages'}
             </p>
             {target.status === 'held' && (
               <p className="release-draft-note">
@@ -261,23 +308,18 @@ export function ScheduleForm({
           </div>
         </div>
       ) : (
-        <>
-          <Field label="Release name" htmlFor="release-name">
-            <input
-              id="release-name"
-              value={name}
-              maxLength={120}
-              disabled={busy || !!payload.current}
-              onChange={(event) => setName(event.target.value)}
-              placeholder="e.g. Summer launch"
-            />
-          </Field>
-          <ReleaseTimeFields
-            value={timing}
-            onChange={setTiming}
-            disabled={busy || !!payload.current}
-          />
-        </>
+        <fieldset className="release-publication" disabled={locked}>
+          <legend>Publication</legend>
+          <ReleasePublicationOptions value={mode} onChange={setMode} />
+          {immediate ? (
+            <p className="release-publication-hint">
+              The approved page and any linked pages you selected will publish together on the next
+              run.
+            </p>
+          ) : (
+            <ReleaseTimeFields value={timing} onChange={setTiming} disabled={locked} />
+          )}
+        </fieldset>
       )}
       {moving && (
         <p className="notice notice--warning">
@@ -286,41 +328,46 @@ export function ScheduleForm({
         </p>
       )}
       {updating && (
-        <p className="field-hint">
-          This replaces the approved version in {target?.name}. Its release time stays the same.
-        </p>
+        <p className="field-hint">This replaces the approved version in {target?.name}.</p>
       )}
       <ErrorNotice
         message={error}
-        retry={() => {
-          payload.current = null;
-          setError(null);
-          setLoadVersion((value) => value + 1);
-        }}
+        retry={
+          payload.current
+            ? undefined
+            : () => {
+                setError(null);
+                setLoadVersion((value) => value + 1);
+              }
+        }
       />
       <div className="dialog-actions">
         <Button disabled={busy} onClick={onCancel}>
           Back
         </Button>
-        <Button
-          variant="primary"
-          disabled={busy || !loaded || !dueAt || (!target && !name.trim())}
-          onClick={() => void schedule()}
-        >
-          <CalendarClock size={16} />
+        <Button variant="primary" type="submit" disabled={!canSubmit}>
+          {immediate ? (
+            <Zap size={16} aria-hidden="true" />
+          ) : (
+            <CalendarClock size={16} aria-hidden="true" />
+          )}
           {busy
             ? 'Saving…'
             : payload.current
               ? 'Retry'
-              : moving
-                ? 'Move to release'
-                : updating
-                  ? 'Update release'
-                  : target
-                    ? 'Add to release'
-                    : 'Create release & schedule'}
+              : immediate
+                ? moving
+                  ? 'Move & release now'
+                  : 'Create & release now'
+                : moving
+                  ? 'Move to release'
+                  : updating
+                    ? 'Update release'
+                    : target
+                      ? 'Add to release'
+                      : 'Create release & schedule'}
         </Button>
       </div>
-    </section>
+    </form>
   );
 }

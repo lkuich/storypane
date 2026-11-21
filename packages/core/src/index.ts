@@ -1412,7 +1412,7 @@ export type PublicationSchedule = {
   checkpointId: string;
   checkpointRevision: number;
   creatorId: string;
-  dueAt: string;
+  dueAt: string | null;
   timezone: string;
   status: 'pending' | 'published' | 'cancelled' | 'failed';
   revision: number;
@@ -1420,7 +1420,8 @@ export type PublicationSchedule = {
   publicationId: string | null;
   error: string | null;
 };
-export const scheduleInputSchema = z
+const releaseSelection = z.object({ id: z.uuid(), revision: z.number().int().positive() }).strict();
+const timedScheduleInput = z
   .object({
     requestId: z.uuid(),
     checkpointId: z.uuid(),
@@ -1431,10 +1432,19 @@ export const scheduleInputSchema = z
     expectedScheduleId: z.uuid().nullable(),
     expectedRevision: z.number().int().positive().nullable(),
     expectedReleaseRevision: z.number().int().positive().optional(),
-    release: z.object({ id: z.uuid(), revision: z.number().int().positive() }).strict().optional(),
+    release: releaseSelection.optional(),
     releaseName: z.string().trim().min(1).max(120).optional(),
   })
   .strict();
+export const scheduleInputSchema = z.union([
+  timedScheduleInput,
+  timedScheduleInput.omit({ dueAt: true, localTime: true, timezone: true }).extend({
+    release: releaseSelection,
+  }),
+  timedScheduleInput.omit({ dueAt: true, localTime: true, release: true }).extend({
+    now: z.literal(true),
+  }),
+]);
 export const cancelScheduleSchema = z
   .object({
     requestId: z.uuid(),

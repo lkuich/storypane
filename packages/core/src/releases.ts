@@ -4,10 +4,10 @@ import type { PublicationSchedule } from './index.js';
 export type ContentRelease = {
   id: string;
   name: string;
-  dueAt: string;
+  dueAt: string | null;
   immediate: boolean;
   timezone: string;
-  status: 'scheduled' | 'held' | 'published' | 'cancelled';
+  status: 'draft' | 'scheduled' | 'held' | 'published' | 'cancelled';
   revision: number;
   error: string | null;
   canManage: boolean;
@@ -33,8 +33,15 @@ const scheduledReleaseInput = z
   })
   .strict();
 
-export const releaseInputSchema = scheduledReleaseInput.or(
-  scheduledReleaseInput.pick({ requestId: true, name: true, timezone: true }).extend({
-    now: z.literal(true),
-  }),
-);
+const untimedReleaseInput = scheduledReleaseInput.pick({
+  requestId: true,
+  name: true,
+  timezone: true,
+  revision: true,
+});
+
+export const releaseInputSchema = z.union([
+  scheduledReleaseInput,
+  untimedReleaseInput.extend({ draft: z.literal(true) }),
+  untimedReleaseInput.extend({ now: z.literal(true) }),
+]);

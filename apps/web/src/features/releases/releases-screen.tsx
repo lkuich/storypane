@@ -16,15 +16,29 @@ import type { ContentRelease } from '@storypane/core';
 import { Button, EmptyState, ErrorNotice, Field, Loading, Modal } from '@storypane/ui';
 import { ApiError, api, dateLabel, errorMessage, jsonRequest } from '../editor/api';
 import { spaceUrl } from '../../lib/space-url';
-import { ReleaseTimeFields, releaseTime, releaseInstant } from './release-time';
-import './releases.css';
+import {
+  ReleasePublicationOptions,
+  ReleaseTimeFields,
+  releaseTime,
+  releaseInstant,
+  type PublicationMode,
+} from './release-time';
 
 const statusLabel = {
+  draft: 'Draft',
   scheduled: 'Scheduled',
   held: 'Needs attention',
   published: 'Published',
   cancelled: 'Cancelled',
 };
+const releaseViews = { upcoming: 'Upcoming', drafts: 'Drafts', history: 'History' };
+type ReleaseView = keyof typeof releaseViews;
+
+function releaseView(item: ContentRelease): ReleaseView {
+  if (item.status === 'draft') return 'drafts';
+  return item.status === 'published' || item.status === 'cancelled' ? 'history' : 'upcoming';
+}
+
 export function ReleasesScreen({
   canPublish,
   onContent,
@@ -39,7 +53,7 @@ export function ReleasesScreen({
       ? null
       : new URLSearchParams(window.location.search).get('release'),
   );
-  const [history, setHistory] = useState(false);
+  const [view, setView] = useState<ReleaseView>('upcoming');
   const initialRelease = useRef(selected);
   const [edit, setEdit] = useState<ContentRelease | 'new' | null>(null);
   const [confirm, setConfirm] = useState<{
@@ -62,7 +76,7 @@ export function ReleasesScreen({
           if (!stopped) {
             if (initialRelease.current) {
               const linked = items.find((item) => item.id === initialRelease.current);
-              if (linked) setHistory(['published', 'cancelled'].includes(linked.status));
+              if (linked) setView(releaseView(linked));
               initialRelease.current = null;
             }
             setReleases(items);
@@ -78,18 +92,26 @@ export function ReleasesScreen({
       poll.stop();
     };
   }, []);
-  const upcoming = (releases ?? [])
-    .filter((item) => ['scheduled', 'held'].includes(item.status))
-    .sort((a, b) => a.dueAt.localeCompare(b.dueAt));
-  const visible = history
-    ? (releases ?? []).filter((item) => !['scheduled', 'held'].includes(item.status))
-    : upcoming;
+  const groups = {
+    upcoming: (releases ?? [])
+      .filter((item) => releaseView(item) === 'upcoming')
+      .sort((a, b) => (a.dueAt ?? '').localeCompare(b.dueAt ?? '')),
+    drafts: (releases ?? []).filter((item) => releaseView(item) === 'drafts'),
+    history: (releases ?? []).filter((item) => releaseView(item) === 'history'),
+  };
+  const visible = groups[view];
   const release = visible.find((item) => item.id === selected) ?? visible[0];
-  function choose(item: ContentRelease) {
-    setSelected(item.id);
+  const canManageRelease = release?.canManage && view !== 'history';
+  function choose(item: ContentRelease | null) {
+    setSelected(item?.id ?? null);
     const url = new URL(window.location.href);
-    url.searchParams.set('release', item.id);
+    if (item) url.searchParams.set('release', item.id);
+    else url.searchParams.delete('release');
     window.history.replaceState(window.history.state, '', url);
+  }
+  function addContent() {
+    choose(release);
+    onContent();
   }
   async function remove() {
     if (!confirm) return;
@@ -120,11 +142,8 @@ export function ReleasesScreen({
     <div className="releases-screen">
       <div className="release-page-header">
         <div>
-          <p className="release-eyebrow">Plan together. Publish together.</p>
           <h1>Releases</h1>
-          <p>
-            Approve the pages for your next launch. Keep working without changing what’s scheduled.
-          </p>
+          <p>Group approved pages and publish them together.</p>
         </div>
         {canPublish && (
           <Button variant="primary" onClick={() => setEdit('new')}>
@@ -138,44 +157,43 @@ export function ReleasesScreen({
         retry={() => void load().catch((cause) => setError(errorMessage(cause)))}
       />
       <div className="release-toolbar">
-        <div className="release-tabs" aria-label="Release views">
-          <Button
-            variant={!history ? 'primary' : 'ghost'}
-            aria-pressed={!history}
-            onClick={() => {
-              setHistory(false);
-              setSelected(null);
-            }}
-          >
-            Upcoming <span>{upcoming.length}</span>
-          </Button>
-          <Button
-            variant={history ? 'primary' : 'ghost'}
-            aria-pressed={history}
-            onClick={() => {
-              setHistory(true);
-              setSelected(null);
-            }}
-          >
-            History
-          </Button>
+        <div className="release-tabs" role="group" aria-label="Release views">
+          {(Object.keys(releaseViews) as ReleaseView[]).map((key) => (
+            <Button
+              key={key}
+              variant={view === key ? 'secondary' : 'ghost'}
+              aria-pressed={view === key}
+              onClick={() => {
+                setView(key);
+                choose(null);
+              }}
+            >
+              {releaseViews[key]}
+              {key !== 'history' && <span aria-hidden="true">{groups[key].length}</span>}
+            </Button>
+          ))}
         </div>
-        <span>
-          <Layers size={15} /> One approved version per page and locale
-        </span>
       </div>
       {releases === null ? (
         <Loading label="Loading releases…" />
       ) : !visible.length ? (
         <EmptyState
-          title={history ? 'No past releases' : 'Make room for your next launch'}
+          title={
+            {
+              upcoming: 'No upcoming releases',
+              drafts: 'No draft releases',
+              history: 'No past releases',
+            }[view]
+          }
           children={
-            history
-              ? 'Published and cancelled releases will appear here.'
-              : 'Create a release here, or schedule a page from its publishing review. Add more pages as they’re ready.'
+            {
+              upcoming: 'Scheduled releases and releases that need attention appear here.',
+              drafts: 'Start a draft to collect approved pages before setting a publication time.',
+              history: 'Published and cancelled releases appear here.',
+            }[view]
           }
           action={
-            !history && canPublish ? (
+            view !== 'history' && canPublish ? (
               <Button variant="primary" onClick={() => setEdit('new')}>
                 <Plus size={16} />
                 Create a release
@@ -194,7 +212,9 @@ export function ReleasesScreen({
                 onClick={() => choose(item)}
               >
                 <span className="release-calendar">
-                  {item.immediate ? (
+                  {!item.dueAt ? (
+                    <Layers size={22} aria-hidden="true" />
+                  ) : item.immediate ? (
                     <strong>Now</strong>
                   ) : (
                     <>
@@ -216,23 +236,25 @@ export function ReleasesScreen({
                 <span className="release-card-copy">
                   <strong>{item.name}</strong>
                   <span>
-                    {item.items.length} {item.items.length === 1 ? 'page' : 'pages'} ·{' '}
-                    {item.immediate
-                      ? 'On approval'
-                      : new Date(item.dueAt).toLocaleTimeString(undefined, {
-                          hour: 'numeric',
-                          minute: '2-digit',
-                          timeZone: item.timezone,
-                        })}
+                    {item.items.length} {item.items.length === 1 ? 'page' : 'pages'}
+                    {item.dueAt && ' · '}
+                    {item.dueAt &&
+                      (item.immediate
+                        ? 'On approval'
+                        : new Date(item.dueAt).toLocaleTimeString(undefined, {
+                            hour: 'numeric',
+                            minute: '2-digit',
+                            timeZone: item.timezone,
+                          }))}
                   </span>
                   <span className="release-status" data-status={item.status}>
                     {item.status === 'held' ? (
                       <CircleAlert size={12} />
                     ) : item.status === 'published' ? (
                       <Check size={12} />
-                    ) : (
+                    ) : item.status === 'scheduled' ? (
                       <CalendarClock size={12} />
-                    )}{' '}
+                    ) : null}
                     {item.status === 'scheduled' && item.error
                       ? 'Retrying'
                       : statusLabel[item.status]}
@@ -256,9 +278,11 @@ export function ReleasesScreen({
                   </span>
                   <h2>{release.name}</h2>
                   <p>
-                    {release.immediate
-                      ? 'Publication on approval'
-                      : `${dateLabel(release.dueAt, release.timezone)} · ${release.timezone}`}
+                    {!release.dueAt
+                      ? 'No publication time set'
+                      : release.immediate
+                        ? 'Publication on approval'
+                        : `${dateLabel(release.dueAt, release.timezone)} · ${release.timezone}`}
                   </p>
                 </div>
               </div>
@@ -278,37 +302,47 @@ export function ReleasesScreen({
                   </div>
                 </div>
               ) : (
-                <div className="release-help">
-                  <CheckCheck size={18} />
-                  <div>
-                    <strong>
-                      {release.status === 'published'
-                        ? 'These approved versions went live together.'
-                        : release.status === 'cancelled'
-                          ? 'This release was cancelled.'
-                          : 'Only approved versions will go live.'}
-                    </strong>
-                    <p>Later edits stay in drafts until you update the release.</p>
+                release.status !== 'draft' && (
+                  <div className="release-help">
+                    <CheckCheck size={18} />
+                    <div>
+                      <strong>
+                        {release.status === 'published'
+                          ? 'These approved versions went live together.'
+                          : release.status === 'cancelled'
+                            ? 'This release was cancelled.'
+                            : 'Only approved versions will go live.'}
+                      </strong>
+                      <p>Later edits stay in drafts until you update the release.</p>
+                    </div>
                   </div>
-                </div>
+                )
               )}
               <div className="release-items-title">
-                <h3>Approved pages</h3>
-                <span>{release.items.length}</span>
+                <h3>
+                  Included pages <span>{release.items.length}</span>
+                </h3>
+                {canManageRelease && release.items.length > 0 && (
+                  <Button className="button--small" onClick={addContent}>
+                    <Plus size={15} /> Add content
+                  </Button>
+                )}
               </div>
               {!release.items.length ? (
                 <div className="release-empty">
                   <FileText size={28} />
                   <strong>No pages added yet</strong>
-                  <p>Open a page, review its saved version, then choose this release.</p>
-                  <Button
-                    onClick={() => {
-                      choose(release);
-                      onContent();
-                    }}
-                  >
-                    Choose content <ArrowRight size={15} />
-                  </Button>
+                  {canManageRelease && (
+                    <>
+                      <p>
+                        Choose a page, open its publishing review, and add the approved version to
+                        this release.
+                      </p>
+                      <Button onClick={addContent}>
+                        Add content <ArrowRight size={15} />
+                      </Button>
+                    </>
+                  )}
                 </div>
               ) : (
                 <ul className="release-items">
@@ -333,7 +367,7 @@ export function ReleasesScreen({
                           </span>
                         )}
                       </div>
-                      {release.canManage && ['scheduled', 'held'].includes(release.status) && (
+                      {canManageRelease && (
                         <Button
                           variant="ghost"
                           className="icon-button"
@@ -351,33 +385,31 @@ export function ReleasesScreen({
                   ))}
                 </ul>
               )}
-              {['scheduled', 'held'].includes(release.status) && (
+              {canManageRelease && (
                 <div className="release-detail-footer">
                   <Button
+                    variant="ghost"
                     onClick={() => {
-                      choose(release);
-                      onContent();
+                      receipt.current = null;
+                      setConfirm({ release });
                     }}
                   >
-                    <Plus size={15} />
-                    Add content
+                    Cancel release
                   </Button>
-                  {release.canManage && (
-                    <div>
-                      <Button onClick={() => setEdit(release)}>
-                        {release.status === 'held' ? 'Review & resume' : 'Edit release'}
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        onClick={() => {
-                          receipt.current = null;
-                          setConfirm({ release });
-                        }}
-                      >
-                        Cancel release
-                      </Button>
-                    </div>
-                  )}
+                  <Button
+                    variant={release.status === 'draft' ? 'primary' : 'secondary'}
+                    onClick={() => setEdit(release)}
+                  >
+                    {release.status === 'draft' ? (
+                      <>
+                        <CalendarClock size={16} /> Set publication
+                      </>
+                    ) : release.status === 'held' ? (
+                      'Review & resume'
+                    ) : (
+                      'Edit release'
+                    )}
+                  </Button>
                 </div>
               )}
             </section>
@@ -387,14 +419,16 @@ export function ReleasesScreen({
       <Modal
         open={!!edit}
         onClose={() => setEdit(null)}
+        className="release-dialog"
         title={
           edit === 'new'
             ? 'New release'
             : edit?.status === 'held'
               ? 'Review and resume release'
-              : 'Edit release'
+              : edit?.status === 'draft'
+                ? 'Plan publication'
+                : 'Edit release'
         }
-        description="Every approved page in this release shares one publication time."
       >
         {edit && (
           <ReleaseForm
@@ -403,9 +437,13 @@ export function ReleasesScreen({
             onCancel={() => setEdit(null)}
             onSaved={async (item) => {
               setEdit(null);
-              setHistory(false);
+              setView(releaseView(item));
               choose(item);
-              await load();
+              setReleases((current) => [
+                item,
+                ...(current ?? []).filter((group) => group.id !== item.id),
+              ]);
+              await load().catch((cause) => setError(errorMessage(cause)));
             }}
           />
         )}
@@ -458,12 +496,15 @@ function ReleaseForm({
     nameInput.current?.focus();
   }, []);
   const [name, setName] = useState(release?.name ?? '');
-  const [now, setNow] = useState(false);
-  const [timing, setTiming] = useState(() => releaseTime(release?.dueAt, release?.timezone));
+  const [mode, setMode] = useState<PublicationMode>(release ? 'schedule' : 'draft');
+  const [timing, setTiming] = useState(() =>
+    releaseTime(release?.dueAt ?? undefined, release?.timezone),
+  );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const payload = useRef<unknown>(null);
-  const dueAt = now ? undefined : releaseInstant(timing);
+  const dueAt = mode === 'schedule' ? releaseInstant(timing) : undefined;
+  const locked = busy || !!payload.current;
   async function save() {
     setBusy(true);
     setError(null);
@@ -471,9 +512,12 @@ function ReleaseForm({
       payload.current ??= {
         requestId: crypto.randomUUID(),
         name,
-        ...(now
-          ? { now: true, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone }
-          : { dueAt, timezone: timing.timezone, localTime: timing.localTime }),
+        ...(mode === 'schedule'
+          ? { dueAt, timezone: timing.timezone, localTime: timing.localTime }
+          : {
+              timezone: release?.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone,
+              ...(mode === 'draft' ? { draft: true } : { now: true }),
+            }),
         ...(release ? { revision: release.revision } : {}),
       };
       const saved = await api<ContentRelease>(
@@ -490,7 +534,13 @@ function ReleaseForm({
     }
   }
   return (
-    <div className="release-form">
+    <form
+      className="release-form"
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (!busy && name.trim() && (mode !== 'schedule' || dueAt)) void save();
+      }}
+    >
       <Field label="Release name" htmlFor="release-title">
         <input
           id="release-title"
@@ -498,32 +548,27 @@ function ReleaseForm({
           value={name}
           maxLength={120}
           placeholder="e.g. Summer launch"
-          disabled={busy || !!payload.current}
+          disabled={locked}
           onChange={(event) => setName(event.target.value)}
         />
       </Field>
-      {!release && (
-        <label className="release-view-toggle">
-          <input
-            type="checkbox"
-            checked={now}
-            disabled={busy || !!payload.current}
-            onChange={(event) => setNow(event.target.checked)}
-          />
-          Now
-        </label>
-      )}
-      {now ? (
-        <p className="field-hint">
-          Approved pages will be queued for publication as soon as you add them.
-        </p>
-      ) : (
-        <ReleaseTimeFields
-          value={timing}
-          onChange={setTiming}
-          disabled={busy || !!payload.current}
-        />
-      )}
+      <fieldset className="release-publication" disabled={locked}>
+        <legend>Publication</legend>
+        {!release || release.status === 'draft' ? (
+          <ReleasePublicationOptions value={mode} onChange={setMode} allowDraft />
+        ) : null}
+        {mode === 'schedule' ? (
+          <ReleaseTimeFields value={timing} onChange={setTiming} disabled={locked} />
+        ) : (
+          <p className="release-publication-hint">
+            {mode === 'draft'
+              ? 'Collect approved pages now and choose when to publish later.'
+              : release?.items.length
+                ? `Queue ${release.items.length} approved ${release.items.length === 1 ? 'page' : 'pages'} for the next publication run.`
+                : 'Approved pages are queued for publication as soon as you add them.'}
+          </p>
+        )}
+      </fieldset>
       <ErrorNotice message={error} />
       <div className="dialog-actions">
         <Button disabled={busy} onClick={onCancel}>
@@ -531,8 +576,8 @@ function ReleaseForm({
         </Button>
         <Button
           variant="primary"
-          disabled={busy || !name.trim() || (!now && !dueAt)}
-          onClick={() => void save()}
+          type="submit"
+          disabled={busy || !name.trim() || (mode === 'schedule' && !dueAt)}
         >
           {busy
             ? 'Saving…'
@@ -540,13 +585,17 @@ function ReleaseForm({
               ? 'Retry'
               : release?.status === 'held'
                 ? 'Resume release'
-                : release
-                  ? 'Save release'
-                  : now
-                    ? 'Release now'
-                    : 'Schedule release'}
+                : mode === 'draft'
+                  ? 'Save draft'
+                  : mode === 'now'
+                    ? release?.items.length
+                      ? 'Publish release'
+                      : 'Release now'
+                    : !release || release.status === 'draft'
+                      ? 'Schedule release'
+                      : 'Save release'}
         </Button>
       </div>
-    </div>
+    </form>
   );
 }

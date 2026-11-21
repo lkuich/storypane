@@ -575,7 +575,8 @@ export function ContentList({
                               {schedule.releaseStatus === 'held'
                                 ? 'Release needs attention'
                                 : schedule.releaseName}{' '}
-                              · revision {schedule.checkpointRevision} · {dateLabel(schedule.dueAt)}
+                              · revision {schedule.checkpointRevision} ·{' '}
+                              {schedule.dueAt ? dateLabel(schedule.dueAt) : 'Draft release'}
                             </div>
                           ))}
                         <div className="entity-subtitle">

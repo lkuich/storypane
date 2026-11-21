@@ -1608,6 +1608,70 @@ describe('Content releases', () => {
       [releaseId],
     );
   }
+  it.each(['schedule', 'now'])(
+    'keeps approved draft pages private until %s is chosen',
+    async (mode) => {
+      const input = { draft: true, name: 'Launch plan', timezone: 'UTC', requestId: randomUUID() };
+      const draft = await store.saveRelease(alice, input);
+      expect(draft).toMatchObject({ status: 'draft', dueAt: null, items: [] });
+      const other = await duplicatePage();
+      const first = await store.schedulePublication(alice, snapshot.story.id, snapshot.locale.id, {
+        requestId: randomUUID(),
+        checkpointId: snapshot.checkpointId!,
+        release: { id: draft.id, revision: draft.revision },
+        expectedScheduleId: null,
+        expectedRevision: null,
+      });
+      expect(first).toMatchObject({ active: true, releaseStatus: 'draft', dueAt: null });
+      await add(other, (await store.listReleases(alice))[0]);
+      const [review] = await store.listReleases(alice);
+      expect(review.items.map((item) => item.localeId)).toEqual(
+        expect.arrayContaining([snapshot.locale.id, other.locale.id]),
+      );
+      expect(review.items).toHaveLength(2);
+      expect(await store.saveRelease(alice, input)).toEqual(review);
+      const approved = await store.getScheduledSnapshot(
+        alice,
+        snapshot.story.id,
+        snapshot.locale.id,
+        first.id,
+        first.revision,
+      );
+      expect(approved).toMatchObject({ checkpointId: snapshot.checkpointId, leases: [] });
+      const hero = blockNamed(snapshot, 'hero');
+      await save(alice, snapshot, hero, {
+        ...hero.fields,
+        title: 'Unapproved edit after assembly',
+      });
+      await makeDue(draft.id);
+      expect(await store.runScheduledPublications()).toEqual([]);
+      const [ready] = await store.listReleases(alice);
+      const publication = {
+        ...(mode === 'now' ? { now: true, timezone: 'UTC' } : timing()),
+        name: draft.name,
+        requestId: randomUUID(),
+        revision: ready.revision,
+      };
+      await expect(
+        store.saveRelease(alice, { ...publication, revision: draft.revision }, draft.id),
+      ).rejects.toMatchObject({ code: 'stale_revision' });
+      const queued = await store.saveRelease(alice, publication, draft.id);
+      expect(queued).toMatchObject({ status: 'scheduled', immediate: mode === 'now' });
+      expect(queued.items.every((item) => item.dueAt === queued.dueAt)).toBe(true);
+      if (mode === 'schedule') {
+        expect(await store.runScheduledPublications()).toEqual([]);
+        await makeDue(draft.id);
+      }
+      expect(await store.runScheduledPublications()).toHaveLength(2);
+      expect(
+        await store.getPublication(alice, snapshot.story.id, snapshot.locale.id),
+      ).toMatchObject({ checkpointId: snapshot.checkpointId });
+      expect((await store.listReleases(alice))[0]).toMatchObject({
+        id: draft.id,
+        status: 'published',
+      });
+    },
+  );
   it('queues an immediate release only after a checkpoint is approved and replays creation safely', async () => {
     const input = {
       requestId: randomUUID(),
@@ -1617,11 +1681,15 @@ describe('Content releases', () => {
     };
     const release = await store.saveRelease(alice, input);
     expect(release).toMatchObject({ immediate: true, status: 'scheduled', items: [] });
-    expect(Date.parse(release.dueAt)).toBeLessThanOrEqual(Date.now());
+    expect(Date.parse(release.dueAt!)).toBeLessThanOrEqual(Date.now());
     expect(await store.saveRelease(alice, input)).toEqual(release);
     expect(await store.runScheduledPublications()).toEqual([]);
     await expect(
-      store.saveRelease(alice, { ...input, requestId: randomUUID() }, release.id),
+      store.saveRelease(
+        alice,
+        { ...input, requestId: randomUUID(), revision: release.revision },
+        release.id,
+      ),
     ).rejects.toMatchObject({ code: 'invalid' });
     await add(snapshot, release);
     const hero = blockNamed(snapshot, 'hero');
@@ -1657,6 +1725,36 @@ describe('Content releases', () => {
     const scheduled = await store.saveRelease(alice, edit, release.id);
     expect(scheduled).toMatchObject({ immediate: false, dueAt: edit.dueAt });
     await add(snapshot, scheduled);
+    expect(await store.runScheduledPublications()).toEqual([]);
+  });
+  it('creates an immediate release and pins its reviewed pages in one retryable operation', async () => {
+    const linked = await copiedStory();
+    snapshot = await linkStory(snapshot, linked);
+    const input = {
+      requestId: randomUUID(),
+      checkpointId: snapshot.checkpointId!,
+      releaseName: 'Release from publishing review',
+      now: true,
+      timezone: 'America/Vancouver',
+      expectedScheduleId: null,
+      expectedRevision: null,
+    };
+    const create = (payload: unknown) =>
+      store.schedulePublication(alice, snapshot.story.id, snapshot.locale.id, payload);
+    const approved = { ...input, referenceChoices: await linkedChoices(snapshot) };
+    await expect(create({ ...approved, timezone: 'Invalid/Timezone' })).rejects.toMatchObject({
+      code: 'invalid',
+    });
+    await expect(create(input)).rejects.toMatchObject({ code: 'invalid' });
+    expect(await store.listReleases(alice)).toEqual([]);
+    const job = await create(approved);
+    expect(await create(approved)).toEqual(job);
+    const [release] = await store.listReleases(alice);
+    expect(release).toMatchObject({ id: job.releaseId, name: input.releaseName, immediate: true });
+    expect(release.items.map((item) => item.checkpointId).sort()).toEqual(
+      [snapshot.checkpointId, linked.checkpointId].sort(),
+    );
+    expect(await store.runScheduledPublications()).toHaveLength(2);
     expect(await store.runScheduledPublications()).toEqual([]);
   });
   it('groups approved nested snapshots, keeps later drafts out, and publishes once across concurrent runners', async () => {

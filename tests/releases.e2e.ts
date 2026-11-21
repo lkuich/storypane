@@ -24,7 +24,9 @@ test('release approvals, drafts, moving, publishing now and cancellation work ac
   const previous = (await (
     await page.request.get(`${origin}/api/cms/releases`, { headers })
   ).json()) as ContentRelease[];
-  for (const group of previous.filter((item) => ['scheduled', 'held'].includes(item.status))) {
+  for (const group of previous.filter((item) =>
+    ['draft', 'scheduled', 'held'].includes(item.status),
+  )) {
     const removed = await page.request.delete(`${origin}/api/cms/releases/${group.id}`, {
       headers: { ...headers, Origin: origin },
       data: { requestId: crypto.randomUUID(), revision: group.revision },
@@ -156,7 +158,83 @@ test.beforeEach(async ({ page }) => {
   await dismissRecommendedSetup(page);
 });
 
-test('new releases can publish on approval or use the entered schedule', async ({ page }) => {
+test('publishing review creates a Now release with the approved page', async ({ page }, info) => {
+  const installation = await reviewInstallation();
+  try {
+    const login = await page.request.post(`${installation.origin}/api/auth/sign-in/email`, {
+      headers: { origin: installation.origin },
+      data: { email: installation.people.admin.email, password: installation.password },
+    });
+    expect(login.ok()).toBe(true);
+    await page.goto(
+      `${installation.origin}/?space=${installation.spaceId}&story=${installation.storyId}`,
+    );
+    await page.getByRole('combobox', { name: 'Appearance', exact: true }).selectOption('dark');
+    const dialog = page.getByRole('dialog', { name: 'Review before publishing' });
+    const form = dialog.getByRole('form', { name: 'Choose a release' });
+    for (const width of [1440, 320]) {
+      await page.setViewportSize({ width, height: 900 });
+      const review = page.getByRole('button', { name: 'Review & publish', exact: true });
+      await expect(review).toBeEnabled();
+      await review.press('Enter');
+      const add = dialog.getByRole('button', { name: 'Add to release', exact: true });
+      await expect(add).toBeEnabled();
+      await add.press('Enter');
+      await expect(form.getByLabel('Release', { exact: true })).toBeFocused();
+      const name = form.getByLabel('Release name');
+      const schedule = form.getByRole('radio', { name: 'Schedule' });
+      const now = form.getByRole('radio', { name: 'Now' });
+      const date = form.getByLabel('Release date and time');
+      await expect(schedule).toBeChecked();
+      await expect(form.getByRole('button', { name: 'Create release & schedule' })).toBeDisabled();
+      await date.fill('2099-03-15T09:00');
+      await name.fill('Home launch');
+      await page.keyboard.press('Tab');
+      await expect(schedule).toBeFocused();
+      await page.keyboard.press('ArrowRight');
+      await expect(now).toBeChecked();
+      await expect(date).toBeHidden();
+      await expect(form.getByLabel('Timezone')).toBeHidden();
+      await page.keyboard.press('ArrowLeft');
+      await expect(date).toHaveValue('2099-03-15T09:00');
+      await page.keyboard.press('ArrowRight');
+      expect(await dialog.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(
+        true,
+      );
+      const submit = form.getByRole('button', { name: 'Create & release now' });
+      await expect(submit).toBeEnabled();
+      await form.screenshot({
+        path: info.outputPath(`review-now-${width}.png`),
+        animations: 'disabled',
+      });
+      if (width === 1440) {
+        await page.keyboard.press('Escape');
+        await expect(dialog).toBeHidden();
+      } else {
+        await submit.press('Enter');
+        await expect(dialog).toBeHidden();
+      }
+    }
+    const response = await page.request.get(`${installation.origin}/api/cms/releases`, {
+      headers: { 'x-storypane-space-id': installation.spaceId },
+    });
+    expect(response.ok()).toBe(true);
+    expect(await response.json()).toMatchObject([
+      {
+        name: 'Home launch',
+        immediate: true,
+        items: [{ storyId: installation.storyId, checkpointRevision: 1 }],
+      },
+    ]);
+  } finally {
+    await installation.close();
+  }
+});
+
+test('release timing and draft contents work across responsive keyboard layouts', async ({
+  page,
+}, info) => {
+  test.setTimeout(90000);
   const installation = await reviewInstallation();
   try {
     const login = await page.request.post(installation.origin + '/api/auth/sign-in/email', {
@@ -166,35 +244,101 @@ test('new releases can publish on approval or use the entered schedule', async (
     expect(login.ok()).toBe(true);
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto(installation.origin + '/?view=releases&space=' + installation.spaceId);
-    const dialog = page.getByRole('dialog', { name: 'New release' });
-    for (const immediate of [true, false]) {
-      await page.getByRole('button', { name: 'New release', exact: true }).press('Enter');
-      const schedule = dialog.getByRole('button', { name: 'Schedule release' });
-      const now = dialog.getByRole('checkbox', { name: 'Now', exact: true });
-      const date = dialog.getByLabel('Release date and time');
-      const name = immediate ? 'On approval' : 'Planned launch';
-      await dialog.getByLabel('Release name').fill(name);
-      await expect(schedule).toBeDisabled();
-      if (!immediate) await date.fill('2099-03-15T09:00');
-      await now.press('Space');
-      await expect(date).toBeHidden();
-      const releaseNow = dialog.getByRole('button', { name: 'Release now' });
-      await expect(releaseNow).toBeEnabled();
-      if (immediate) await releaseNow.press('Enter');
-      else {
-        await now.press('Space');
-        await expect(date).toHaveValue('2099-03-15T09:00');
-        await schedule.press('Enter');
-      }
-      await expect(dialog).toBeHidden();
-      await expect(page.getByRole('region', { name, exact: true })).toContainText(
-        'No pages added yet',
-      );
+    await page.getByRole('combobox', { name: 'Appearance', exact: true }).selectOption('dark');
+    const newRelease = page.getByRole('button', { name: 'New release', exact: true });
+    const dialog = page.getByRole('dialog', { name: 'New release', exact: true });
+    const draft = dialog.getByRole('radio', { name: 'Draft', exact: true });
+    const scheduled = dialog.getByRole('radio', { name: 'Schedule', exact: true });
+    const now = dialog.getByRole('radio', { name: 'Now', exact: true });
+    const date = dialog.getByLabel('Release date and time');
+    await newRelease.press('Enter');
+    const name = dialog.getByLabel('Release name');
+    await expect(name).toBeFocused();
+    await name.fill('On approval');
+    await page.keyboard.press('Tab');
+    await expect(draft).toBeFocused();
+    await page.keyboard.press('ArrowRight');
+    await expect(scheduled).toBeChecked();
+    await expect(dialog.getByRole('button', { name: 'Schedule release' })).toBeDisabled();
+    await date.fill('2099-03-15T09:00');
+    await dialog.screenshot({ path: info.outputPath('schedule-mobile-dark.png') });
+    await scheduled.press('ArrowRight');
+    await expect(now).toBeChecked();
+    await expect(date).toBeHidden();
+    await page.keyboard.press('ArrowLeft');
+    await expect(date).toHaveValue('2099-03-15T09:00');
+    await scheduled.press('ArrowRight');
+    await dialog.getByRole('button', { name: 'Release now' }).press('Enter');
+    await expect(dialog).toBeHidden();
+    await expect(page.getByRole('region', { name: 'On approval', exact: true })).toContainText(
+      'No pages added yet',
+    );
+
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await newRelease.press('Enter');
+    await expect(draft).toBeChecked();
+    await page.keyboard.press('Escape');
+    await expect(newRelease).toBeFocused();
+    await newRelease.press('Enter');
+    await name.fill('Summer launch');
+    await dialog.screenshot({ path: info.outputPath('draft-desktop-dark.png') });
+    await page.keyboard.press('Enter');
+    const detail = page.getByRole('region', { name: 'Summer launch', exact: true });
+    await expect(page.getByRole('button', { name: 'Drafts', exact: true })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+    await expect(detail).toContainText('No publication time set');
+    await detail.getByRole('button', { name: 'Add content' }).press('Enter');
+    const releaseId = new URL(page.url()).searchParams.get('release');
+    expect(releaseId).toBeTruthy();
+    await page.getByRole('button', { name: 'Home', exact: true }).press('Enter');
+    const review = page.getByRole('dialog', { name: 'Review before publishing' });
+    const reviewAction = page.getByRole('button', { name: 'Review & publish', exact: true });
+    await expect(reviewAction).toBeEnabled();
+    await reviewAction.press('Enter');
+    const add = review.getByRole('button', { name: 'Add to release', exact: true });
+    await expect(add).toBeEnabled();
+    await add.press('Enter');
+    await expect(review.getByRole('combobox', { name: 'Release', exact: true })).toHaveValue(
+      releaseId!,
+    );
+    await expect(add).toBeEnabled();
+    await add.press('Enter');
+    const banner = page.getByRole('region', { name: 'Draft release', exact: true });
+    await expect(banner).toContainText('Summer launch');
+    await banner.getByRole('link', { name: 'View release' }).press('Enter');
+    await expect(detail.getByRole('link', { name: 'Home', exact: true })).toBeVisible();
+    await expect(detail.getByText(/Default · Approved revision \d+/)).toBeVisible();
+
+    for (const width of [320, 1440]) {
+      await page.setViewportSize({ width, height: 900 });
+      if (width === 1440)
+        await page.getByRole('combobox', { name: 'Appearance', exact: true }).selectOption('light');
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
         true,
       );
-      await page.setViewportSize({ width: 1440, height: 900 });
+      await page.screenshot({
+        path: info.outputPath(`draft-contents-${width}.png`),
+        fullPage: true,
+        animations: 'disabled',
+      });
+      await detail.getByRole('button', { name: 'Set publication' }).press('Enter');
+      const plan = page.getByRole('dialog', { name: 'Plan publication' });
+      await plan.getByLabel('Timezone', { exact: true }).fill('UTC');
+      await plan.getByLabel('Release date and time').fill('2099-03-15T09:00');
+      expect(await plan.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(
+        true,
+      );
+      if (width === 320) await page.keyboard.press('Escape');
+      else await plan.getByRole('button', { name: 'Schedule release' }).press('Enter');
     }
+    await expect(page.getByRole('button', { name: 'Upcoming', exact: true })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+    await expect(detail).toContainText('Scheduled');
+    await expect(detail.getByText(/Approved revision \d+/)).toBeVisible();
   } finally {
     await installation.close();
   }

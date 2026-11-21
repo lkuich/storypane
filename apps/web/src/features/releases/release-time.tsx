@@ -2,6 +2,48 @@
 import { useId } from 'react';
 import { scheduleInstants } from '@storypane/core';
 import { Field } from '@storypane/ui';
+import { CalendarClock, Layers, Zap } from 'lucide-react';
+import './releases.css';
+
+const publicationOptions = [
+  { value: 'draft', label: 'Draft', Icon: Layers },
+  { value: 'schedule', label: 'Schedule', Icon: CalendarClock },
+  { value: 'now', label: 'Now', Icon: Zap },
+] as const;
+export type PublicationMode = (typeof publicationOptions)[number]['value'];
+
+export function ReleasePublicationOptions({
+  value,
+  onChange,
+  allowDraft = false,
+}: {
+  value: PublicationMode;
+  onChange: (value: PublicationMode) => void;
+  allowDraft?: boolean;
+}) {
+  const name = useId();
+  return (
+    <div className="release-publication-options">
+      {publicationOptions
+        .filter((option) => allowDraft || option.value !== 'draft')
+        .map((option) => (
+          <label key={option.value}>
+            <input
+              type="radio"
+              name={name}
+              value={option.value}
+              checked={value === option.value}
+              onChange={() => onChange(option.value)}
+            />
+            <span>
+              <option.Icon size={16} aria-hidden="true" />
+              {option.label}
+            </span>
+          </label>
+        ))}
+    </div>
+  );
+}
 
 export type ReleaseTime = { localTime: string; timezone: string; instant: string };
 export function releaseTime(

@@ -34,12 +34,12 @@ hold. Do not publish immediately or include additional pages without my instruct
 
 ## How releases work
 
-- A page locale can belong to **one upcoming release**. Different locales can
+- A page locale can belong to **one active release**, including a draft. Different locales can
   have different releases. A space can have several releases.
 - Each member pins an approved saved revision, including the complete nested
   block tree. Autosaving later edits does not change that approval.
-- All members share the release's date, time and timezone. A release can contain
-  up to 100 page locales.
+- A release can contain up to 100 page locales. When you schedule it, all members
+  share its date, time and timezone.
 - At publication time, Storypane checks permissions, schema compatibility and
   content validity again. It publishes every member in one database transaction.
   If one fails, none of that attempt goes live.
@@ -57,11 +57,10 @@ not need schema editing access.
    results and linked-page choices. This comparison uses live content, even when
    updating an upcoming release; it is not a comparison with that release's approval.
 3. Choose **Add to release**.
-4. Select **Create a new release**, enter a clear name such as `Summer launch`,
-   then choose the **Release date and time** and **Timezone**. Use an IANA zone
-   such as `America/Vancouver` or `UTC`.
-5. Choose **Create release & schedule**. The editor shows the release name,
-   scheduled time and approved revision, with a **View release** link.
+4. Select **Create a new release** and enter a name such as `Summer launch`.
+5. Choose **Schedule**, set the date and timezone, and select **Create release &
+   schedule**. To queue the approved page and selected linked pages for the next
+   publication run, choose **Now** and select **Create & release now**.
 
 Alternatively, select an existing release and choose **Add to release**. Its time
 applies to this page too. When a clock change repeats a local time, choose the
@@ -69,7 +68,7 @@ intended UTC offset; skipped times cannot be scheduled.
 
 ## View the approved version
 
-When a page locale belongs to an upcoming release, check **View release version
+When a page locale belongs to a draft or upcoming release, check **View release version
 (read-only)** in its story editor. Storypane saves pending edits before switching.
 The fields, nested blocks and application preview show the approved release
 version. Editing and publishing controls are disabled while it is checked.
@@ -86,17 +85,19 @@ are checked again when the release runs.
 
 ## Plan a release first
 
-Open **Releases** and choose **New release**. Enter a name. Set a date and time
-and choose **Schedule release**, or check **Now** and choose **Release now**.
+1. Open **Releases**, choose **New release**, and enter a name. Leave **Draft**
+   selected and choose **Save draft**.
+2. Choose **Add content**, open a page, and use its publishing review to add the
+   approved version to the draft release.
+3. In **Drafts**, open the release to see its included pages, locales and approved
+   revisions. **Newer draft changes are not included** marks pages with edits
+   since approval.
+4. Choose **Set publication**. Select **Schedule** to set a future time, or
+   **Now** to queue the included pages for the next publication run.
 
-Choose **Add content**, open a page, and follow the publishing review above.
-For a **Now** release, adding approved content makes the release eligible for the
-next publication run. To assemble several pages before launch, use a future time.
-
-The **Upcoming** view shows scheduled releases and those needing attention.
-Select a release to see its approved pages, locales and revisions. **Newer draft
-changes are not included** means the current saved draft differs from the approved
-version. An empty release does not publish anything.
+You can also choose **Schedule** or **Now** when creating a release. For an
+empty **Now** release, the next publication run picks it up after you add
+approved content. **Upcoming** shows scheduled releases and those needing attention.
 
 ## Edit a page that is already scheduled
 

@@ -276,19 +276,24 @@ or resumes a group; `DELETE /releases/{id}` cancels it. Create/update inputs are
 }
 ```
 
-Use a future time and an actual unique request ID. Updates also require the
-reviewed `revision`; cancellation requires `{ requestId, revision }`. Releases
-report `scheduled`, `held`, `published` or `cancelled`, plus `revision`, `error`,
+Use a future time and an actual unique request ID. To save a draft, send
+`{ requestId, name, timezone, draft: true }`. To queue immediate publication, send
+`{ requestId, name, timezone, now: true }` for a new release or an existing draft.
+Updates also require the reviewed `revision`; cancellation requires `{ requestId, revision }`.
+Releases report `draft`, `scheduled`, `held`, `published` or `cancelled`, plus `revision`, `error`,
 `canManage` and member metadata. Member responses include approved checkpoint
-revisions and `draftChanged`; they never contain raw content snapshots.
+revisions and `draftChanged`; they never contain raw content snapshots. A draft
+release and its members have `dueAt: null`.
 
 Approve a page through `POST /stories/{id}/locales/{localeId}/schedules` with
 `requestId`, `checkpointId`, `referenceChoices`, `dueAt`, `timezone`, `localTime`,
 `expectedScheduleId` and `expectedRevision` (the last two are null for a page
 without an active schedule). Supply `releaseName` to create a release, or
-`release: { id, revision }` to join an existing one. For an existing release send
-its shared time and timezone. When changing an active membership, also send its
-`expectedReleaseRevision`. Linked pages selected for publication become members.
+`release: { id, revision }` to join an existing one. For a new immediate release,
+send `now: true` and `timezone` in place of `dueAt` and `localTime`. When joining
+an existing release you can omit all three time fields. When changing an active
+membership, also send its `expectedReleaseRevision`. Linked pages selected for
+publication become members.
 
 A page locale belongs to at most one active release. Scheduling responses include
 `active`, `releaseId`, `releaseName`, `releaseRevision` and `releaseStatus`.

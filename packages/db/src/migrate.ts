@@ -54,6 +54,7 @@ export async function migrate(
       '036_vercel_deploy_hooks',
       '037_story_locale_availability',
       '038_immediate_releases',
+      '039_draft_releases',
     ]) {
       if (included && !included.has(name)) continue;
       if (
