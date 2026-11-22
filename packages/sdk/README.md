@@ -493,8 +493,11 @@ immutable deployed history; `active.json` is the editable target schema. New
 fields and definitions may omit their IDs; push assigns and persists IDs before
 sending them.
 
-Existing IDs preserve renames, including nested blocks. Field order
-in the array controls editor order. Definition API names cannot be renamed. Version 2 migration files also carry
+Keep the definition ID and edit `schema.name` in a CLI migration to rename a
+component API identifier. Choose an unused name and update component names in
+picker samples and application renderers before deploying the migration. Existing
+IDs also preserve field renames, including nested blocks. Field order in the
+array controls editor order. Version 2 migration files also carry
 `parentDefinitionId` beside each definition’s `schema`; preserve these IDs to keep
 the library hierarchy. Version 1 files remain supported and omitted parent metadata
 preserves the current parent.

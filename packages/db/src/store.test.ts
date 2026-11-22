@@ -4398,6 +4398,52 @@ describe('shared schema migrations', () => {
     ).not.toHaveProperty('image');
     expect((await pool.query('SELECT id FROM assets WHERE id=$1', [assetId])).rowCount).toBe(1);
   });
+  it('renames a definition in a CLI migration without changing block identities or values', async () => {
+    const [base] = await store.listMigrations(alice);
+    const hero = base.definitions.find((item) => item.name === 'hero')!;
+    const block = blockNamed(snapshot, 'hero');
+    await run(alice, snapshot, {
+      ...commandBase(),
+      type: 'publishCheckpoint',
+      payload: { checkpointId: snapshot.checkpointId! },
+    });
+    const { story, locale } = snapshot;
+    const published = await store.getPublished(alice, story.id, locale.id);
+    expect(published).not.toBeNull();
+    const file = {
+      formatVersion: 2,
+      id: randomUUID(),
+      spaceId: alice.spaceId,
+      version: base.version + 1,
+      baseVersion: base.version,
+      name: 'Rename hero',
+      status: 'active',
+      remoteRevision: null,
+      sourceHash: null,
+      definitions: portableDefinitions(base.definitions),
+    };
+    const target = file.definitions.find((item) => item.id === hero.id)!;
+    target.schema.name = 'footer';
+    await expect(store.pushMigration(alice, file)).rejects.toMatchObject({ code: 'invalid' });
+    expect(await store.listMigrations(alice, true)).toEqual([base]);
+    target.schema.name = 'regional_hero';
+    const staged = await store.pushMigration(alice, file);
+    expect(staged.definitions.find((item) => item.id === hero.id)?.name).toBe('regional_hero');
+    expect(await store.getPublished(alice, story.id, locale.id)).toEqual(published);
+
+    await deployActive();
+    expect(blockNamed(snapshot, 'regional_hero')).toMatchObject({
+      id: block.id,
+      definitionId: hero.id,
+      fields: block.fields,
+    });
+    expect((await store.getPublished(alice, story.id, locale.id))?.content).toMatchObject({
+      [block.parentField!]: expect.arrayContaining([
+        expect.objectContaining({ ...block.fields, _uid: block.id, component: 'regional_hero' }),
+      ]),
+    });
+    expect((await store.listMigrations(alice))[0]).toEqual(base);
+  });
   it('stages CLI migrations atomically and enforces management token capabilities and revocation', async () => {
     const token = await store.createManagementToken(alice, { name: 'CI', capability: 'stage' });
     const actor = await store.authenticateManagement(token.token, alice.spaceId);

@@ -3048,8 +3048,12 @@ export class StorypaneStore {
         for (const item of input.definitions) {
           const prior = old.find((definition) => definition.id === item.id);
           if (prior && prior.name !== item.schema.name)
-            throw new StorypaneError('invalid', 'Definition API names cannot be renamed');
-          if (!prior)
+            await client.query('UPDATE definitions SET name=$3 WHERE id=$1 AND space_id=$2', [
+              item.id,
+              actor.spaceId,
+              item.schema.name,
+            ]);
+          else if (!prior)
             await client.query(
               'INSERT INTO definitions(id,space_id,name) VALUES($1,$2,$3) ON CONFLICT(id) DO NOTHING',
               [item.id, actor.spaceId, item.schema.name],
