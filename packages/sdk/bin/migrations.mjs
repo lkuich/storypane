@@ -14,7 +14,13 @@ const canonical = (value) =>
   );
 export const contentHash = (file) =>
   createHash('sha256')
-    .update(canonical({ name: file.name, definitions: file.definitions }))
+    .update(
+      canonical({
+        name: file.name,
+        definitions: file.definitions,
+        rootReplacements: file.rootReplacements?.length ? file.rootReplacements : undefined,
+      }),
+    )
     .digest('hex');
 export async function writeAtomic(path, value, exclusive = false) {
   await mkdir(dirname(path), { recursive: true });
@@ -98,6 +104,21 @@ export function validateMigration(file) {
       if (field.id) fieldIds.add(field.id);
     }
   }
+  if (
+    file.rootReplacements !== undefined &&
+    (!Array.isArray(file.rootReplacements) ||
+      file.rootReplacements.length > 100 ||
+      file.rootReplacements.some(
+        (item) =>
+          !item ||
+          !uuid.test(item.sourceId) ||
+          !uuid.test(item.targetId) ||
+          !item.fields ||
+          typeof item.fields !== 'object' ||
+          Array.isArray(item.fields),
+      ))
+  )
+    throw new Error('Invalid root replacements');
   return file;
 }
 export function migrationFile(migration) {
@@ -124,6 +145,7 @@ export function migrationFile(migration) {
     name: migration.name,
     status: migration.status,
     definitions,
+    ...(migration.rootReplacements?.length ? { rootReplacements: migration.rootReplacements } : {}),
     remoteRevision: migration.revision,
     sourceHash: null,
   };

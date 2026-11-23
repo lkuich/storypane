@@ -55,6 +55,7 @@ export async function migrate(
       '037_story_locale_availability',
       '038_immediate_releases',
       '039_draft_releases',
+      '040_root_replacements',
     ]) {
       if (included && !included.has(name)) continue;
       if (

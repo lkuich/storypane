@@ -530,6 +530,20 @@ Drafts and live publications migrate separately in one transaction, so deploying
 schemas never publishes unfinished edits. Old values remain in history. Restores
 apply intervening migrations; restore an older checkpoint before publishing it.
 
+### Consolidating page types
+
+In a format 2 migration, add `rootReplacements` entries with a deployed
+`sourceId`, a destination `targetId`, and `fields` to initialize on the new root.
+Use matching field names and types for existing values and child blocks. The
+transaction keeps story, locale and block IDs and migrates drafts and published
+snapshots separately. Historical checkpoints are converted on restore.
+
+The review blocks data loss, incompatible folders, and changes to scoped role
+access. You can omit a source definition from the resulting schema once its only
+uses are roots that this migration replaces. Deleted stories and nested uses
+still block retirement. Ship rendering compatibility before deploying a
+migration that changes delivered component names.
+
 ### Linked development and production spaces
 
 For new teams, create **Production** first for content editors, keep its schema

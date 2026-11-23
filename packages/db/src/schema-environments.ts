@@ -67,6 +67,7 @@ export async function captureSchema(store: StorypaneStore, actor: Actor) {
         name: m.name,
         definitions: portable(m),
         destructive: m.destructive,
+        rootReplacements: m.rootReplacements,
       });
     const active = history.find((m) => m.status === 'active');
     const receipts = (
@@ -90,6 +91,7 @@ export async function captureSchema(store: StorypaneStore, actor: Actor) {
           name: m.name,
           definitions: portable(m),
           destructive: m.destructive,
+          rootReplacements: m.rootReplacements,
         })),
       definitions: portable(head),
       branch,
@@ -313,6 +315,7 @@ export async function transferSchema(
         name: `Sync: ${incoming.name}`.slice(0, 120),
         definitions: working,
         destructive: incoming.destructive,
+        rootReplacements: incoming.rootReplacements,
       });
     }
     if (schemaDigest(working) !== schemaDigest(merged))
@@ -422,6 +425,7 @@ export async function transferSchema(
             baseVersion: base.version,
             name: step.name,
             definitions,
+            rootReplacements: step.rootReplacements,
             remoteRevision: null,
             sourceHash: null,
             status: 'active',
@@ -510,6 +514,7 @@ export async function transferSchema(
                 baseVersion: deployed.version,
                 name: source.active.migration.name,
                 definitions: source.active.definitions,
+                rootReplacements: source.active.migration.rootReplacements,
                 remoteRevision: null,
                 sourceHash: null,
                 status: 'active',

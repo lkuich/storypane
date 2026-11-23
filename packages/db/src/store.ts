@@ -70,6 +70,8 @@ import {
   definitionInput,
   migrateSnapshot,
   migrationChanges,
+  contentScopesSchema,
+  jsonSchema,
   type SchemaMigration,
   type MigrationReview,
   type ManagementToken,
@@ -312,6 +314,7 @@ const migrationRow = (row: Row): SchemaMigration => ({
   deployedAt: row.deployed_at ? iso(row.deployed_at) : null,
   deployedBy: row.deployed_by,
   destructive: row.destructive ?? false,
+  ...(row.root_replacements?.length ? { rootReplacements: row.root_replacements } : {}),
 });
 const digest = (value: unknown) => createHash('sha256').update(canonicalJson(value)).digest('hex');
 const migrationTarget = (migration: SchemaMigration) =>
@@ -2743,13 +2746,19 @@ export class StorypaneStore {
     actor: Actor,
     definitionId: string,
     definitions: BlockDefinition[],
+    replacingRoots = false,
   ): Promise<void> {
     const usage = await client.query(
       `SELECT EXISTS(SELECT 1 FROM block_drafts b JOIN definition_versions v ON v.id=b.schema_version_id
-        JOIN story_locales l ON l.id=b.locale_id JOIN stories s ON s.id=l.story_id WHERE s.space_id=$1 AND v.definition_id=$2)
+        JOIN story_locales l ON l.id=b.locale_id JOIN stories s ON s.id=l.story_id WHERE s.space_id=$1 AND v.definition_id=$2
+          AND NOT ($4::boolean AND s.deleted_at IS NULL AND b.id=l.root_block_id))
         OR EXISTS(SELECT 1 FROM stories s JOIN story_locales l ON l.story_id=s.id JOIN publications p ON p.id=l.published_version_id
-        WHERE s.space_id=$1 AND p.snapshot->'blocks' @> $3::jsonb) AS used`,
-      [actor.spaceId, definitionId, JSON.stringify([{ definitionId }])],
+        WHERE s.space_id=$1 AND p.snapshot->'blocks' @> $3::jsonb
+          AND (NOT $4::boolean OR s.deleted_at IS NOT NULL OR EXISTS (
+            SELECT 1 FROM jsonb_array_elements(p.snapshot->'blocks') block
+            WHERE block->>'definitionId'=($2::uuid)::text
+              AND (block->>'id') IS DISTINCT FROM l.root_block_id::text))) AS used`,
+      [actor.spaceId, definitionId, JSON.stringify([{ definitionId }]), replacingRoots],
     );
     if (usage.rows[0].used)
       throw new StorypaneError(
@@ -2973,6 +2982,18 @@ export class StorypaneStore {
                 .strict(),
             )
             .max(10000),
+          rootReplacements: z
+            .array(
+              z
+                .object({
+                  sourceId: z.uuid(),
+                  targetId: z.uuid(),
+                  fields: z.record(z.string().regex(/^[a-z][a-z0-9_]{0,79}$/), jsonSchema),
+                })
+                .strict(),
+            )
+            .max(100)
+            .default([]),
           remoteRevision: z.number().int().positive().nullable(),
           sourceHash: z.string().nullable(),
           status: z.literal('active'),
@@ -3002,6 +3023,7 @@ export class StorypaneStore {
           previous &&
           digest({
             name: previous.name,
+            rootReplacements: previous.rootReplacements ?? [],
             definitions:
               input.formatVersion === 2
                 ? portableDefinitions(previous.definitions)
@@ -3009,6 +3031,7 @@ export class StorypaneStore {
           }) ===
             digest({
               name: input.name,
+              rootReplacements: input.rootReplacements,
               definitions:
                 input.formatVersion === 2
                   ? [...input.definitions].sort((a, b) => a.id.localeCompare(b.id))
@@ -3045,6 +3068,33 @@ export class StorypaneStore {
             'invalid',
             'Delete blocks from the CMS schema editor, then pull the updated migration',
           );
+        const sources = new Set(input.rootReplacements.map((item) => item.sourceId));
+        if (sources.size !== input.rootReplacements.length)
+          throw new StorypaneError('invalid', 'Each root type can only be replaced once');
+        for (const { sourceId, targetId, fields } of input.rootReplacements) {
+          const source = base.definitions.find((item) => item.id === sourceId);
+          const target = input.definitions.find((item) => item.id === targetId)?.schema;
+          if (
+            input.formatVersion !== 2 ||
+            !source ||
+            source.kind !== 'content-type' ||
+            !target ||
+            target.kind !== 'content-type' ||
+            sources.has(targetId)
+          )
+            throw new StorypaneError('invalid', 'Root replacements require distinct content types');
+          if (
+            Object.keys(fields).some(
+              (name) =>
+                source.fields.some((field) => field.name === name) ||
+                !target.fields.some((field) => field.name === name && field.type !== 'blocks'),
+            )
+          )
+            throw new StorypaneError('invalid', 'Root replacements can only initialize new fields');
+          const issues = validateFields(target, fields);
+          if (issues.length)
+            throw new StorypaneError('invalid', 'Invalid root replacement values', issues);
+        }
         // Create identities first so newly added definitions can reference one another.
         for (const item of input.definitions) {
           const prior = old.find((definition) => definition.id === item.id);
@@ -3116,7 +3166,7 @@ export class StorypaneStore {
           );
         const row = (
           await client.query(
-            "INSERT INTO schema_migrations(id,space_id,version,base_version,name,status,definitions,contributors) VALUES($1,$2,$3,$4,$5,'active',$6,ARRAY[$7]::text[]) ON CONFLICT(id) DO UPDATE SET name=EXCLUDED.name,definitions=EXCLUDED.definitions,revision=schema_migrations.revision+1,contributors=ARRAY(SELECT DISTINCT unnest(schema_migrations.contributors || EXCLUDED.contributors)) RETURNING *",
+            "INSERT INTO schema_migrations(id,space_id,version,base_version,name,status,definitions,contributors,root_replacements) VALUES($1,$2,$3,$4,$5,'active',$6,ARRAY[$7]::text[],$8) ON CONFLICT(id) DO UPDATE SET name=EXCLUDED.name,definitions=EXCLUDED.definitions,root_replacements=EXCLUDED.root_replacements,revision=schema_migrations.revision+1,contributors=ARRAY(SELECT DISTINCT unnest(schema_migrations.contributors || EXCLUDED.contributors)) RETURNING *",
             [
               input.id,
               actor.spaceId,
@@ -3125,6 +3175,7 @@ export class StorypaneStore {
               input.name,
               JSON.stringify(definitions),
               actor.userId,
+              JSON.stringify(input.rootReplacements),
             ],
           )
         ).rows[0];
@@ -3151,7 +3202,13 @@ export class StorypaneStore {
     migration: SchemaMigration,
     destructive = false,
   ) {
-    const result = migrateSnapshot(source, migration.definitions, migration.version, destructive);
+    const result = migrateSnapshot(
+      source,
+      migration.definitions,
+      migration.version,
+      destructive,
+      migration.rootReplacements,
+    );
     if (destructive)
       for (const block of result.snapshot.blocks) {
         const definition = result.snapshot.definitions.find(
@@ -3214,13 +3271,20 @@ export class StorypaneStore {
     const blockers: MigrationReview['blockers'] = [],
       impacts: MigrationReview['impacts'] = [],
       changes = migrationChanges(base.definitions, migration.definitions);
+    const replacements = migration.rootReplacements ?? [];
     const plans: { draft: LocaleSnapshot; published?: LocaleSnapshot }[] = [],
       heads: unknown[] = [];
     for (const removed of base.definitions.filter(
       (item) => !migration.definitions.some((next) => next.id === item.id),
     )) {
       try {
-        await this.assertDefinitionUnused(client, actor, removed.id, migration.definitions);
+        await this.assertDefinitionUnused(
+          client,
+          actor,
+          removed.id,
+          migration.definitions,
+          replacements.some((item) => item.sourceId === removed.id),
+        );
       } catch (error) {
         if (!(error instanceof StorypaneError)) throw error;
         blockers.push({ path: removed.name, message: error.message });
@@ -3244,6 +3308,47 @@ export class StorypaneStore {
             path: `${definition.name}.${field.name}`,
             message: 'Allowed blocks includes a deleted block. Update this field before deploying.',
           });
+    }
+    if (replacements.length) {
+      if (destructive)
+        blockers.push({ path: 'rootReplacements', message: 'Root replacements must be lossless' });
+      const roles = (
+        await client.query(
+          "SELECT id,content_scopes FROM space_roles WHERE space_id=$1 AND id<>'admin'",
+          [actor.spaceId],
+        )
+      ).rows;
+      for (const role of roles) {
+        const scopes = contentScopesSchema.parse(role.content_scopes);
+        if (
+          Object.values(scopes).some(
+            (scope) =>
+              scope.fieldIds !== null ||
+              (scope.definitionIds &&
+                replacements.some(
+                  ({ sourceId, targetId }) =>
+                    scope.definitionIds!.includes(sourceId) !==
+                    scope.definitionIds!.includes(targetId),
+                )),
+          )
+        )
+          blockers.push({
+            path: `role:${role.id}`,
+            message:
+              'Root replacement would affect field or content type access. Review the role scope first.',
+          });
+      }
+      for (const item of replacements) {
+        const source = base.definitions.find((definition) => definition.id === item.sourceId);
+        const destination = migration.definitions.find(
+          (definition) => definition.id === item.targetId,
+        );
+        changes.push({
+          definition: source?.name ?? item.sourceId,
+          kind: 'changed',
+          after: { rootType: destination?.name ?? item.targetId, ...item.fields },
+        });
+      }
     }
     const folders = await this.folders(client, actor.spaceId);
     for (const folder of folders)
@@ -3284,8 +3389,11 @@ export class StorypaneStore {
           client,
           target === 'draft' ? draft : publication.snapshot,
         );
+        const root = source.blocks.find((block) => block.id === source.locale.rootBlockId);
+        const replacement = replacements.find((item) => item.sourceId === root?.definitionId);
         const missing = source.blocks.find(
           (block) =>
+            !(block.id === root?.id && replacement) &&
             !migration.definitions.some((definition) => definition.id === block.definitionId),
         );
         if (missing) {
@@ -3312,6 +3420,26 @@ export class StorypaneStore {
             if (!changes.some((existing) => digest(existing) === digest(change)))
               changes.push(change);
         const result = await this.migrateContent(client, actor, source, migration, destructive);
+        if (replacement) {
+          if (result.deletedBlocks || result.deletedValues || result.resetValues)
+            blockers.push({
+              path: draft.story.name,
+              message: 'Root replacement would lose content',
+              storyId: draft.story.id,
+              target,
+            });
+          try {
+            this.checkFolderType(folders, draft.story.folderId ?? null, replacement.targetId);
+          } catch (error) {
+            if (!(error instanceof StorypaneError)) throw error;
+            blockers.push({
+              path: draft.story.name,
+              message: error.message,
+              storyId: draft.story.id,
+              target,
+            });
+          }
+        }
         plan[target] = result.snapshot;
         impacts.push({
           storyId: draft.story.id,

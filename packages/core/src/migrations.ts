@@ -6,7 +6,14 @@ import {
   type DefinitionInput,
   type FieldDefinition,
   type LocaleSnapshot,
+  type Json,
 } from './index.js';
+
+export type RootReplacement = {
+  sourceId: string;
+  targetId: string;
+  fields: Record<string, Json>;
+};
 
 export type SchemaMigration = {
   id: string;
@@ -22,6 +29,7 @@ export type SchemaMigration = {
   deployedAt: string | null;
   deployedBy: string | null;
   destructive?: boolean;
+  rootReplacements?: RootReplacement[];
 };
 export type MigrationFile = {
   formatVersion: 1 | 2;
@@ -31,6 +39,7 @@ export type MigrationFile = {
   baseVersion: number;
   name: string;
   definitions: { id: string; parentDefinitionId?: string | null; schema: DefinitionInput }[];
+  rootReplacements?: RootReplacement[];
   remoteRevision: number | null;
   sourceHash: string | null;
   status: 'active' | 'deployed';
@@ -183,6 +192,7 @@ export function migrateSnapshot(
   definitions: BlockDefinition[],
   migrationVersion: number,
   destructive = false,
+  rootReplacements: readonly RootReplacement[] = [],
 ) {
   const snapshot = structuredClone(source);
   let deletedValues = 0,
@@ -190,6 +200,18 @@ export function migrateSnapshot(
   const valueLosses = new Map<string, { deleted: number; reset: number }>();
   const removed = new Set<string>(),
     original = new Map(source.blocks.map((block) => [block.id, block]));
+  const rootId = rootReplacements.length ? source.locale.rootBlockId : '';
+  const replacement = rootReplacements.find(
+    (item) => item.sourceId === original.get(rootId)?.definitionId,
+  );
+  const destination = replacement && definitions.find((item) => item.id === replacement.targetId);
+  if (replacement && (!destination || destination.kind === 'nestable'))
+    throw new StorypaneError('invalid', 'Root replacement needs a destination content type');
+  const targetFor = (block: LocaleSnapshot['blocks'][number]) =>
+    (block.id === rootId && destination) ||
+    definitions.find((item) => item.id === block.definitionId);
+  const sameField = (blockId: string, a: FieldDefinition, b: FieldDefinition) =>
+    blockId === rootId && replacement ? a.name === b.name : a.id === b.id;
   function remove(id: string) {
     if (removed.has(id)) return;
     removed.add(id);
@@ -199,10 +221,10 @@ export function migrateSnapshot(
     const old = source.definitions.find(
         (definition) => definition.versionId === block.schemaVersionId,
       ),
-      target = definitions.find((definition) => definition.id === block.definitionId);
+      target = targetFor(block);
     for (const field of old?.fields ?? [])
       if (field.type === 'blocks') {
-        const next = target?.fields.find((item) => item.id === field.id);
+        const next = target?.fields.find((item) => sameField(block.id, item, field));
         if (!next || !compatibleFields(field, next))
           for (const child of source.blocks)
             if (child.parentId === block.id && child.parentField === field.name) remove(child.id);
@@ -213,14 +235,14 @@ export function migrateSnapshot(
     const old = source.definitions.find(
       (definition) => definition.versionId === block.schemaVersionId,
     );
-    const target = definitions.find((definition) => definition.id === block.definitionId);
+    const target = targetFor(block);
     if (!old || !target)
       throw new StorypaneError('invalid', 'Migration is missing a block definition');
     const previousDeleted = deletedValues,
       previousReset = resetValues;
     const fields: typeof block.fields = {};
     for (const field of old.fields) {
-      const next = target.fields.find((item) => item.id === field.id);
+      const next = target.fields.find((item) => sameField(block.id, item, field));
       if (!next || !compatibleFields(field, next)) {
         if (field.type === 'blocks') {
           for (const child of source.blocks)
@@ -232,7 +254,7 @@ export function migrateSnapshot(
       }
     }
     for (const field of target.fields) {
-      const previous = old.fields.find((item) => item.id === field.id);
+      const previous = old.fields.find((item) => sameField(block.id, item, field));
       if (previous && compatibleFields(previous, field)) {
         if (field.type === 'blocks') {
           for (const child of snapshot.blocks)
@@ -245,6 +267,17 @@ export function migrateSnapshot(
           fields[field.name] = block.fields[previous.name]!;
       } else if (field.type !== 'blocks' && field.defaultValue !== undefined)
         fields[field.name] = structuredClone(field.defaultValue);
+    }
+    if (block.id === rootId && replacement) {
+      for (const [name, value] of Object.entries(replacement.fields)) {
+        if (
+          old.fields.some((field) => field.name === name) ||
+          !target.fields.some((field) => field.name === name && field.type !== 'blocks')
+        )
+          throw new StorypaneError('invalid', 'Root replacements can only initialize new fields');
+        fields[name] = structuredClone(value);
+      }
+      block.definitionId = target.id;
     }
     block.fields = fields;
     block.schemaVersionId = target.versionId;

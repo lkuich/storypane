@@ -4510,6 +4510,100 @@ describe('shared schema migrations', () => {
     });
     expect((await store.listMigrations(alice))[0]).toEqual(base);
   });
+  it('replaces a story root without publishing an unfinished draft or losing its history', async () => {
+    const [base] = await store.listMigrations(alice);
+    const source = base.definitions.find((item) => item.name === 'page')!;
+    const targetId = randomUUID();
+    const definitions = portableDefinitions(base.definitions);
+    const previousSchema = definitions.find((item) => item.id === source.id)!.schema;
+    const { story, locale, checkpointId } = snapshot;
+    const footer = blockNamed(snapshot, 'footer');
+    await run(alice, snapshot, {
+      ...commandBase(),
+      type: 'publishCheckpoint',
+      payload: { checkpointId: checkpointId! },
+    });
+    await save(alice, snapshot, footer, { ...footer.fields, text: 'Draft only' });
+    const draft = await store.getSnapshot(alice, story.id, locale.id);
+    const file = {
+      formatVersion: 2,
+      id: randomUUID(),
+      spaceId: alice.spaceId,
+      version: base.version + 1,
+      baseVersion: base.version,
+      name: 'Generalize page type',
+      status: 'active',
+      remoteRevision: null,
+      sourceHash: null,
+      definitions: [
+        ...definitions.filter((item) => item.id !== source.id),
+        {
+          id: targetId,
+          parentDefinitionId: null,
+          schema: {
+            ...previousSchema,
+            name: 'shared_page',
+            fields: [
+              ...previousSchema.fields.map((field) => ({ ...field, id: randomUUID() })),
+              { id: randomUUID(), name: 'layout', label: 'Layout', type: 'text' },
+            ],
+          },
+        },
+      ],
+      rootReplacements: [{ sourceId: source.id, targetId, fields: { layout: 'about' } }],
+    };
+    const staged = await store.pushMigration(alice, file);
+    expect(await store.pushMigration(alice, file)).toEqual(staged);
+    const roleScopes = (scopes: object) =>
+      pool.query("UPDATE space_roles SET content_scopes=$2 WHERE space_id=$1 AND id='editor'", [
+        alice.spaceId,
+        JSON.stringify(contentScopesSchema.parse(scopes)),
+      ]);
+    await roleScopes({ read: { definitionIds: [targetId] } });
+    expect((await store.reviewMigration(alice, staged.id)).blockers).toEqual(
+      expect.arrayContaining([expect.objectContaining({ path: 'role:editor' })]),
+    );
+    await roleScopes({});
+    const review = await store.reviewMigration(alice, staged.id);
+    expect(review.blockers).toEqual([]);
+    expect(review.confirmation).toBeNull();
+    expect((await store.reviewMigration(alice, staged.id, true)).blockers).toEqual(
+      expect.arrayContaining([expect.objectContaining({ path: 'rootReplacements' })]),
+    );
+    await store.deployMigration(alice, staged.id, review.token);
+
+    const migrated = await store.getSnapshot(alice, story.id, locale.id);
+    expect(migrated.locale).toMatchObject({
+      id: locale.id,
+      rootBlockId: locale.rootBlockId,
+      urlSlug: locale.urlSlug,
+    });
+    expect(migrated.blocks.map((item) => item.id).sort()).toEqual(
+      draft.blocks.map((item) => item.id).sort(),
+    );
+    expect(blockNamed(migrated, 'footer').fields.text).toBe('Draft only');
+    expect(migrated.publicationStatus).toBe('changed');
+    expect((await store.getPublished(alice, story.id, locale.id))?.content).toMatchObject({
+      _uid: locale.rootBlockId,
+      component: 'shared_page',
+      layout: 'about',
+      body: expect.arrayContaining([
+        expect.objectContaining({ _uid: footer.id, text: footer.fields.text }),
+      ]),
+    });
+    const history = await store.getCheckpoint(alice, story.id, locale.id, checkpointId!);
+    expect(history.content).toMatchObject({ component: 'page' });
+    const root = blockNamed(migrated, 'shared_page');
+    const own = await lease(alice, migrated, root);
+    const restored = await run(alice, migrated, {
+      ...commandBase({ block: root, lease: own }),
+      expectedRevisions: { [root.id]: root.revision, $locale: migrated.revision },
+      type: 'restorePage',
+      payload: { checkpointId: checkpointId! },
+    });
+    expect(blockNamed(restored.snapshot, 'shared_page').fields.layout).toBe('about');
+    expect(blockNamed(restored.snapshot, 'footer').fields.text).toBe(footer.fields.text);
+  });
   it('stages CLI migrations atomically and enforces management token capabilities and revocation', async () => {
     const token = await store.createManagementToken(alice, { name: 'CI', capability: 'stage' });
     const actor = await store.authenticateManagement(token.token, alice.spaceId);

@@ -9,6 +9,7 @@ import {
   type MigrationChange,
   type MigrationImpact,
   type MigrationBlocker,
+  type RootReplacement,
 } from './index.js';
 
 export const portableDefinitionSchema = z
@@ -24,6 +25,7 @@ export type SchemaStep = {
   name: string;
   definitions: PortableDefinition[];
   destructive?: boolean;
+  rootReplacements?: RootReplacement[];
 };
 export const schemaResolutionsSchema = z.record(z.string().max(500), z.enum(['dev', 'prod']));
 export type SchemaResolutions = z.infer<typeof schemaResolutionsSchema>;
