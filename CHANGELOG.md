@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.0-rc.17 — 2026-11-23
+
+- Story and folder slug changes update open editors. The page location dialog starts on the displayed locale when there is one and previews the full localized URL. Publish the affected locales to make the new URLs live.
+- Create draft releases without a date, then choose when to publish them. Apply space migration `039_draft_releases` when upgrading from rc.16.
+- Rename component API names in schema migrations while preserving component identity.
+- Live preview selections focus linked editor fields. The story pin now uses a row action, and the rich-text dark background works in production builds.
+- Short bursts of concurrent requests wait for space database capacity.
+
 ## 0.1.0-rc.16 — 2026-11-20
 
 - Click a locale name or checkbox to filter Content. This fixes a Chrome tab crash when clicking the name.

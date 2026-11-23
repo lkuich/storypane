@@ -157,7 +157,7 @@ media is not overwritten by a failed upload.
 
 ## CLI
 
-Install the SDK in your project with `npm install @storypane/sdk@0.1.0-rc.16`, then
+Install the SDK in your project with `npm install @storypane/sdk@0.1.0-rc.17`, then
 run `storypane` through your package manager (for example, `pnpm exec storypane`). The [SDK guide](../packages/sdk/README.md) also covers local builds and the verified
 GitHub archive. Use an explicit version or `@storypane/sdk@rc` for this candidate. `storypane --help` lists the supported resource commands.
 
@@ -386,7 +386,7 @@ Configure your MCP client with these private environment values:
   "mcpServers": {
     "storypane": {
       "command": "npx",
-      "args": ["--yes", "--package=@storypane/sdk@0.1.0-rc.16", "storypane", "mcp"],
+      "args": ["--yes", "--package=@storypane/sdk@0.1.0-rc.17", "storypane", "mcp"],
       "env": {
         "STORYPANE_URL": "http://127.0.0.1:3130",
         "STORYPANE_SPACE_ID": "your-space-id",
