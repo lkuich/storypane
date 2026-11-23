@@ -555,10 +555,21 @@ describe('Postgres collaboration and immutable history', () => {
     const key = await store.createDeliveryToken(alice, { name: 'Website', scope: 'preview' });
     const own = await lease(bob, page, blockNamed(page, 'page'));
     const { id, ...settings } = folder;
+    const changed = vi.fn(async () => {
+      const current = await store.getSnapshot(alice, page.story.id, page.locale.id);
+      expect(current.locale.urlSlug).toBe('learn/intro/details');
+    });
     await store.saveFolder(
       alice,
       { ...settings, slug: 'learn', localeSlugs: { [french.id]: 'apprendre' } },
       id,
+      changed,
+    );
+    expect(changed).toHaveBeenCalledWith(
+      expect.arrayContaining([
+        { storyId: page.story.id, localeId: page.locale.id },
+        { storyId: page.story.id, localeId: translated.locale.id },
+      ]),
     );
     const draft = await store.getSnapshot(alice, page.story.id, page.locale.id);
     const frenchDraft = await store.getSnapshot(alice, page.story.id, translated.locale.id);
@@ -630,6 +641,61 @@ describe('Postgres collaboration and immutable history', () => {
       payload: { blockId: draft.locale.rootBlockId, fields: { title: 'Still editing' } },
     });
     expect(edited.snapshot.locale.urlSlug).toBe('learn/intro/details');
+  });
+  it('marks a localized slug rename as pending and publishes it through the content table action', async () => {
+    const canadian = await store.createSpaceLocale(alice, { name: 'Canada', slug: 'ca' });
+    const page = await store.createStory(alice, {
+      name: 'Canadian homepage',
+      slug: 'canadian-homepage',
+      definitionId: blockNamed(snapshot, 'page').definitionId,
+      spaceLocaleId: canadian.id,
+    });
+    await run(alice, page, {
+      ...commandBase(),
+      type: 'publishCheckpoint',
+      payload: { checkpointId: page.checkpointId! },
+    });
+    const changed = vi.fn(async () => {});
+    await store.updateStoryLocation(
+      alice,
+      page.story.id,
+      { folderId: null, slug: 'canadian-homepage', localeSlugs: { [canadian.id]: 'home' } },
+      changed,
+    );
+    expect(changed).toHaveBeenCalledWith([{ storyId: page.story.id, localeId: page.locale.id }]);
+    expect(await store.getSnapshot(alice, page.story.id, page.locale.id)).toMatchObject({
+      publicationStatus: 'changed',
+      locale: { urlSlug: 'home' },
+    });
+    expect(
+      (await store.listStories(alice)).find((story) => story.id === page.story.id),
+    ).toMatchObject({
+      publicationStatus: 'changed',
+      path: '/ca/home',
+    });
+    const [locale] = (await store.reviewStoryAction(alice, page.story.id)).locales;
+    const [published] = await store.bulkStoryAction(alice, {
+      items: [
+        {
+          storyId: page.story.id,
+          input: {
+            action: 'publish',
+            requestId: randomUUID(),
+            locales: [
+              {
+                id: locale.id,
+                checkpointId: locale.checkpointId,
+                publicationId: locale.publicationId,
+              },
+            ],
+          },
+        },
+      ],
+    });
+    expect(published.error).toBeFalsy();
+    expect((await store.reviewStoryAction(alice, page.story.id)).locales[0].publishedUrlSlug).toBe(
+      'home',
+    );
   });
   it('moves pages, validates translated collisions, and protects occupied published URLs', async () => {
     const type = blockNamed(snapshot, 'page').definitionId;

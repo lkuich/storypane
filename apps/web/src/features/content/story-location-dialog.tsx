@@ -40,6 +40,12 @@ export function StoryLocationDialog({
       .then((items) => {
         if (!stopped) {
           setLocales(items);
+          const visibleLocale = story.versions?.length === 1 ? story.versions[0] : undefined;
+          const initialLocale =
+            items.find((item) => item.id === visibleLocale?.id) ??
+            items.find((item) => !item.slug) ??
+            items[0];
+          setLanguage(initialLocale?.slug ? initialLocale.spaceLocaleId : '');
           setTranslations(
             Object.fromEntries(
               items
@@ -58,13 +64,14 @@ export function StoryLocationDialog({
     return () => {
       stopped = true;
     };
-  }, [story.id, attempt]);
+  }, [story.id, story.versions, attempt]);
   const available = folders.filter(
     (folder) =>
       !folder.allowedDefinitionIds.length ||
       (story.contentType && folder.allowedDefinitionIds.includes(story.contentType.id)),
   );
   const preview = [
+    locales.find((item) => item.spaceLocaleId === language)?.slug,
     folderPath(folders, folderId, language || undefined),
     language ? translations[language] : slug,
   ]
@@ -132,7 +139,7 @@ export function StoryLocationDialog({
                 value={language}
                 onChange={(event) => setLanguage(event.target.value)}
               >
-                <option value="">Base path</option>
+                {locales.some((item) => !item.slug) && <option value="">Base path</option>}
                 {locales
                   .filter((item) => item.slug)
                   .map((item) => (

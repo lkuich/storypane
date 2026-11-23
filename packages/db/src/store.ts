@@ -133,6 +133,7 @@ import {
 
 const pendingLocaleSql =
   "p.id IS NULL OR c.content IS DISTINCT FROM p.content OR coalesce(p.snapshot->'locale'->>'urlSlug',l.url_slug) IS DISTINCT FROM l.url_slug";
+type PathChange = { storyId: string; localeId: string };
 const tokenHash = (token: string) => createHash('sha256').update(token).digest('hex');
 const secretToken = (prefix: string) => `${prefix}_${randomBytes(32).toString('base64url')}`;
 const deliveryQuerySchema = z
@@ -3703,6 +3704,7 @@ export class StorypaneStore {
     folders: ContentFolder[],
     forceStoryId?: string,
   ) {
+    const changed: PathChange[] = [];
     const locales = (
       await client.query(
         'SELECT l.* FROM story_locales l JOIN stories s ON s.id=l.story_id WHERE s.space_id=$1 ORDER BY l.id FOR UPDATE OF l',
@@ -3746,8 +3748,10 @@ export class StorypaneStore {
       if (path !== locale.url_slug || story.id === forceStoryId) {
         await client.query('UPDATE story_locales SET url_slug=$2 WHERE id=$1', [locale.id, path]);
         await this.checkpoint(client, actor, story.id, locale.id, 'Update page path');
+        changed.push({ storyId: story.id, localeId: locale.id });
       }
     }
+    return changed;
   }
   private async requireFolderEdit(
     client: PoolClient,
@@ -3779,10 +3783,15 @@ export class StorypaneStore {
         'Changing folders requires access to all content in the folder',
       );
   }
-  async saveFolder(actor: Actor, raw: unknown, folderId?: string): Promise<ContentFolder> {
+  async saveFolder(
+    actor: Actor,
+    raw: unknown,
+    folderId?: string,
+    onPathsChanged?: (changed: PathChange[]) => Promise<void>,
+  ): Promise<ContentFolder> {
     const input = parseInput(folderInputSchema, raw);
     if (folderId) parseInput(z.uuid(), folderId);
-    return this.tx(
+    const { folder, changed } = await this.tx(
       actor,
       async (client) => {
         await this.lockPaths(client, actor.spaceId);
@@ -3810,11 +3819,13 @@ export class StorypaneStore {
             input.formOnly,
           ],
         );
-        if (folderId) await this.refreshPaths(client, actor, next);
-        return folder;
+        const changed = folderId ? await this.refreshPaths(client, actor, next) : [];
+        return { folder, changed };
       },
       'content:edit',
     );
+    await onPathsChanged?.(changed);
+    return folder;
   }
   async deleteFolder(actor: Actor, folderId: string): Promise<void> {
     parseInput(z.uuid(), folderId);
@@ -3885,10 +3896,15 @@ export class StorypaneStore {
       'content:edit',
     );
   }
-  async updateStoryLocation(actor: Actor, storyId: string, raw: unknown): Promise<Story> {
+  async updateStoryLocation(
+    actor: Actor,
+    storyId: string,
+    raw: unknown,
+    onPathsChanged?: (changed: PathChange[]) => Promise<void>,
+  ): Promise<Story> {
     parseInput(z.uuid(), storyId);
     const input = parseInput(storyLocationSchema, raw);
-    return this.tx(
+    const { story, changed } = await this.tx(
       actor,
       async (client) => {
         await this.lockPaths(client, actor.spaceId);
@@ -3938,8 +3954,8 @@ export class StorypaneStore {
                 locale.slug_segment ??
                 locale.url_slug),
           ]);
-        await this.refreshPaths(client, actor, folders, storyId);
-        return storyRow(
+        const changed = await this.refreshPaths(client, actor, folders, storyId);
+        const story = storyRow(
           (
             await client.query(
               'SELECT s.*,f.form_only FROM stories s LEFT JOIN content_folders f ON f.id=s.folder_id WHERE s.id=$1',
@@ -3947,9 +3963,12 @@ export class StorypaneStore {
             )
           ).rows[0],
         );
+        return { story, changed };
       },
       'content:edit',
     );
+    await onPathsChanged?.(changed);
+    return story;
   }
   async listStories(actor: Actor, deleted = false): Promise<StorySummary[]> {
     return this.tx(actor, async (client) => {

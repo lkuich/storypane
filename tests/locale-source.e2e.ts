@@ -1,7 +1,7 @@
 import { dismissRecommendedSetup } from './fixtures/recommended-setup';
 import { test, expect } from '@playwright/test';
 import { reviewInstallation } from './fixtures/review-installation';
-import type { LocaleSnapshot, StoryLocale, SpaceLocale } from '@storypane/core';
+import type { LocaleSnapshot, Story, StoryLocale, SpaceLocale } from '@storypane/core';
 
 test('create, compare, keep translations and apply scoped locale updates with keyboard and responsive layouts', async ({
   browser,
@@ -346,6 +346,73 @@ test('filter, create and manage a market-only story without creating versions on
       'aria-selected',
       'true',
     );
+  } finally {
+    await context.close();
+    await installation.close();
+  }
+});
+
+test('renames a localized path from Content and refreshes the open editor', async ({ browser }) => {
+  const installation = await reviewInstallation();
+  const context = await browser.newContext({
+    baseURL: installation.origin,
+    viewport: { width: 390, height: 844 },
+  });
+  try {
+    const { origin, spaceId } = installation;
+    const headers = { origin, 'x-storypane-space-id': spaceId };
+    const auth = await context.request.post('/api/auth/sign-in/email', {
+      headers,
+      data: { email: installation.people.admin.email, password: installation.password },
+    });
+    expect(auth.ok()).toBe(true);
+    const post = async (path: string, data: unknown) => {
+      const response = await context.request.post(`/api/cms${path}`, { headers, data });
+      expect(response.ok(), await response.text()).toBe(true);
+      return response.json();
+    };
+    const locale: SpaceLocale = await post('/locales', { name: 'Canada', slug: 'ca' });
+    const folder = await post('/folders', { name: 'Pages', slug: 'pages' });
+    const source: LocaleSnapshot = await (
+      await context.request.get(
+        `/api/cms/stories/${installation.storyId}/locales/${installation.localeId}`,
+        { headers },
+      )
+    ).json();
+    const story: Story = await post('/stories', {
+      name: 'Canadian homepage',
+      slug: 'canadian-homepage',
+      definitionId: source.blocks.find((block) => block.id === source.locale.rootBlockId)!
+        .definitionId,
+      folderId: folder.id,
+      spaceLocaleId: locale.id,
+    });
+    const editor = await context.newPage();
+    const content = await context.newPage();
+    await dismissRecommendedSetup(editor);
+    await dismissRecommendedSetup(content);
+    await editor.goto(`/?space=${spaceId}&story=${story.id}&locale=ca`);
+    await expect(editor.getByText('All changes saved', { exact: true })).toBeVisible();
+    await content.goto(`/?space=${spaceId}&folder=${folder.id}`);
+    await content.getByRole('button', { name: 'Edit location of Canadian homepage' }).focus();
+    await content.keyboard.press('Enter');
+    const dialog = content.getByRole('dialog', { name: 'Page location · Canadian homepage' });
+    await expect(dialog.getByRole('combobox', { name: 'Language' })).toHaveValue(locale.id);
+    await expect(dialog.getByText('/ca/pages/canadian-homepage', { exact: true })).toBeVisible();
+    expect(await dialog.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(
+      true,
+    );
+    await dialog.getByRole('textbox', { name: 'Page slug' }).fill('home');
+    await content.keyboard.press('Enter');
+    await expect(dialog).toBeHidden();
+    await expect(editor.locator('.story-path')).toHaveText('/ca/pages/home', { timeout: 4000 });
+
+    const renamed = await context.request.put(`/api/cms/folders/${folder.id}`, {
+      headers,
+      data: { name: 'Pages', slug: 'learn' },
+    });
+    expect(renamed.ok(), await renamed.text()).toBe(true);
+    await expect(editor.locator('.story-path')).toHaveText('/ca/learn/home', { timeout: 4000 });
   } finally {
     await context.close();
     await installation.close();

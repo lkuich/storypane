@@ -218,7 +218,9 @@ async function handle(request: Request, route: { params: Promise<{ path: string[
       if (method === 'POST' && !id)
         return jsonResponse(await store.saveFolder(actor, await readJson(request)), 201);
       if (method === 'PUT' && id)
-        return jsonResponse(await store.saveFolder(actor, await readJson(request), id));
+        return jsonResponse(
+          await store.saveFolder(actor, await readJson(request), id, invalidatePaths),
+        );
       if (method === 'DELETE' && id) {
         await store.deleteFolder(actor, id);
         return jsonResponse({ ok: true });
@@ -424,6 +426,9 @@ async function handle(request: Request, route: { params: Promise<{ path: string[
         }),
       );
     }
+    async function invalidatePaths(changed: { storyId: string; localeId: string }[]) {
+      await Promise.all(changed.map(({ storyId, localeId }) => invalidate(storyId, [localeId])));
+    }
     if (resource === 'releases' && !child) {
       if (method === 'GET' && !id) return jsonResponse(await store.listReleases(actor));
       if ((method === 'POST' && !id) || (method === 'PUT' && id)) {
@@ -469,7 +474,9 @@ async function handle(request: Request, route: { params: Promise<{ path: string[
       if (id && !child && method === 'PATCH')
         return jsonResponse(await store.renameStory(actor, id, await readJson(request)));
       if (id && child === 'location' && !localeId && method === 'PUT')
-        return jsonResponse(await store.updateStoryLocation(actor, id, await readJson(request)));
+        return jsonResponse(
+          await store.updateStoryLocation(actor, id, await readJson(request), invalidatePaths),
+        );
       if (id && child === 'pin' && !localeId && (method === 'PUT' || method === 'DELETE')) {
         const pinned = method === 'PUT';
         await store.setStoryPinned(actor, id, pinned);
