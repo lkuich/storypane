@@ -23,6 +23,7 @@ it('opens the content path on the configured app without preview routes or query
   expect(storyPageUrl(settings, '/ca/équipe/contact')).toBe(
     'http://127.0.0.1:3140/ca/%C3%A9quipe/contact',
   );
+  expect(storyPageUrl(settings, '/uk/about', 'other')).toBe('https://other.test/uk/about');
   expect(storyPageUrl(settings, '//elsewhere.test/path')).toBe(
     'http://127.0.0.1:3140/elsewhere.test/path',
   );

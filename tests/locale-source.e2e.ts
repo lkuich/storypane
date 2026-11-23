@@ -373,6 +373,21 @@ test('renames a localized path from Content and refreshes the open editor', asyn
     };
     const locale: SpaceLocale = await post('/locales', { name: 'Canada', slug: 'ca' });
     const folder = await post('/folders', { name: 'Pages', slug: 'pages' });
+    const previewId = crypto.randomUUID();
+    const previewSettings = await context.request.put('/api/cms/delivery-settings', {
+      headers,
+      data: {
+        defaultPreviewId: previewId,
+        previewUrls: [
+          {
+            id: previewId,
+            name: 'Staging',
+            url: 'https://staging.example.test/preview?slug={slug}&locale={locale}',
+          },
+        ],
+      },
+    });
+    expect(previewSettings.ok(), await previewSettings.text()).toBe(true);
     const source: LocaleSnapshot = await (
       await context.request.get(
         `/api/cms/stories/${installation.storyId}/locales/${installation.localeId}`,
@@ -413,6 +428,23 @@ test('renames a localized path from Content and refreshes the open editor', asyn
     });
     expect(renamed.ok(), await renamed.text()).toBe(true);
     await expect(editor.locator('.story-path')).toHaveText('/ca/learn/home', { timeout: 4000 });
+    await editor.route('https://staging.example.test/**', (route) => route.fulfill({ body: '' }));
+    const toggle = editor.getByRole('button', { name: 'Preview', exact: true });
+    if (await toggle.isVisible()) await toggle.click();
+    const link = editor.getByRole('link', { name: 'Open page on selected site' });
+    await expect(link).toHaveAttribute('href', 'https://staging.example.test/ca/learn/home');
+    await expect(editor.getByTitle('Live application preview')).toHaveAttribute(
+      'src',
+      'https://staging.example.test/preview?slug=learn%2Fhome&locale=ca&storypane_preview=1',
+    );
+    await context.route('https://staging.example.test/ca/learn/home', (route) =>
+      route.fulfill({ body: '' }),
+    );
+    await link.focus();
+    const popupPromise = editor.waitForEvent('popup');
+    await editor.keyboard.press('Enter');
+    const popup = await popupPromise;
+    await expect(popup).toHaveURL('https://staging.example.test/ca/learn/home');
   } finally {
     await context.close();
     await installation.close();

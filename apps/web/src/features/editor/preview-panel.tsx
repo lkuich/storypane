@@ -10,6 +10,7 @@ import {
   type PreviewSession,
 } from '@storypane/core';
 import { api, errorMessage, jsonRequest } from './api';
+import { storyPageUrl } from '../content/story-page-url';
 
 export type ComponentPreview = { blockId: string } | { block: Record<string, Json> };
 
@@ -93,6 +94,11 @@ export function PreviewPanel({
     scheduleRevision = schedule?.revision;
   const src = url?.href,
     origin = url?.origin;
+  const pageUrl = storyPageUrl(
+    settings,
+    `${snapshot.locale.slug}/${snapshot.locale.urlSlug}`,
+    targetId,
+  );
   useEffect(() => {
     if (component || !src || !viewport.current) return;
     const observer = new ResizeObserver(([entry]) => setViewportWidth(entry.contentRect.width));
@@ -237,13 +243,14 @@ export function PreviewPanel({
               >
                 <RefreshCw />
               </Button>
-              {src && (
+              {pageUrl && (
                 <a
                   className="button button--ghost icon-button"
-                  href={src}
+                  href={pageUrl}
                   target="_blank"
                   rel="noreferrer"
-                  aria-label="Open preview app"
+                  aria-label="Open page on selected site"
+                  title="Open page on selected site"
                 >
                   <ExternalLink size={16} />
                 </a>
