@@ -353,7 +353,9 @@ export function OptionInput({
               maxLength={200}
               aria-label={`Search ${label} options`}
               placeholder={
-                source.type === 'stories' ? 'Search stories or paste a story ID…' : 'Search options…'
+                source.type === 'stories'
+                  ? 'Search stories or paste a story ID…'
+                  : 'Search options…'
               }
               value={query}
               onChange={(event) => setQuery(event.target.value)}
