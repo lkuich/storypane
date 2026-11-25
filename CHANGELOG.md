@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Hide or show individual blocks in each locale. Visibility updates live preview immediately and takes effect on the website when published. Apply space migration `041_block_visibility` before rolling out the editor.
+
 ## 0.1.0-rc.17 — 2026-11-23
 
 - Story and folder slug changes update open editors. The page location dialog starts on the displayed locale when there is one and previews the full localized URL. Publish the affected locales to make the new URLs live.

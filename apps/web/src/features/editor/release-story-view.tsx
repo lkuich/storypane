@@ -1,5 +1,6 @@
 'use client';
 import { useState, type ComponentProps } from 'react';
+import { hiddenBlockIds } from '@storypane/core';
 import { Button, Field, Modal } from '@storypane/ui';
 import { BlockNavigation, blockSummary, blockTitle, definitionFor } from './block-navigation';
 import { FieldInput } from './field-input';
@@ -16,6 +17,7 @@ export function ReleaseStoryView({
   const [outlineOpen, setOutlineOpen] = useState(false);
   const block = snapshot.blocks.find((item) => item.id === selectedId) ?? snapshot.blocks[0];
   const definition = block && definitionFor(snapshot, block);
+  const hidden = hiddenBlockIds(snapshot.blocks);
   async function select(id: string) {
     setSelectedId(id);
     setOutlineOpen(false);
@@ -52,7 +54,10 @@ export function ReleaseStoryView({
             <>
               <div className="editor-panel-heading">
                 <div>
-                  <h2>{definition.displayName}</h2>
+                  <h2>
+                    {definition.displayName}
+                    {hidden.has(block.id) && ' · Hidden'}
+                  </h2>
                   <p>Approved release version · Read-only</p>
                 </div>
               </div>
@@ -74,6 +79,7 @@ export function ReleaseStoryView({
                               onClick={() => void select(child.id)}
                             >
                               {blockTitle(snapshot, child)}
+                              {hidden.has(child.id) && ' · Hidden'}
                               {blockSummary(child) ? ` · ${blockSummary(child)}` : ''}
                             </Button>
                           ))}
@@ -108,7 +114,8 @@ export function ReleaseStoryView({
         <div className="block-list">
           {snapshot.blocks.map((item) => (
             <Button key={item.id} variant="ghost" onClick={() => void select(item.id)}>
-              {blockTitle(snapshot, item)} · {blockSummary(item)}
+              {blockTitle(snapshot, item)}
+              {hidden.has(item.id) && ' · Hidden'} · {blockSummary(item)}
             </Button>
           ))}
         </div>

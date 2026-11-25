@@ -30,6 +30,7 @@ export function createBlockClipboard(
     const index = blocks.length;
     blocks.push({
       definitionId: block.definitionId,
+      ...(block.hidden && { hidden: true }),
       parentIndex,
       parentField: parentIndex === null ? null : block.parentField,
       position: block.position,

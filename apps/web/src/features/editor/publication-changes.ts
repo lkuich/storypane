@@ -36,7 +36,10 @@ export function publicationChanges(next: LocaleSnapshot, live: LocaleSnapshot | 
     const moved =
       !samePlace(previous, block) ||
       sharedOrder(previous, live!.blocks, after) !== sharedOrder(block, next.blocks, before);
-    const updated = fields.length > 0 || previous.definitionId !== block.definitionId;
+    const updated =
+      fields.length > 0 ||
+      !!block.hidden !== !!previous.hidden ||
+      previous.definitionId !== block.definitionId;
     if (updated || moved)
       changes.push({ block, before: previous, kind: updated ? 'updated' : 'moved', fields, moved });
   }

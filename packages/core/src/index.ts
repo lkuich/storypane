@@ -734,6 +734,7 @@ export type StoryLocale = {
   publishedVersionId: string | null;
 };
 export type BlockDraft = {
+  hidden?: boolean;
   id: string;
   definitionId: string;
   schemaVersionId: string;
@@ -743,6 +744,18 @@ export type BlockDraft = {
   fields: Record<string, Json>;
   revision: number;
 };
+/** Includes descendants so a hidden section can be shown again with its own visibility choices intact. */
+export function hiddenBlockIds(blocks: BlockDraft[]): Set<string> {
+  const hidden = new Set(blocks.filter((block) => block.hidden).map((block) => block.id));
+  let previousSize = 0;
+  while (hidden.size !== previousSize) {
+    previousSize = hidden.size;
+    for (const block of blocks)
+      if (block.parentId && hidden.has(block.parentId)) hidden.add(block.id);
+  }
+  return hidden;
+}
+
 export type Lease = {
   blockId: string;
   userId: string;
@@ -831,6 +844,7 @@ export const blockClipboardSchema = z
         z
           .object({
             definitionId: id,
+            hidden: z.boolean().optional(),
             parentIndex: z.number().int().nonnegative().nullable(),
             parentField: z
               .string()
@@ -904,6 +918,13 @@ export const commandSchema = z.discriminatedUnion('type', [
           position: z.number().int().nonnegative(),
         })
         .strict(),
+    })
+    .strict(),
+  z
+    .object({
+      ...mutationBase,
+      type: z.literal('setBlockVisibility'),
+      payload: z.object({ blockId: id, hidden: z.boolean() }).strict(),
     })
     .strict(),
   z

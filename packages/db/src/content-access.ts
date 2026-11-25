@@ -192,24 +192,41 @@ export function projectSnapshot(
   return snapshot;
 }
 
-export function projectedContent(snapshot: LocaleSnapshot): Json {
-  const walk = (id: string): Json => {
+export function assembleContent(snapshot: LocaleSnapshot): Json {
+  const definitions = new Map(
+    snapshot.definitions.map((definition) => [definition.versionId, definition]),
+  );
+  const visiting = new Set<string>();
+  function visit(id: string, depth: number): Json {
+    if (depth > 30 || visiting.has(id))
+      throw new StorypaneError('invalid', 'Block nesting exceeds the supported depth');
     const block = snapshot.blocks.find((item) => item.id === id);
-    if (!block || snapshot.access?.blocks[id]?.read === false)
-      return { _uid: id, component: 'restricted' };
-    const definition = snapshot.definitions.find(
-      (item) => item.versionId === block.schemaVersionId,
-    )!;
-    const result: Record<string, Json> = { _uid: id, component: definition.name, ...block.fields };
-    for (const field of definition.fields)
-      if (field.type === 'blocks')
-        result[field.name] = snapshot.blocks
-          .filter((item) => item.parentId === id && item.parentField === field.name)
-          .sort((a, b) => a.position - b.position)
-          .map((item) => walk(item.id));
+    if (!block || snapshot.access?.blocks[id]?.read === false) {
+      if (snapshot.access) return { _uid: id, component: 'restricted' };
+      throw new StorypaneError('not_found', 'Block not found');
+    }
+    const definition = definitions.get(block.schemaVersionId);
+    if (!definition) throw new StorypaneError('invalid', 'Missing schema version');
+    visiting.add(id);
+    const result: Record<string, Json> = { ...block.fields, _uid: id, component: definition.name };
+    const hiddenFields: string[] = [];
+    for (const field of definition.fields) {
+      if (field.type !== 'blocks') continue;
+      const children = snapshot.blocks
+        .filter((child) => child.parentId === id && child.parentField === field.name)
+        .sort((a, b) => a.position - b.position || a.id.localeCompare(b.id));
+      const visible = children.flatMap((child) => {
+        const content = visit(child.id, depth + 1);
+        return child.hidden ? [] : [content];
+      });
+      result[field.name] = visible;
+      if (children.length && !visible.length) hiddenFields.push(field.name);
+    }
+    if (hiddenFields.length) result._hiddenBlockFields = hiddenFields;
+    visiting.delete(id);
     return result;
-  };
-  return walk(snapshot.locale.rootBlockId);
+  }
+  return visit(snapshot.locale.rootBlockId, 0);
 }
 
 export function hasContentResult(value: unknown): boolean {
@@ -252,7 +269,7 @@ export function projectResult<T>(access: StoreContentAccess, value: T): T {
       ...value,
       snapshot,
       ...('actorId' in value && !snapshot.access.complete ? { actorId: '' } : {}),
-      ...('content' in value ? { content: projectedContent(snapshot) } : {}),
+      ...('content' in value ? { content: assembleContent(snapshot) } : {}),
       ...('publishedSnapshot' in value
         ? { publishedSnapshot: projectResult(access, value.publishedSnapshot) }
         : {}),
@@ -281,6 +298,7 @@ export function assertContentChanges(
       previous.parentId !== next.parentId ||
       previous.parentField !== next.parentField ||
       previous.position !== next.position ||
+      !!previous.hidden !== !!next.hidden ||
       previous.schemaVersionId !== next.schemaVersionId
     ) {
       for (const [state, block] of [

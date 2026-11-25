@@ -44,6 +44,7 @@ it('generates deterministic discriminated types with constrained nesting and rea
     generateTypes({ migrationVersion: 2, components: [...schema.components].reverse() }),
   );
   expect(output).toContain('export const storypaneMigrationVersion = 2 as const;');
+  expect(output).toContain('_hiddenBlockFields?: string[];');
   expect(output).toContain('"body": Array<HeroBlock>');
   expect(output).toContain('"theme": "light" | "dark" | ' + JSON.stringify('quote"\n'));
   expect(output).toContain('export type StorypaneNestable = HeroBlock;');

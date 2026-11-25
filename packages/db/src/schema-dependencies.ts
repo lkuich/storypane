@@ -422,7 +422,7 @@ export async function installSchemaContent(
         block.schemaVersionId = definition.versionId;
         block.revision = 1;
         await client.query(
-          'INSERT INTO block_drafts(id,locale_id,schema_version_id,parent_id,parent_field,position,fields,revision) VALUES($1,$2,$3,$4,$5,$6,$7,1)',
+          'INSERT INTO block_drafts(id,locale_id,schema_version_id,parent_id,parent_field,position,hidden,fields,revision) VALUES($1,$2,$3,$4,$5,$6,$7,$8,1)',
           [
             block.id,
             id,
@@ -430,6 +430,7 @@ export async function installSchemaContent(
             block.parentId,
             block.parentField,
             block.position,
+            block.hidden ?? false,
             JSON.stringify(block.fields),
           ],
         );

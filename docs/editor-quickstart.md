@@ -209,6 +209,10 @@ between light and dark backgrounds. The setting only affects that field’s
 editing area. Storypane keeps the text’s assigned colors and remembers your
 choice for that field in your browser.
 
+Use **Hide** on a block row to remove that block and its children from the live preview for this
+locale. The row stays in place so you can edit it or choose **Show**. Publish the change to
+update the website. Required block lists still need enough visible items to publish.
+
 ## 7. Add an image
 
 1. In Hero's **Image** field, choose **Choose asset**.

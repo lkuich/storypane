@@ -56,6 +56,7 @@ export async function migrate(
       '038_immediate_releases',
       '039_draft_releases',
       '040_root_replacements',
+      '041_block_visibility',
     ]) {
       if (included && !included.has(name)) continue;
       if (

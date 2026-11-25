@@ -10,7 +10,7 @@ import {
   type ComponentProps,
 } from 'react';
 import { createPortal } from 'react-dom';
-import { defaultFields, type BlockDefinition } from '@storypane/core';
+import { hiddenBlockIds, defaultFields, type BlockDefinition } from '@storypane/core';
 import { blockTitle } from './block-navigation';
 import { PreviewPanel, type ComponentPreview } from './preview-panel';
 
@@ -102,7 +102,8 @@ export function BlockPreview({
   }, [editorEnabled, pickerEnabled]);
   const definition = definitions.find((item) => item.id === anchor?.dataset.previewDefinition);
   const block = preview.snapshot.blocks.find((item) => item.id === anchor?.dataset.previewBlock);
-  const blockId = block?.id;
+  const blockId =
+    block && !hiddenBlockIds(preview.snapshot.blocks).has(block.id) ? block.id : undefined;
   const component = useMemo<ComponentPreview | undefined>(() => {
     if (definition?.previewData)
       return {

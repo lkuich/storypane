@@ -1,5 +1,7 @@
 export interface StorypaneBlock {
   _uid: string;
+  /** Child lists that are empty because every block in them is hidden. */
+  _hiddenBlockFields?: string[];
   component: string;
   [field: string]: unknown;
 }

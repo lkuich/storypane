@@ -557,7 +557,7 @@ export async function applyLocaleSource(
   for (const b of blocks)
     if (changed.has(b.id))
       await client.query(
-        'INSERT INTO block_drafts(id,locale_id,schema_version_id,parent_id,parent_field,position,fields,revision) VALUES($1,$2,$3,$4,$5,$6,$7,1) ON CONFLICT(id) DO UPDATE SET parent_id=EXCLUDED.parent_id,parent_field=EXCLUDED.parent_field,position=EXCLUDED.position,fields=EXCLUDED.fields,revision=block_drafts.revision+1',
+        'INSERT INTO block_drafts(id,locale_id,schema_version_id,parent_id,parent_field,position,hidden,fields,revision) VALUES($1,$2,$3,$4,$5,$6,$7,$8,1) ON CONFLICT(id) DO UPDATE SET parent_id=EXCLUDED.parent_id,parent_field=EXCLUDED.parent_field,position=EXCLUDED.position,hidden=EXCLUDED.hidden,fields=EXCLUDED.fields,revision=block_drafts.revision+1',
         [
           b.id,
           target.locale.id,
@@ -565,6 +565,7 @@ export async function applyLocaleSource(
           b.parentId,
           b.parentField,
           b.position,
+          b.hidden ?? false,
           JSON.stringify(b.fields),
         ],
       );

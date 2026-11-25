@@ -4,6 +4,7 @@ import { rememberClipboard, writeClipboardText } from '../../lib/clipboard';
 import {
   createBlockClipboard,
   isBlockAllowed,
+  hiddenBlockIds,
   parseBlockClipboard,
   serializeBlockClipboard,
 } from '@storypane/core';
@@ -20,6 +21,8 @@ import {
   ClipboardPaste,
   ClipboardX,
   Copy,
+  Eye,
+  EyeOff,
   FileJson,
   FileText,
   Globe2,
@@ -899,6 +902,7 @@ function LocaleEditor({
       </>
     );
   const tree = outline(snapshot);
+  const hidden = hiddenBlockIds(snapshot.blocks);
   const selectedLease = snapshot.leases.find(
     (lease) =>
       lease.blockId === block?.id &&
@@ -941,6 +945,43 @@ function LocaleEditor({
       !!item.parentField &&
       snapshot?.access?.blocks[item.parentId]?.fields[item.parentField]?.edit !== false &&
       !isLocked(item.id, item.parentId)
+    );
+  }
+  function canEditSubtree(item: BlockDraft): boolean {
+    const access = snapshot!.access?.blocks[item.id];
+    return (
+      !isLocked(item.id) &&
+      access?.edit !== false &&
+      access?.complete !== false &&
+      (!access || Object.values(access.fields).every((field) => field.edit)) &&
+      snapshot!.blocks.filter((child) => child.parentId === item.id).every(canEditSubtree)
+    );
+  }
+  function visibilityButton(child: BlockDraft, parentId: string) {
+    const unavailable = !canMove(child) || !canEditSubtree(child);
+    const verb = child.hidden ? 'Show' : 'Hide';
+    return (
+      <Button
+        variant="ghost"
+        className="icon-button"
+        aria-disabled={unavailable}
+        aria-label={`${verb} ${blockTitle(snapshot!, child)}`}
+        title={`${verb} block`}
+        onClick={() => {
+          if (unavailable) return;
+          void action(() =>
+            editor.runCommand(
+              {
+                type: 'setBlockVisibility',
+                payload: { blockId: child.id, hidden: !child.hidden },
+              },
+              [parentId, child.id],
+            ),
+          );
+        }}
+      >
+        {child.hidden ? <EyeOff aria-hidden="true" /> : <Eye aria-hidden="true" />}
+      </Button>
     );
   }
   function moveBlock(item: BlockDraft, position: number) {
@@ -1510,7 +1551,10 @@ function LocaleEditor({
                 <>
                   <div className="editor-panel-heading">
                     <div>
-                      <h2>{definition.displayName}</h2>
+                      <h2>
+                        {definition.displayName}
+                        {hidden.has(block.id) && <small className="muted"> · Hidden</small>}
+                      </h2>
                       <p>
                         <span className="mono">{definition.name}</span> · schema v
                         {definition.version}
@@ -1747,6 +1791,9 @@ function LocaleEditor({
                                       onClick={() => void editor.select(child.id)}
                                     >
                                       {blockTitle(snapshot, child)}
+                                      {hidden.has(child.id) && (
+                                        <small className="muted"> · Hidden</small>
+                                      )}
                                     </button>
                                     <span className="small muted">{blockSummary(child)}</span>
                                     <div className="button-group">
@@ -1756,6 +1803,7 @@ function LocaleEditor({
                                         editors={currentEditors}
                                         currentUserId={session.user.id}
                                       />
+                                      {visibilityButton(child, block.id)}
                                       <Button
                                         variant="ghost"
                                         className="icon-button"
@@ -2012,7 +2060,10 @@ function LocaleEditor({
                   }}
                 >
                   <Layers />
-                  <span className="tree-name">{blockTitle(snapshot, item)}</span>
+                  <span className="tree-name">
+                    {blockTitle(snapshot, item)}
+                    {hidden.has(item.id) && ' · Hidden'}
+                  </span>
                   <BlockEditorAvatar
                     blockId={item.id}
                     snapshot={snapshot}

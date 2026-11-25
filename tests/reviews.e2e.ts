@@ -44,6 +44,38 @@ async function signIn(
 async function noOverflow(page: Page) {
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 }
+test('hides and restores a block by keyboard on desktop and mobile', async ({
+  browser,
+  installation,
+}) => {
+  const { context, page } = await signIn(browser, installation, 'admin');
+  try {
+    await page.goto(`/?space=${installation.spaceId}&story=${installation.storyId}`);
+    const hide = page.getByRole('button', { name: 'Hide Hero', exact: true });
+    const show = page.getByRole('button', { name: 'Show Hero', exact: true });
+    const row = page
+      .locator('.block-list-item')
+      .filter({ has: page.getByRole('button', { name: /^Hero/ }) });
+    await expect(hide).toBeEnabled();
+    await hide.press('Enter');
+    await expect(show).toBeEnabled();
+    await expect(row).toContainText('Hidden');
+    await expect(show).toBeFocused();
+    await page.reload();
+    await page.setViewportSize({ width: 390, height: 844 });
+    await expect(show).toBeVisible();
+    await noOverflow(page);
+    await expect(show).toBeEnabled();
+    await show.press('Space');
+    await expect(hide).toBeEnabled();
+    await expect(row).not.toContainText('Hidden');
+    await expect(row).toContainText('Build something worth sharing.');
+    await noOverflow(page);
+  } finally {
+    await context.close();
+  }
+});
+
 function apiHeaders(installation: Awaited<ReturnType<typeof reviewInstallation>>) {
   return { origin: installation.origin, 'x-storypane-space-id': installation.spaceId };
 }

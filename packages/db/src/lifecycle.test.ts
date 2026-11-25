@@ -2126,6 +2126,27 @@ describe('Page map index', () => {
     expect((await graph()).nodes).toHaveLength(1);
     expect((await graph(undefined, { mode: 'published' })).nodes.length).toBeGreaterThan(1);
   });
+  it('keeps hidden links in the draft map and omits them from publication and its dependencies', async () => {
+    const target = await copiedStory();
+    const state = await linkStory(snapshot, target);
+    const root = blockNamed(state, 'page'),
+      footer = blockNamed(state, 'footer');
+    const hidden = (
+      await run(alice, state, {
+        ...commandBase(
+          { block: root, lease: await lease(alice, state, root) },
+          { block: footer, lease: await lease(alice, state, footer) },
+        ),
+        type: 'setBlockVisibility',
+        payload: { blockId: footer.id, hidden: true },
+      })
+    ).snapshot;
+    expect((await referenceReview(hidden)).references).toEqual([]);
+    await publishWith(hidden);
+    expect((await graph()).edges).toHaveLength(1);
+    expect((await graph(undefined, { mode: 'published' })).edges).toEqual([]);
+    expect(await store.getPublished(alice, target.story.id, target.locale.id)).toBeNull();
+  });
   it('hides restricted nodes, field labels, counts, and incoming links', async () => {
     const b = await copiedStory('Hidden target');
     snapshot = await linkStory(snapshot, b);
@@ -2160,11 +2181,11 @@ describe('Page map index', () => {
       .rows;
     const migrations = (
       await pool.query(
-        "SELECT name,applied_at FROM storypane_migrations WHERE name<>'028_page_connections' ORDER BY name",
+        "SELECT name,applied_at FROM storypane_migrations WHERE name NOT IN ('028_page_connections','041_block_visibility') ORDER BY name",
       )
     ).rows;
     await pool.query(
-      "DROP TRIGGER page_connections_changed ON story_locales; DROP FUNCTION update_page_connections(); DROP FUNCTION refresh_page_connections(uuid); DROP TABLE page_connections; DELETE FROM storypane_migrations WHERE name='028_page_connections'",
+      "DROP TRIGGER page_connections_changed ON story_locales; DROP FUNCTION update_page_connections(); DROP FUNCTION refresh_page_connections(uuid); DROP TABLE page_connections; DROP FUNCTION snapshot_blocks(jsonb,boolean); ALTER TABLE block_drafts DROP COLUMN hidden; DELETE FROM storypane_migrations WHERE name IN ('028_page_connections','041_block_visibility')",
     );
     await migrate(pool);
     await migrate(pool);
@@ -2175,7 +2196,7 @@ describe('Page map index', () => {
     expect(
       (
         await pool.query(
-          "SELECT name,applied_at FROM storypane_migrations WHERE name<>'028_page_connections' ORDER BY name",
+          "SELECT name,applied_at FROM storypane_migrations WHERE name NOT IN ('028_page_connections','041_block_visibility') ORDER BY name",
         )
       ).rows,
     ).toEqual(migrations);

@@ -136,7 +136,7 @@ export function generateTypes(value: unknown): string {
   }
   const interfaces = sorted.map(
     (component) =>
-      `export interface ${typeName(component.name)} {\n  _uid: string;\n  component: ${JSON.stringify(component.name)};\n${component.fields
+      `export interface ${typeName(component.name)} {\n  _uid: string;\n${component.fields.some((field) => field.type === 'blocks') ? '  _hiddenBlockFields?: string[];\n' : ''}  component: ${JSON.stringify(component.name)};\n${component.fields
         .map((field) => {
           const type = fieldType(field),
             required = field.required || field.type === 'blocks';

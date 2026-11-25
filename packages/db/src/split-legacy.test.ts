@@ -173,7 +173,7 @@ it.skipIf(!url).each([false, true])(
       }
       if (legacySchedules)
         await source.query(
-          "DROP TRIGGER page_connections_changed ON story_locales; DROP FUNCTION update_page_connections(); DROP FUNCTION refresh_page_connections(uuid); DROP TABLE page_connections; DELETE FROM storypane_migrations WHERE name='028_page_connections'; DROP TRIGGER content_release_members_changed ON publication_schedules; DROP FUNCTION bump_content_release_revision(); ALTER TABLE publication_schedules DROP COLUMN release_id,DROP COLUMN approved_snapshot,DROP COLUMN cancelled_by_release,ALTER COLUMN due_at SET NOT NULL,ALTER COLUMN next_attempt_at SET NOT NULL; DROP TABLE content_releases; DELETE FROM storypane_migrations WHERE name IN ('027_content_releases','038_immediate_releases','039_draft_releases')",
+          "DROP TRIGGER page_connections_changed ON story_locales; DROP FUNCTION update_page_connections(); DROP FUNCTION refresh_page_connections(uuid); DROP TABLE page_connections; DROP FUNCTION snapshot_blocks(jsonb,boolean); ALTER TABLE block_drafts DROP COLUMN hidden; DELETE FROM storypane_migrations WHERE name IN ('028_page_connections','041_block_visibility'); DROP TRIGGER content_release_members_changed ON publication_schedules; DROP FUNCTION bump_content_release_revision(); ALTER TABLE publication_schedules DROP COLUMN release_id,DROP COLUMN approved_snapshot,DROP COLUMN cancelled_by_release,ALTER COLUMN due_at SET NOT NULL,ALTER COLUMN next_attempt_at SET NOT NULL; DROP TABLE content_releases; DELETE FROM storypane_migrations WHERE name IN ('027_content_releases','038_immediate_releases','039_draft_releases')",
         );
       installation = new Installation({
         connectionString: urls[1],

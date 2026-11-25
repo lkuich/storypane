@@ -25,6 +25,17 @@ describe('publication changes', () => {
     next.blocks[0].fields.link = { url: 'https://example.com', type: 'external' };
     expect(publicationChanges(next, live)).toEqual([]);
   });
+  it('reviews hiding and showing an existing block as an edit', () => {
+    const live = snapshot(block('hero'));
+    const hidden = snapshot({ ...live.blocks[0], hidden: true });
+    expect(publicationChanges(hidden, live)).toMatchObject([
+      { kind: 'updated', block: { hidden: true } },
+    ]);
+    expect(publicationChanges(live, hidden)).toMatchObject([
+      { kind: 'updated', before: { hidden: true } },
+    ]);
+    expect(publicationChanges(snapshot({ ...live.blocks[0], hidden: false }), live)).toEqual([]);
+  });
   it('lists just the changed nested component and its changed fields', () => {
     const root = { ...block('root'), parentId: null, parentField: null };
     const live = snapshot(

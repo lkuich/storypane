@@ -1241,6 +1241,98 @@ describe('Postgres collaboration and immutable history', () => {
       code: 'unauthenticated',
     });
   });
+  it('hides blocks in previews immediately and publishes or restores their contents in place', async () => {
+    const key = await store.createDeliveryToken(alice, { name: 'Site', scope: 'published' });
+    const published = async () =>
+      (await store.publishedStories(key.token, alice.spaceId, { slug: 'home' })).stories[0].content;
+    const previewId = randomUUID();
+    await store.updateDeliverySettings(alice, {
+      previewUrls: [{ id: previewId, name: 'Site', url: 'http://localhost:3131/{slug}' }],
+      defaultPreviewId: previewId,
+      previewParameter: 'review',
+    });
+    const session = await store.createEditorPreview(alice, snapshot.story.id, snapshot.locale.id);
+    const connection = await store.authenticatePreview(session.token, 'http://localhost:3131');
+    let state = snapshot;
+    const publish = () =>
+      run(alice, state, {
+        ...commandBase(),
+        type: 'publishCheckpoint',
+        payload: { checkpointId: state.checkpointId! },
+      });
+    const toggle = async (name: string, hidden: boolean) => {
+      const block = blockNamed(state, name);
+      const parent = state.blocks.find((item) => item.id === block.parentId)!;
+      state = (
+        await run(alice, state, {
+          ...commandBase(
+            { block, lease: await lease(alice, state, block) },
+            { block: parent, lease: await lease(alice, state, parent) },
+          ),
+          type: 'setBlockVisibility',
+          payload: { blockId: block.id, hidden },
+        })
+      ).snapshot;
+    };
+    await publish();
+    const original = await published();
+    const hero = blockNamed(state, 'hero');
+    await toggle('hero', true);
+    expect(blockNamed(state, 'hero')).toMatchObject({
+      ...hero,
+      hidden: true,
+      revision: hero.revision + 1,
+    });
+    const preview = (await store.previewStory(connection.id)).content;
+    expect(preview).toMatchObject({ body: [{ component: 'footer' }] });
+    expect(JSON.stringify(preview)).not.toContain(hero.id);
+    expect(await published()).toEqual(original);
+    await toggle('footer', true);
+    await publish();
+    expect(await published()).toMatchObject({ body: [], _hiddenBlockFields: ['body'] });
+    const references = await store.listDefinitionReferences(alice, hero.definitionId);
+    expect(references.items[0].locales[0]).toMatchObject({ draft: true, published: false });
+    state = (await save(alice, state, blockNamed(state, 'hero'), { title: '' })).snapshot;
+    await publish();
+    await toggle('hero', false);
+    await expect(publish()).rejects.toMatchObject({ code: 'invalid' });
+    state = (await save(alice, state, blockNamed(state, 'hero'), hero.fields)).snapshot;
+    await toggle('footer', false);
+    expect((await store.previewStory(connection.id)).content).toEqual(original);
+    expect(await published()).toMatchObject({ body: [] });
+    await publish();
+    expect(await published()).toEqual(original);
+  });
+  it('counts only visible children toward the minimum when publishing a block list', async () => {
+    const page = snapshot.definitions.find((d) => d.name === 'page')!;
+    await store.updateDefinition(alice, page.id, {
+      ...definitionInput(page),
+      fields: page.fields.map((field) =>
+        field.type === 'blocks' ? { ...field, minItems: 2 } : field,
+      ),
+    });
+    await deployActive();
+    const root = blockNamed(snapshot, 'page'),
+      hero = blockNamed(snapshot, 'hero');
+    const hidden = await run(alice, snapshot, {
+      ...commandBase(
+        { block: root, lease: await lease(alice, snapshot, root) },
+        { block: hero, lease: await lease(alice, snapshot, hero) },
+      ),
+      type: 'setBlockVisibility',
+      payload: { blockId: hero.id, hidden: true },
+    });
+    await expect(
+      run(alice, hidden.snapshot, {
+        ...commandBase(),
+        type: 'publishCheckpoint',
+        payload: { checkpointId: hidden.checkpointId },
+      }),
+    ).rejects.toMatchObject({
+      code: 'invalid',
+      details: expect.arrayContaining([expect.objectContaining({ path: root.id + '.body' })]),
+    });
+  });
   it('delivers only publication snapshots, scoped by space and locale, and honors token revocation', async () => {
     const key = await store.createDeliveryToken(alice, { name: 'Website', scope: 'published' });
     expect((await store.publishedStories(key.token, alice.spaceId, {})).stories).toEqual([]);
@@ -2117,6 +2209,15 @@ describe('Postgres collaboration and immutable history', () => {
         payload: { blockId: parent.id },
       }),
     ).rejects.toMatchObject({ code: 'locked' });
+    const hideParent: Command = {
+      ...commandBase(
+        { block: parent, lease: parentLease },
+        { block: currentRoot, lease: rootLease },
+      ),
+      type: 'setBlockVisibility',
+      payload: { blockId: parent.id, hidden: true },
+    };
+    await expect(run(alice, state, hideParent)).rejects.toMatchObject({ code: 'locked' });
     await store.releaseLease(bob, state.story.id, state.locale.id, child.id, childLease.token!);
     const ownedChild = await lease(alice, state, child);
     await expect(
@@ -2130,6 +2231,13 @@ describe('Postgres collaboration and immutable history', () => {
         payload: { blockId: parent.id, parentId: child.id, parentField: 'body', position: 0 },
       }),
     ).rejects.toMatchObject({ code: 'invalid' });
+    const hidden = await run(alice, state, hideParent);
+    const content = (
+      await store.getCheckpoint(alice, state.story.id, state.locale.id, hidden.checkpointId)
+    ).content;
+    expect(JSON.stringify(content)).not.toContain(parent.id);
+    expect(JSON.stringify(content)).not.toContain(child.id);
+    expect(hidden.snapshot.blocks.find((b) => b.id === child.id)).toEqual(child);
   });
   it('requires an unchanged reviewed page and no competing leases for whole-page restoration', async () => {
     const checkpointId = snapshot.checkpointId!;
@@ -4793,6 +4901,34 @@ describe('scoped content permissions', () => {
     );
     expect((await store.listDefinitionReferences(bob, hero.definitionId)).total).toBe(0);
     expect(await store.listDefinitionReferenceCounts(bob)).toEqual({});
+  });
+  it('requires edit access to every field in a block before hiding it', async () => {
+    const root = blockNamed(snapshot, 'page'),
+      hero = blockNamed(snapshot, 'hero');
+    const scopes = contentScopesSchema.parse({});
+    scopes.edit.fieldIds = snapshot.definitions.flatMap((d) =>
+      d.fields
+        .filter(
+          (f) =>
+            (d.id === root.definitionId && f.name === 'body') ||
+            (d.id === hero.definitionId && f.name === 'title'),
+        )
+        .map((f) => f.id!),
+    );
+    await restrict(scopes);
+    await expect(
+      run(bob, snapshot, {
+        ...commandBase(
+          { block: root, lease: await lease(bob, snapshot, root) },
+          { block: hero, lease: await lease(bob, snapshot, hero) },
+        ),
+        type: 'setBlockVisibility',
+        payload: { blockId: hero.id, hidden: true },
+      }),
+    ).rejects.toMatchObject({ code: 'forbidden' });
+    expect(
+      (await store.getSnapshot(alice, snapshot.story.id, snapshot.locale.id)).checkpointId,
+    ).toBe(snapshot.checkpointId);
   });
   it('redacts current and historical fields, preserves hidden values on save and rejects whole-page actions', async () => {
     await run(alice, snapshot, {

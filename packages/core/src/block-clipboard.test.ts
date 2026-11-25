@@ -3,6 +3,7 @@ import { expect, it } from 'vitest';
 import {
   blockClipboardSchema,
   createBlockClipboard,
+  hiddenBlockIds,
   parseBlockClipboard,
   serializeBlockClipboard,
   type LocaleSnapshot,
@@ -16,6 +17,7 @@ const snapshot = {
     { id: 'page', definitionId, fields: {}, parentId: null, parentField: null, position: 0 },
     {
       id: 'group',
+      hidden: true,
       definitionId,
       fields: { title: 'Saved' },
       parentId: 'page',
@@ -50,6 +52,9 @@ const snapshot = {
 } as LocaleSnapshot;
 
 it('copies only the selected subtree, preserves order and visible edits, and omits source IDs and locks', () => {
+  expect(hiddenBlockIds([...snapshot.blocks].reverse())).toEqual(
+    new Set(['group', 'first', 'last']),
+  );
   const edits = {
     group: { fields: { title: 'Unsaved' } },
     first: { fields: { text: 'Edited child' } },
@@ -65,6 +70,7 @@ it('copies only the selected subtree, preserves order and visible edits, and omi
     {
       definitionId,
       parentIndex: null,
+      hidden: true,
       parentField: null,
       position: 0,
       fields: { title: 'Unsaved' },

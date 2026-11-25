@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
 import { ChevronRight, FileDiff } from 'lucide-react';
+import { hiddenBlockIds } from '@storypane/core';
 import type { BlockDraft, Json, LocaleSnapshot, PublicationReview } from '@storypane/core';
 import { blockSummary, blockTitle, definitionFor } from './block-navigation';
 import { publicationChanges } from './publication-changes';
@@ -41,6 +42,8 @@ const labels = { added: 'Added', updated: 'Edited', moved: 'Moved', removed: 'Re
 export function PublicationChangesView({ review }: { review: PublicationReview }) {
   const { snapshot, publishedSnapshot: live } = review;
   const changes = useMemo(() => publicationChanges(snapshot, live), [snapshot, live]);
+  const hidden = useMemo(() => hiddenBlockIds(snapshot.blocks), [snapshot]);
+  const visibleCount = snapshot.blocks.length - hidden.size;
   const unchanged =
     snapshot.blocks.length - changes.filter((item) => item.kind !== 'removed').length;
   const list = (
@@ -72,13 +75,28 @@ export function PublicationChangesView({ review }: { review: PublicationReview }
                 )}
               </span>
               <span className={`publication-change-kind publication-change-kind--${change.kind}`}>
-                {labels[change.kind]}
+                {change.kind === 'added' && hidden.has(change.block.id)
+                  ? 'Hidden'
+                  : change.before && !!change.before.hidden !== !!change.block.hidden
+                    ? change.block.hidden
+                      ? 'Hidden'
+                      : 'Shown'
+                    : labels[change.kind]}
               </span>
             </summary>
             <div className="publication-change-detail">
               {change.kind === 'removed' && (
                 <p className="small muted">
                   This component and its content will be removed from the live page.
+                </p>
+              )}
+              {change.before && !!change.before.hidden !== !!change.block.hidden && (
+                <p className="small muted">
+                  {change.block.hidden
+                    ? 'This block and its contents will be hidden on the live page.'
+                    : hidden.has(change.block.id)
+                      ? 'This block stays hidden until its parent is shown.'
+                      : 'This block will be shown on the live page.'}
                 </p>
               )}
               {change.moved && change.before && (
@@ -125,7 +143,9 @@ export function PublicationChangesView({ review }: { review: PublicationReview }
           </h3>
           <p>
             {!live
-              ? `All ${snapshot.blocks.length} components will be published.`
+              ? hidden.size
+                ? `${visibleCount} visible component${visibleCount === 1 ? '' : 's'} will be published.`
+                : `All ${snapshot.blocks.length} components will be published.`
               : `${unchanged} unchanged component${unchanged === 1 ? '' : 's'} hidden. Compared with the live page when this review opened.`}
           </p>
         </div>

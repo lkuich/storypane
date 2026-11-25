@@ -17,6 +17,7 @@ export interface FeatureBlock {
 
 export interface FeatureGridBlock {
   _uid: string;
+  _hiddenBlockFields?: string[];
   component: "feature_grid";
   "title": string;
   "items": Array<FeatureBlock>;
@@ -40,6 +41,7 @@ export interface HeroBlock {
 
 export interface PageBlock {
   _uid: string;
+  _hiddenBlockFields?: string[];
   component: "page";
   "title": string;
   "body": Array<FeatureBlock | FooterBlock | HeroBlock>;

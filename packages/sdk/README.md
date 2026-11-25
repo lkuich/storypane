@@ -461,6 +461,13 @@ and [the release guide](https://github.com/lkuich/storypane/blob/main/docs/relea
 content together; later drafts stay unpublished. Delivery and preview calls are
 unchanged. No release-specific CLI command is required or provided.
 
+### Hidden blocks
+
+Delivery and live preview omit hidden blocks and their descendants from child lists. A parent
+may include `_hiddenBlockFields`, the names of lists that are empty because every child is hidden.
+Sites with fallback content can use this to respect the editor’s choice while keeping defaults
+for lists that have never been populated.
+
 ## Schema migrations and generated types
 
 ![Schema changes are synced, authored and deployed in dev, tested, then reviewed and promoted to protected production.](../../docs/images/schema-workflow.svg)

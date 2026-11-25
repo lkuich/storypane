@@ -57,6 +57,7 @@ import {
   type Json,
   type Lease,
   type LocaleSnapshot,
+  hiddenBlockIds,
   type OptionPage,
   type Publication,
   type Story,
@@ -84,7 +85,7 @@ import {
   assertSnapshotAccess,
   assertUnrestrictedRead,
   projectSnapshot,
-  projectedContent,
+  assembleContent,
   projectResult,
   hasContentResult,
   assertContentChanges,
@@ -264,6 +265,7 @@ const folderRow = (r: Row): ContentFolder => ({
 });
 const joinPath = (prefix: string, slug: string) => [prefix, slug].filter(Boolean).join('/');
 const blockRow = (r: Row): BlockDraft => ({
+  ...(r.hidden && { hidden: true }),
   id: r.id,
   definitionId: r.definition_id,
   schemaVersionId: r.schema_version_id,
@@ -346,31 +348,7 @@ function subtree(snapshot: LocaleSnapshot, id: string): BlockDraft[] {
   visit(id);
   return result;
 }
-export function assembleContent(snapshot: LocaleSnapshot): Json {
-  const definitions = new Map(snapshot.definitions.map((d) => [d.versionId, d]));
-  const visiting = new Set<string>();
-  const visit = (id: string, depth: number): Json => {
-    if (depth > 30 || visiting.has(id))
-      throw new StorypaneError('invalid', 'Block nesting exceeds the supported depth');
-    const block = requireBlock(snapshot, id);
-    const definition = definitions.get(block.schemaVersionId);
-    if (!definition) throw new StorypaneError('invalid', 'Missing schema version');
-    visiting.add(id);
-    const result: Record<string, Json> = {
-      ...block.fields,
-      _uid: block.id,
-      component: definition.name,
-    };
-    for (const field of definition.fields.filter((f) => f.type === 'blocks'))
-      result[field.name] = snapshot.blocks
-        .filter((b) => b.parentId === id && b.parentField === field.name)
-        .sort((a, b) => a.position - b.position || a.id.localeCompare(b.id))
-        .map((b) => visit(b.id, depth + 1));
-    visiting.delete(id);
-    return result;
-  };
-  return visit(snapshot.locale.rootBlockId, 0);
-}
+export { assembleContent } from './content-access.js';
 
 export class StorypaneStore {
   readonly pool: Pool;
@@ -1651,7 +1629,7 @@ export class StorypaneStore {
           l.id,l.slug,l.name,l.space_locale_id,(b->>'id')::uuid,(d->>'id')::uuid,d->>'displayName',
           coalesce(f->>'id',''),f->>'name',f->>'label','published'
         FROM stories s JOIN included_story_locales l ON l.story_id=s.id JOIN publications p ON p.id=l.published_version_id
-          CROSS JOIN LATERAL jsonb_array_elements(p.snapshot->'blocks') b
+          CROSS JOIN LATERAL snapshot_blocks(p.snapshot->'blocks',false) b
           CROSS JOIN LATERAL jsonb_array_elements(p.snapshot->'definitions') d
           CROSS JOIN LATERAL jsonb_array_elements(d->'fields') f
         WHERE s.space_id=$1 AND s.deleted_at IS NULL AND d->>'versionId'=b->>'schemaVersionId'
@@ -1971,8 +1949,10 @@ export class StorypaneStore {
     const story = deliveredRow(rows[0]),
       snapshot = rows[0].snapshot as LocaleSnapshot,
       ids = new Set<string>();
+    const hidden = hiddenBlockIds(snapshot.blocks);
     // shortcut: Resolve direct story references only; add traversal when nested shared stories need it.
     for (const block of snapshot.blocks) {
+      if (hidden.has(block.id)) continue;
       const definition = snapshot.definitions.find(
         (item) => item.versionId === block.schemaVersionId,
       );
@@ -2329,7 +2309,7 @@ export class StorypaneStore {
           UNION ALL
           SELECT (d->>'id')::uuid,s.id
           FROM stories s JOIN included_story_locales l ON l.story_id=s.id JOIN publications p ON p.id=l.published_version_id
-            CROSS JOIN LATERAL jsonb_array_elements(p.snapshot->'blocks') b
+            CROSS JOIN LATERAL snapshot_blocks(p.snapshot->'blocks',false) b
             CROSS JOIN LATERAL jsonb_array_elements(p.snapshot->'definitions') d
           WHERE s.space_id=$1 AND s.deleted_at IS NULL AND l.id=ANY($2::uuid[])
             AND d->>'versionId'=b->>'schemaVersionId'
@@ -2388,7 +2368,7 @@ export class StorypaneStore {
           UNION ALL
           SELECT s.id,s.name,l.id,l.name,l.slug,l.url_slug,NULL,false,true
           FROM stories s JOIN included_story_locales l ON l.story_id=s.id JOIN publications p ON p.id=l.published_version_id
-            CROSS JOIN LATERAL jsonb_array_elements(p.snapshot->'blocks') b
+            CROSS JOIN LATERAL snapshot_blocks(p.snapshot->'blocks',false) b
             CROSS JOIN LATERAL jsonb_array_elements(p.snapshot->'definitions') d
           WHERE s.space_id=$1 AND s.deleted_at IS NULL AND l.id=ANY($4::uuid[])
             AND d->>'id'=$2::text AND d->>'versionId'=b->>'schemaVersionId'
@@ -4726,6 +4706,7 @@ export class StorypaneStore {
     publish: boolean,
   ): Promise<void> {
     const issues = [];
+    const hidden = publish ? hiddenBlockIds(snapshot.blocks) : undefined;
     const root = snapshot.blocks.find((block) => block.id === snapshot.locale.rootBlockId);
     if (
       !root ||
@@ -4739,7 +4720,7 @@ export class StorypaneStore {
     for (const block of snapshot.blocks) {
       const definition = snapshot.definitions.find((d) => d.versionId === block.schemaVersionId)!;
       issues.push(
-        ...validateFields(definition, block.fields, publish).map((i) => ({
+        ...validateFields(definition, block.fields, publish && !hidden?.has(block.id)).map((i) => ({
           ...i,
           path: `${block.id}.${i.path}`,
         })),
@@ -4750,8 +4731,10 @@ export class StorypaneStore {
         );
         if (
           publish &&
+          !hidden?.has(block.id) &&
           (field.required || field.minItems) &&
-          children.length < Math.max(field.required ? 1 : 0, field.minItems ?? 0)
+          children.filter((child) => !child.hidden).length <
+            Math.max(field.required ? 1 : 0, field.minItems ?? 0)
         )
           issues.push({
             path: `${block.id}.${field.name}`,
@@ -5015,6 +4998,7 @@ export class StorypaneStore {
             parentField: block.parentIndex === null ? parentField : block.parentField,
             position: block.parentIndex === null ? position : block.position,
             fields: block.fields,
+            ...(block.hidden && { hidden: true }),
             revision: 1,
           };
         });
@@ -5039,7 +5023,7 @@ export class StorypaneStore {
           );
         for (const block of pasted) {
           await client.query(
-            'INSERT INTO block_drafts(id,locale_id,schema_version_id,parent_id,parent_field,position,fields) VALUES($1,$2,$3,$4,$5,$6,$7)',
+            'INSERT INTO block_drafts(id,locale_id,schema_version_id,parent_id,parent_field,position,hidden,fields) VALUES($1,$2,$3,$4,$5,$6,$7,$8)',
             [
               block.id,
               localeId,
@@ -5047,6 +5031,7 @@ export class StorypaneStore {
               block.parentId,
               block.parentField,
               block.position,
+              block.hidden ?? false,
               JSON.stringify(block.fields),
             ],
           );
@@ -5106,6 +5091,24 @@ export class StorypaneStore {
         changed.add(block.id);
         changed.add(parent.id);
         changed.add(oldParent.id);
+      } else if (command.type === 'setBlockVisibility') {
+        const block = requireBlock(before, command.payload.blockId);
+        if (!block.parentId) throw new StorypaneError('invalid', 'The root block cannot be hidden');
+        await requireOwned(block);
+        await requireOwned(requireBlock(before, block.parentId));
+        if (!!block.hidden === command.payload.hidden)
+          throw new StorypaneError('invalid', 'This block already has that visibility');
+        await this.noCompetingLeases(
+          client,
+          actor,
+          localeId,
+          subtree(before, block.id).map((item) => item.id),
+        );
+        await client.query(
+          'UPDATE block_drafts SET hidden=$3,revision=revision+1 WHERE locale_id=$1 AND id=$2',
+          [localeId, block.id, command.payload.hidden],
+        );
+        changed.add(block.id);
       } else if (command.type === 'deleteBlock') {
         const block = requireBlock(before, command.payload.blockId);
         if (!block.parentId || !block.parentField)
@@ -5177,7 +5180,7 @@ export class StorypaneStore {
           for (const block of items) {
             const id = ids.get(block.id)!;
             await client.query(
-              'INSERT INTO block_drafts(id,locale_id,schema_version_id,parent_id,parent_field,position,fields) VALUES($1,$2,$3,$4,$5,$6,$7)',
+              'INSERT INTO block_drafts(id,locale_id,schema_version_id,parent_id,parent_field,position,hidden,fields) VALUES($1,$2,$3,$4,$5,$6,$7,$8)',
               [
                 id,
                 localeId,
@@ -5185,6 +5188,7 @@ export class StorypaneStore {
                 block.id === rootId ? parent.id : ids.get(block.parentId!)!,
                 block.id === rootId ? command.payload.parentField : block.parentField,
                 block.id === rootId ? position++ : block.position,
+                block.hidden ?? false,
                 JSON.stringify(block.fields),
               ],
             );
@@ -5247,7 +5251,7 @@ export class StorypaneStore {
           const id = ids.get(old.id)!;
           const previous = before.blocks.find((b) => b.id === old.id);
           await client.query(
-            'INSERT INTO block_drafts(id,locale_id,schema_version_id,parent_id,parent_field,position,fields,revision) VALUES($1,$2,$3,$4,$5,$6,$7,$8)',
+            'INSERT INTO block_drafts(id,locale_id,schema_version_id,parent_id,parent_field,position,hidden,fields,revision) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)',
             [
               id,
               localeId,
@@ -5255,6 +5259,7 @@ export class StorypaneStore {
               old.id === block.id ? block.parentId : ids.get(old.parentId!)!,
               old.id === block.id ? block.parentField : old.parentField,
               old.id === block.id ? block.position : old.position,
+              old.hidden ?? false,
               JSON.stringify(old.fields),
               (previous?.revision ?? old.revision) + 1,
             ],
@@ -5289,7 +5294,7 @@ export class StorypaneStore {
         await client.query('DELETE FROM block_drafts WHERE locale_id=$1', [localeId]);
         for (const block of historical.snapshot.blocks) {
           await client.query(
-            'INSERT INTO block_drafts(id,locale_id,schema_version_id,parent_id,parent_field,position,fields,revision) VALUES($1,$2,$3,$4,$5,$6,$7,$8)',
+            'INSERT INTO block_drafts(id,locale_id,schema_version_id,parent_id,parent_field,position,hidden,fields,revision) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)',
             [
               block.id,
               localeId,
@@ -5297,6 +5302,7 @@ export class StorypaneStore {
               block.parentId,
               block.parentField,
               block.position,
+              block.hidden ?? false,
               JSON.stringify(block.fields),
               Math.max(
                 block.revision,
@@ -5471,7 +5477,9 @@ export class StorypaneStore {
             }).access
           : undefined;
         let readable = false;
+        const hidden = kind === 'published' ? hiddenBlockIds(snapshot.blocks) : undefined;
         const found = snapshot.blocks.some((block) => {
+          if (hidden?.has(block.id)) return false;
           const definition = snapshot.definitions.find(
             (item) => item.versionId === block.schemaVersionId,
           );
@@ -5610,7 +5618,9 @@ export class StorypaneStore {
     // A bounded graph handles shared references and cycles without recursively publishing by implication.
     for (const checkpoint of checkpoints.values()) {
       const snapshot = checkpoint.snapshot;
+      const hidden = hiddenBlockIds(snapshot.blocks);
       for (const block of snapshot.blocks) {
+        if (hidden.has(block.id)) continue;
         const definition = snapshot.definitions.find(
           (item) => item.versionId === block.schemaVersionId,
         )!;
@@ -6056,7 +6066,7 @@ export class StorypaneStore {
                 await client.query('DELETE FROM block_drafts WHERE locale_id=$1', [locale.id]);
                 for (const block of restored.blocks)
                   await client.query(
-                    'INSERT INTO block_drafts(id,locale_id,schema_version_id,parent_id,parent_field,position,fields,revision) VALUES($1,$2,$3,$4,$5,$6,$7,$8)',
+                    'INSERT INTO block_drafts(id,locale_id,schema_version_id,parent_id,parent_field,position,hidden,fields,revision) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)',
                     [
                       block.id,
                       locale.id,
@@ -6064,6 +6074,7 @@ export class StorypaneStore {
                       block.parentId,
                       block.parentField,
                       block.position,
+                      block.hidden ?? false,
                       JSON.stringify(block.fields),
                       block.revision + 1,
                     ],
@@ -6231,7 +6242,7 @@ export class StorypaneStore {
                 );
                 for (const block of snapshot.blocks)
                   await client.query(
-                    'INSERT INTO block_drafts(id,locale_id,schema_version_id,parent_id,parent_field,position,fields) VALUES($1,$2,$3,$4,$5,$6,$7)',
+                    'INSERT INTO block_drafts(id,locale_id,schema_version_id,parent_id,parent_field,position,hidden,fields) VALUES($1,$2,$3,$4,$5,$6,$7,$8)',
                     [
                       ids.get(block.id),
                       localeId,
@@ -6239,6 +6250,7 @@ export class StorypaneStore {
                       block.parentId ? ids.get(block.parentId) : null,
                       block.parentField,
                       block.position,
+                      block.hidden ?? false,
                       JSON.stringify(block.fields),
                     ],
                   );
@@ -7100,7 +7112,7 @@ export class StorypaneStore {
         checkpointId: r.checkpoint_id,
         revision: Number(r.revision),
         createdAt: iso(r.created_at),
-        content: projectedContent(
+        content: assembleContent(
           projectSnapshot(await this.contentAccess(client, actor), r.snapshot),
         ),
       };
