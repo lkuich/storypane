@@ -306,7 +306,7 @@ export function OptionInput({
             {selected.length
               ? selected.map(titleFor).join(', ')
               : (placeholder ??
-                (source.type === 'stories' ? 'Choose a page…' : 'Choose an option…'))}
+                (source.type === 'stories' ? 'Choose a story…' : 'Choose an option…'))}
           </span>
           {source.type === 'stories' && selected.length === 1 && (
             <StoryOptionStatus item={itemFor(selected[0])} locale={locale} id={`${id}-status`} />
@@ -353,7 +353,7 @@ export function OptionInput({
               maxLength={200}
               aria-label={`Search ${label} options`}
               placeholder={
-                source.type === 'stories' ? 'Search pages or paste a page ID…' : 'Search options…'
+                source.type === 'stories' ? 'Search stories or paste a story ID…' : 'Search options…'
               }
               value={query}
               onChange={(event) => setQuery(event.target.value)}
@@ -400,7 +400,7 @@ export function OptionInput({
             {!page.items.length && !loading && !error && (
               <p className="option-empty">
                 {source.type === 'stories'
-                  ? 'No matching pages in this space.'
+                  ? 'No matching stories in this space.'
                   : 'No matching options.'}
               </p>
             )}
