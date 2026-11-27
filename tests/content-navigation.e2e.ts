@@ -145,7 +145,7 @@ test('folder lists stay local and navigation clears selection and supports back/
   await expect(rows).toContainText('Sibling page');
 });
 
-test('search spans folders and paths can be copied or opened on the configured app', async ({
+test('search stays in the folder until broadened and paths can be copied or opened on the configured app', async ({
   page,
   context,
   installation,
@@ -187,6 +187,11 @@ test('search spans folders and paths can be copied or opened on the configured a
   const search = page.getByRole('searchbox', { name: 'Search stories' });
   await expect(rows).toHaveCount(2);
   await search.fill('/alpha/nested/page');
+  const ignoreFolder = page.getByRole('checkbox', { name: 'Ignore folder' });
+  await expect(rows).toHaveCount(0);
+  await expect(ignoreFolder).not.toBeChecked();
+  await ignoreFolder.focus();
+  await page.keyboard.press('Space');
   await expect(rows).toHaveCount(1);
   await expect(rows).toContainText('Nested page');
   await expect(page.getByRole('region', { name: 'Find stories' })).toContainText(
@@ -222,6 +227,8 @@ test('search spans folders and paths can be copied or opened on the configured a
   await expect(rows).toHaveCount(1);
   await expect(rows).toContainText('Alpha page');
   await search.fill('/sibling/page');
+  await expect(rows).toHaveCount(0);
+  await ignoreFolder.check();
   await expect(rows).toContainText('Sibling page');
   await page.getByRole('checkbox', { name: 'Select Sibling page', exact: true }).check();
   await page.getByRole('button', { name: 'Clear search', exact: true }).click();
@@ -232,6 +239,9 @@ test('search spans folders and paths can be copied or opened on the configured a
   await expect(rows).toContainText('Alpha page');
   await page.setViewportSize({ width: 390, height: 844 });
   await search.fill('Nested');
+  await expect(rows).toHaveCount(0);
+  await ignoreFolder.focus();
+  await page.keyboard.press('Space');
   await expect(rows).toContainText('Nested page');
   await expect
     .poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth))

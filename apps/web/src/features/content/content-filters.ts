@@ -3,6 +3,7 @@ import type { PublicationStatus, StorySummary } from '@storypane/core';
 export type ContentFilters = {
   locales: string[];
   query: string;
+  ignoreFolder: boolean;
   status: PublicationStatus | '';
   modifiedBy: string;
   contentType: string;
@@ -14,6 +15,7 @@ export type ContentFilters = {
 export const defaultFilters: ContentFilters = {
   locales: [],
   query: '',
+  ignoreFolder: false,
   status: '',
   modifiedBy: '',
   contentType: '',
@@ -22,7 +24,7 @@ export const defaultFilters: ContentFilters = {
   to: '',
   sort: 'newest',
 };
-const keys: Record<Exclude<keyof ContentFilters, 'locales'>, string> = {
+const keys: Record<Exclude<keyof ContentFilters, 'locales' | 'ignoreFolder'>, string> = {
   query: 'q',
   status: 'filterStatus',
   modifiedBy: 'filterEditor',
@@ -62,9 +64,12 @@ export function readContentFilters(params: URLSearchParams): ContentFilters {
     else if (key === 'from' || key === 'to') filters[key] = date(value) ? value : '';
     else filters[key] = value.slice(0, key === 'query' ? 2080 : 200);
   }
+  filters.ignoreFolder = !!filters.query.trim() && params.get('ignoreFolder') === '1';
   return filters;
 }
 export function writeContentFilters(params: URLSearchParams, filters: ContentFilters) {
+  if (filters.ignoreFolder && filters.query.trim()) params.set('ignoreFolder', '1');
+  else params.delete('ignoreFolder');
   params.delete('filterLocale');
   for (const locale of filters.locales) params.append('filterLocale', locale);
   for (const key of Object.keys(keys) as (keyof typeof keys)[]) {

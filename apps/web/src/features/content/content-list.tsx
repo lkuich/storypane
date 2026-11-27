@@ -182,7 +182,7 @@ export function ContentList({
         destination.allowedDefinitionIds.includes(definition.id)),
   );
   const searching = !!filters.query.trim();
-  const scopedStories = searching
+  const scopedStories = filters.ignoreFolder
     ? stories
     : stories.filter((story) => (story.folderId ?? null) === (currentFolder?.id ?? null));
   const filtered = filterStories(scopedStories, filters).filter(
@@ -210,7 +210,7 @@ export function ContentList({
   }
   const children = folders.filter(
     (item) =>
-      item.parentId === (currentFolder?.id ?? null) &&
+      (filters.ignoreFolder || item.parentId === (currentFolder?.id ?? null)) &&
       (!filters.locales.length || visibleFolders.has(item.id)) &&
       `${item.name} ${folderPath(folders, item.id)}`
         .toLowerCase()
@@ -226,7 +226,13 @@ export function ContentList({
     scheduleFilter
   );
   function changeFilters(next: ContentFilters) {
-    if (next.locales !== filters.locales || !!next.query.trim() !== searching) setSelectedIds([]);
+    if (!next.query.trim() && next.ignoreFolder) next = { ...next, ignoreFolder: false };
+    if (
+      next.locales !== filters.locales ||
+      !!next.query.trim() !== searching ||
+      next.ignoreFolder !== filters.ignoreFolder
+    )
+      setSelectedIds([]);
     setFilters(next);
     const url = new URL(window.location.href);
     writeContentFilters(url.searchParams, next);
@@ -717,7 +723,7 @@ export function ContentList({
             </div>
             <div className="table-count">
               {filtered.length} {filtered.length === 1 ? 'story' : 'stories'}
-              {searching
+              {filters.ignoreFolder
                 ? ' matching across all folders'
                 : hasFilters
                   ? ' matching your filters in this folder'

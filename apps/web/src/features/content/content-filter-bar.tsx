@@ -242,8 +242,18 @@ export function ContentFilterBar({
         <span className="small muted" role="status">
           {loading
             ? 'Loading stories…'
-            : `${count} of ${stories.length} ${deleted ? 'deleted ' : ''}${stories.length === 1 ? 'story' : 'stories'}${hasSearch ? ' across all folders' : ''}`}
+            : `${count} of ${stories.length} ${deleted ? 'deleted ' : ''}${stories.length === 1 ? 'story' : 'stories'}${filters.ignoreFolder ? ' across all folders' : hasSearch ? ' in this folder' : ''}`}
         </span>
+        {hasSearch && (
+          <label className="locale-filter-option small">
+            <input
+              type="checkbox"
+              checked={filters.ignoreFolder}
+              onChange={(event) => onChange({ ...filters, ignoreFolder: event.target.checked })}
+            />
+            Ignore folder
+          </label>
+        )}
         {(activeCount > 0 || hasSearch || filters.locales.length > 0) && (
           <div className="content-filter-chips">
             {hasSearch && (

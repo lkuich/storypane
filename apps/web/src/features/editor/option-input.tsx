@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useId, useRef, useState } from 'react';
-import { Check, ChevronDown, ExternalLink, Search, X } from 'lucide-react';
+import { Check, ChevronDown, ExternalLink, GripVertical, Search, X } from 'lucide-react';
 import type {
   Json,
   OptionItem,
@@ -93,6 +93,17 @@ export function OptionInput({
     : typeof value === 'string' && value
       ? [value]
       : [];
+  const storyList = multiple && source.type === 'stories';
+  const [dragged, setDragged] = useState<string | null>(null);
+  const [dragOver, setDragOver] = useState<string | null>(null);
+  function moveStory(value: string, to: number) {
+    const from = selected.indexOf(value);
+    if (disabled || from < 0 || to < 0 || to >= selected.length || from === to) return;
+    const next = [...selected];
+    next.splice(from, 1);
+    next.splice(to, 0, value);
+    onChange(next);
+  }
   const sourceKey = JSON.stringify(source),
     contextKey = JSON.stringify(context),
     selectedKey = JSON.stringify(selected);
@@ -285,6 +296,100 @@ export function OptionInput({
         }
       }}
     >
+      {storyList && selected.length > 0 && (
+        <ol className="option-story-list" aria-label={`Selected ${label}`}>
+          {selected.map((value, index) => (
+            <li
+              key={value}
+              data-dragging={dragged === value || undefined}
+              data-drop-position={
+                dragged && dragged !== value && dragOver === value
+                  ? selected.indexOf(dragged) < index
+                    ? 'after'
+                    : 'before'
+                  : undefined
+              }
+              onDragOver={(event) => {
+                if (!dragged || disabled) return;
+                event.preventDefault();
+                setDragOver(value);
+              }}
+              onDragLeave={(event) => {
+                if (!event.currentTarget.contains(event.relatedTarget as Node)) setDragOver(null);
+              }}
+              onDrop={(event) => {
+                if (!dragged) return;
+                event.preventDefault();
+                event.stopPropagation();
+                moveStory(dragged, index);
+                setDragged(null);
+                setDragOver(null);
+              }}
+            >
+              <button
+                type="button"
+                className="block-drag-handle"
+                disabled={disabled || selected.length < 2}
+                draggable={!disabled && selected.length > 1}
+                aria-label={`Reorder ${titleFor(value)}, position ${index + 1} of ${selected.length}. Use up and down arrow keys.`}
+                title="Drag or use the up and down arrow keys to reorder"
+                onDragStart={(event) => {
+                  event.stopPropagation();
+                  event.dataTransfer.effectAllowed = 'move';
+                  event.dataTransfer.setData('text/plain', value);
+                  setDragged(value);
+                }}
+                onDragEnd={() => {
+                  setDragged(null);
+                  setDragOver(null);
+                }}
+                onKeyDown={(event) => {
+                  if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return;
+                  event.preventDefault();
+                  event.stopPropagation();
+                  const handle = event.currentTarget;
+                  moveStory(value, index + (event.key === 'ArrowUp' ? -1 : 1));
+                  requestAnimationFrame(() => handle.focus());
+                }}
+              >
+                <GripVertical aria-hidden="true" />
+              </button>
+              <div className="option-story-details">
+                {spaceId ? (
+                  <a
+                    href={storyUrl({ spaceId, storyId: value })}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    aria-label={`Open ${titleFor(value)} story (new tab)`}
+                  >
+                    {titleFor(value)} <ExternalLink size={12} aria-hidden="true" />
+                  </a>
+                ) : (
+                  titleFor(value)
+                )}
+                <StoryOptionStatus item={itemFor(value)} locale={locale} />
+              </div>
+              <button
+                type="button"
+                className="button button--ghost icon-button"
+                disabled={disabled}
+                aria-label={`Remove ${titleFor(value)}`}
+                onClick={(event) => {
+                  const row = event.currentTarget.closest('li');
+                  const adjacent = row?.nextElementSibling ?? row?.previousElementSibling;
+                  (
+                    adjacent?.querySelector<HTMLButtonElement>('button:last-child') ??
+                    trigger.current
+                  )?.focus();
+                  onChange(selected.filter((item) => item !== value));
+                }}
+              >
+                <X size={16} aria-hidden="true" />
+              </button>
+            </li>
+          ))}
+        </ol>
+      )}
       <div className="option-control">
         <button
           ref={trigger}
@@ -292,7 +397,7 @@ export function OptionInput({
           type="button"
           className="option-trigger"
           aria-label={label}
-          aria-describedby={`${id}-value${selected.length === 1 && itemFor(selected[0])?.publication ? ` ${id}-status` : ''}`}
+          aria-describedby={`${id}-value${!storyList && selected.length === 1 && itemFor(selected[0])?.publication ? ` ${id}-status` : ''}`}
           aria-haspopup="dialog"
           aria-expanded={open}
           aria-controls={open ? id : undefined}
@@ -303,17 +408,19 @@ export function OptionInput({
           }}
         >
           <span id={`${id}-value`} className="option-trigger-value">
-            {selected.length
-              ? selected.map(titleFor).join(', ')
-              : (placeholder ??
-                (source.type === 'stories' ? 'Choose a story…' : 'Choose an option…'))}
+            {storyList
+              ? (placeholder ?? 'Choose stories…')
+              : selected.length
+                ? selected.map(titleFor).join(', ')
+                : (placeholder ??
+                  (source.type === 'stories' ? 'Choose a story…' : 'Choose an option…'))}
           </span>
-          {source.type === 'stories' && selected.length === 1 && (
+          {source.type === 'stories' && !storyList && selected.length === 1 && (
             <StoryOptionStatus item={itemFor(selected[0])} locale={locale} id={`${id}-status`} />
           )}
           <ChevronDown aria-hidden="true" />
         </button>
-        {source.type === 'stories' && spaceId && selected.length === 1 && (
+        {source.type === 'stories' && spaceId && !storyList && selected.length === 1 && (
           <a
             className="button button--ghost icon-button option-story-link"
             href={storyUrl({ spaceId, storyId: selected[0] })}
@@ -326,23 +433,6 @@ export function OptionInput({
           </a>
         )}
       </div>
-      {source.type === 'stories' && spaceId && selected.length > 1 && (
-        <div className="option-story-links">
-          {selected.map((value) => (
-            <a
-              key={value}
-              href={storyUrl({ spaceId, storyId: value })}
-              target="_blank"
-              rel="noopener noreferrer"
-              aria-label={`Open ${titleFor(value)} story (new tab)`}
-            >
-              {titleFor(value)}
-              <StoryOptionStatus item={itemFor(value)} locale={locale} />
-              <ExternalLink size={13} aria-hidden="true" />
-            </a>
-          ))}
-        </div>
-      )}
       {open && (
         <div id={id} role="dialog" aria-label={`${label} options`} className="option-popover">
           <div className="search-input">
@@ -361,7 +451,7 @@ export function OptionInput({
               onChange={(event) => setQuery(event.target.value)}
             />
           </div>
-          {multiple && selected.length > 0 && (
+          {multiple && !storyList && selected.length > 0 && (
             <div className="option-selections">
               {selected.map((value) => (
                 <button

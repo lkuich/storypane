@@ -231,6 +231,7 @@ describe('content filters', () => {
     const filters = {
       ...defaultFilters,
       query: 'Home & news',
+      ignoreFolder: true,
       status: 'changed' as const,
       modified: 'custom' as const,
       from: '2026-11-01',

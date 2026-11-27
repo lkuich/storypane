@@ -1,8 +1,13 @@
 # Changelog
 
-## Unreleased
+## 0.1.0-rc.18 — 2026-11-26
 
-- Hide or show individual blocks in each locale. Visibility updates live preview immediately and takes effect on the website when published. Apply space migration `041_block_visibility` before rolling out the editor.
+- Story multi-selects show an ordered list. Drag the handle or use its arrow-key shortcuts to reorder stories, and remove individual references directly from the list.
+- Content search starts in the current folder. Select **Ignore folder** to search across folders. Clearing the query restores folder scope.
+- Hide or restore a block per locale. Live preview reflects visibility immediately. Publishing applies it to delivery. The SDK exposes `_hiddenBlockFields` for sites that provide fallback content.
+- Consolidate page types with `rootReplacements` in format 2 schema migrations. Compatible replacements preserve IDs and child blocks and migrate drafts and published snapshots separately.
+- Open the page URL from the live preview toolbar. Reference pickers now use story terminology.
+- Upgrades from rc.17 require space migrations `040_root_replacements` and `041_block_visibility`.
 
 ## 0.1.0-rc.17 — 2026-11-23
 
