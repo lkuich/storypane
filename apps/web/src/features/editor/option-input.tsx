@@ -262,40 +262,188 @@ export function OptionInput({
       : undefined) ??
     value;
   return (
-    <div
-      className="option-picker"
-      ref={root}
-      onBlur={(event) => {
-        if (event.relatedTarget && !event.currentTarget.contains(event.relatedTarget as Node))
-          setOpen(false);
-      }}
-      onKeyDown={(event) => {
-        if (!open) return;
-        if (event.key === 'Escape') {
-          event.preventDefault();
-          event.stopPropagation();
-          close();
-        }
-        if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
-          const options = Array.from(
-            root.current?.querySelectorAll<HTMLButtonElement>('[data-option]') ?? [],
-          );
-          const index = options.indexOf(event.target as HTMLButtonElement);
-          const next = event.key === 'ArrowDown' ? options[index + 1] : options[index - 1];
-          if (next) {
+    <>
+      <div
+        className="option-picker"
+        ref={root}
+        onBlur={(event) => {
+          if (event.relatedTarget && !event.currentTarget.contains(event.relatedTarget as Node))
+            setOpen(false);
+        }}
+        onKeyDown={(event) => {
+          if (!open) return;
+          if (event.key === 'Escape') {
             event.preventDefault();
-            next.focus();
-          } else if (event.key === 'ArrowUp' && index === 0) {
-            event.preventDefault();
-            search.current?.focus();
+            event.stopPropagation();
+            close();
           }
-        }
-        if (event.key === 'Enter' && event.target === search.current && !loading && page.items[0]) {
-          event.preventDefault();
-          choose(page.items[0]);
-        }
-      }}
-    >
+          if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+            const options = Array.from(
+              root.current?.querySelectorAll<HTMLButtonElement>('[data-option]') ?? [],
+            );
+            const index = options.indexOf(event.target as HTMLButtonElement);
+            const next = event.key === 'ArrowDown' ? options[index + 1] : options[index - 1];
+            if (next) {
+              event.preventDefault();
+              next.focus();
+            } else if (event.key === 'ArrowUp' && index === 0) {
+              event.preventDefault();
+              search.current?.focus();
+            }
+          }
+          if (
+            event.key === 'Enter' &&
+            event.target === search.current &&
+            !loading &&
+            page.items[0]
+          ) {
+            event.preventDefault();
+            choose(page.items[0]);
+          }
+        }}
+      >
+        <div className="option-control">
+          <button
+            ref={trigger}
+            id={controlId}
+            type="button"
+            className="option-trigger"
+            aria-label={label}
+            aria-describedby={`${id}-value${!storyList && selected.length === 1 && itemFor(selected[0])?.publication ? ` ${id}-status` : ''}`}
+            aria-haspopup="dialog"
+            aria-expanded={open}
+            aria-controls={open ? id : undefined}
+            disabled={disabled}
+            onClick={() => {
+              setQuery('');
+              setOpen((current) => !current);
+            }}
+          >
+            <span id={`${id}-value`} className="option-trigger-value">
+              {storyList
+                ? (placeholder ?? 'Choose stories…')
+                : selected.length
+                  ? selected.map(titleFor).join(', ')
+                  : (placeholder ??
+                    (source.type === 'stories' ? 'Choose a story…' : 'Choose an option…'))}
+            </span>
+            {source.type === 'stories' && !storyList && selected.length === 1 && (
+              <StoryOptionStatus item={itemFor(selected[0])} locale={locale} id={`${id}-status`} />
+            )}
+            <ChevronDown aria-hidden="true" />
+          </button>
+          {source.type === 'stories' && spaceId && !storyList && selected.length === 1 && (
+            <a
+              className="button button--ghost icon-button option-story-link"
+              href={storyUrl({ spaceId, storyId: selected[0] })}
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label={`Open ${titleFor(selected[0])} story (new tab)`}
+              title="Open story in a new tab"
+            >
+              <ExternalLink size={16} aria-hidden="true" />
+            </a>
+          )}
+        </div>
+        {open && (
+          <div id={id} role="dialog" aria-label={`${label} options`} className="option-popover">
+            <div className="search-input">
+              <Search aria-hidden="true" />
+              <input
+                ref={search}
+                type="search"
+                maxLength={200}
+                aria-label={`Search ${label} options`}
+                placeholder={
+                  source.type === 'stories'
+                    ? 'Search stories or paste a story ID…'
+                    : 'Search options…'
+                }
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+              />
+            </div>
+            {multiple && !storyList && selected.length > 0 && (
+              <div className="option-selections">
+                {selected.map((value) => (
+                  <button
+                    type="button"
+                    key={value}
+                    aria-label={`Remove ${titleFor(value)}`}
+                    onClick={() => {
+                      search.current?.focus();
+                      onChange(selected.filter((item) => item !== value));
+                    }}
+                  >
+                    {titleFor(value)}
+                    <X aria-hidden="true" />
+                  </button>
+                ))}
+              </div>
+            )}
+            <div className="option-results" aria-busy={loading}>
+              {page.items.map((item) => (
+                <button
+                  type="button"
+                  data-option
+                  key={item.value}
+                  className="option-result"
+                  aria-pressed={selected.includes(item.value)}
+                  onClick={() => choose(item)}
+                >
+                  <span>
+                    <strong>{item.label}</strong>
+                    {source.type === 'stories' && <StoryOptionStatus item={item} locale={locale} />}
+                    {item.description && <small>{item.description}</small>}
+                    {source.type === 'stories' && <small className="mono">{item.value}</small>}
+                  </span>
+                  {source.type === 'stories' && (
+                    <EditorAvatars editors={editors[item.value] ?? []} />
+                  )}
+                  {selected.includes(item.value) && <Check aria-hidden="true" />}
+                </button>
+              ))}
+              {!page.items.length && !loading && !error && (
+                <p className="option-empty">
+                  {source.type === 'stories'
+                    ? 'No matching stories in this space.'
+                    : 'No matching options.'}
+                </p>
+              )}
+              {loading && (
+                <p className="option-empty" role="status">
+                  Loading…
+                </p>
+              )}
+            </div>
+            <ErrorNotice message={error} retry={() => setRetry((current) => current + 1)} />
+            <div className="option-footer">
+              {selected.length > 0 && (
+                <Button
+                  variant="ghost"
+                  className="button--small"
+                  onClick={() => {
+                    onChange(multiple ? [] : null);
+                    if (!multiple) close();
+                  }}
+                >
+                  Clear selection
+                </Button>
+              )}
+              {page.nextCursor && (
+                <Button className="button--small" disabled={loading} onClick={() => void more()}>
+                  Load more choices
+                </Button>
+              )}
+              {multiple && (
+                <Button className="button--small" onClick={close}>
+                  Done
+                </Button>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
       {storyList && selected.length > 0 && (
         <ol className="option-story-list" aria-label={`Selected ${label}`}>
           {selected.map((value, index) => (
@@ -362,7 +510,7 @@ export function OptionInput({
                     rel="noopener noreferrer"
                     aria-label={`Open ${titleFor(value)} story (new tab)`}
                   >
-                    {titleFor(value)} <ExternalLink size={12} aria-hidden="true" />
+                    <span>{titleFor(value)}</span> <ExternalLink size={12} aria-hidden="true" />
                   </a>
                 ) : (
                   titleFor(value)
@@ -390,145 +538,6 @@ export function OptionInput({
           ))}
         </ol>
       )}
-      <div className="option-control">
-        <button
-          ref={trigger}
-          id={controlId}
-          type="button"
-          className="option-trigger"
-          aria-label={label}
-          aria-describedby={`${id}-value${!storyList && selected.length === 1 && itemFor(selected[0])?.publication ? ` ${id}-status` : ''}`}
-          aria-haspopup="dialog"
-          aria-expanded={open}
-          aria-controls={open ? id : undefined}
-          disabled={disabled}
-          onClick={() => {
-            setQuery('');
-            setOpen((current) => !current);
-          }}
-        >
-          <span id={`${id}-value`} className="option-trigger-value">
-            {storyList
-              ? (placeholder ?? 'Choose stories…')
-              : selected.length
-                ? selected.map(titleFor).join(', ')
-                : (placeholder ??
-                  (source.type === 'stories' ? 'Choose a story…' : 'Choose an option…'))}
-          </span>
-          {source.type === 'stories' && !storyList && selected.length === 1 && (
-            <StoryOptionStatus item={itemFor(selected[0])} locale={locale} id={`${id}-status`} />
-          )}
-          <ChevronDown aria-hidden="true" />
-        </button>
-        {source.type === 'stories' && spaceId && !storyList && selected.length === 1 && (
-          <a
-            className="button button--ghost icon-button option-story-link"
-            href={storyUrl({ spaceId, storyId: selected[0] })}
-            target="_blank"
-            rel="noopener noreferrer"
-            aria-label={`Open ${titleFor(selected[0])} story (new tab)`}
-            title="Open story in a new tab"
-          >
-            <ExternalLink size={16} aria-hidden="true" />
-          </a>
-        )}
-      </div>
-      {open && (
-        <div id={id} role="dialog" aria-label={`${label} options`} className="option-popover">
-          <div className="search-input">
-            <Search aria-hidden="true" />
-            <input
-              ref={search}
-              type="search"
-              maxLength={200}
-              aria-label={`Search ${label} options`}
-              placeholder={
-                source.type === 'stories'
-                  ? 'Search stories or paste a story ID…'
-                  : 'Search options…'
-              }
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-            />
-          </div>
-          {multiple && !storyList && selected.length > 0 && (
-            <div className="option-selections">
-              {selected.map((value) => (
-                <button
-                  type="button"
-                  key={value}
-                  aria-label={`Remove ${titleFor(value)}`}
-                  onClick={() => {
-                    search.current?.focus();
-                    onChange(selected.filter((item) => item !== value));
-                  }}
-                >
-                  {titleFor(value)}
-                  <X aria-hidden="true" />
-                </button>
-              ))}
-            </div>
-          )}
-          <div className="option-results" aria-busy={loading}>
-            {page.items.map((item) => (
-              <button
-                type="button"
-                data-option
-                key={item.value}
-                className="option-result"
-                aria-pressed={selected.includes(item.value)}
-                onClick={() => choose(item)}
-              >
-                <span>
-                  <strong>{item.label}</strong>
-                  {source.type === 'stories' && <StoryOptionStatus item={item} locale={locale} />}
-                  {item.description && <small>{item.description}</small>}
-                  {source.type === 'stories' && <small className="mono">{item.value}</small>}
-                </span>
-                {source.type === 'stories' && <EditorAvatars editors={editors[item.value] ?? []} />}
-                {selected.includes(item.value) && <Check aria-hidden="true" />}
-              </button>
-            ))}
-            {!page.items.length && !loading && !error && (
-              <p className="option-empty">
-                {source.type === 'stories'
-                  ? 'No matching stories in this space.'
-                  : 'No matching options.'}
-              </p>
-            )}
-            {loading && (
-              <p className="option-empty" role="status">
-                Loading…
-              </p>
-            )}
-          </div>
-          <ErrorNotice message={error} retry={() => setRetry((current) => current + 1)} />
-          <div className="option-footer">
-            {selected.length > 0 && (
-              <Button
-                variant="ghost"
-                className="button--small"
-                onClick={() => {
-                  onChange(multiple ? [] : null);
-                  if (!multiple) close();
-                }}
-              >
-                Clear selection
-              </Button>
-            )}
-            {page.nextCursor && (
-              <Button className="button--small" disabled={loading} onClick={() => void more()}>
-                Load more choices
-              </Button>
-            )}
-            {multiple && (
-              <Button className="button--small" onClick={close}>
-                Done
-              </Button>
-            )}
-          </div>
-        </div>
-      )}
-    </div>
+    </>
   );
 }

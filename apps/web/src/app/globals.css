@@ -3846,7 +3846,8 @@ main.login-form-wrap {
 .option-story-list {
   list-style: none;
   padding: 0;
-  margin: 0 0 6px;
+  margin: 0;
+  container-type: inline-size;
   max-height: 22rem;
   overflow-y: auto;
   border: 1px solid var(--line);
@@ -3856,21 +3857,54 @@ main.login-form-wrap {
   position: relative;
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 5px;
+  gap: 8px;
+  padding: 4px 8px;
 }
 .option-story-list li + li {
   border-top: 1px solid var(--line);
+}
+.option-story-list li:is(:hover, :focus-within):not([data-drop-position]) {
+  background: var(--surface-subtle);
 }
 .option-story-details {
   flex: 1;
   min-width: 0;
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
-  gap: 4px 8px;
+  justify-content: space-between;
+  gap: 4px 12px;
   font-size: 13px;
   overflow-wrap: anywhere;
+}
+.option-story-details a {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  color: var(--ink);
+  font-weight: 550;
+}
+.option-story-details a svg {
+  flex: none;
+  color: var(--muted);
+}
+.option-story-details a:is(:hover, :focus-visible) {
+  color: var(--accent);
+  text-decoration: underline;
+}
+.option-story-details .publication-status {
+  background: transparent;
+  padding: 0;
+  font-weight: 500;
+}
+@container (max-width: 28rem) {
+  .option-story-details {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
+  }
+  .option-story-list li {
+    padding-block: 7px;
+  }
 }
 .option-trigger {
   display: flex;

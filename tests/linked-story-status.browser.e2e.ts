@@ -93,3 +93,36 @@ test('reorders selected stories by drag and keyboard and removes individual refe
   await expect(stored).toHaveText('[]');
   await expect(page.getByRole('button', { name: 'Footer', exact: true })).toBeFocused();
 });
+
+test('chooser opens above the selected rows and long story names fit the field', async ({
+  page,
+}) => {
+  const title = 'Dr. Andrew Dargie, Bsc, MD, CCFP';
+  await page.route('**/api/cms/options', (route) => {
+    const result = options(route.request().postDataJSON().values ?? ['footer'], 'published');
+    result.items[0].label = title;
+    return route.fulfill({ json: result });
+  });
+  await page.goto('/references.html?space=fixture&locale=ca&type=options');
+  const chooser = page.getByRole('button', { name: 'Footer', exact: true });
+  const list = page.getByRole('list', { name: 'Selected Footer' });
+  const link = list.getByRole('link', { name: `Open ${title} story (new tab)` });
+  for (const width of [680, 320]) {
+    await page.setViewportSize({ width, height: 740 });
+    await expect(link).toBeVisible();
+    const triggerBox = (await chooser.boundingBox())!;
+    const listBox = (await list.boundingBox())!;
+    expect(triggerBox.y + triggerBox.height).toBeLessThanOrEqual(listBox.y);
+    expect(await list.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
+    const icon = (await link.locator('svg').boundingBox())!;
+    const text = (await link.locator('span').boundingBox())!;
+    expect(icon.x).toBeGreaterThanOrEqual(text.x + text.width - 1);
+    await chooser.focus();
+    await page.keyboard.press('Enter');
+    const dialog = page.getByRole('dialog');
+    await expect(dialog.getByRole('searchbox')).toBeFocused();
+    expect((await dialog.boundingBox())!.y).toBeLessThan(listBox.y + 4);
+    await page.keyboard.press('Escape');
+    await expect(chooser).toBeFocused();
+  }
+});
